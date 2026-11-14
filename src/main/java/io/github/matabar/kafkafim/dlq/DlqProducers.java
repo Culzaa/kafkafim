@@ -112,6 +112,19 @@ public final class DlqProducers implements SmartLifecycle, AutoCloseable {
   }
 
   /**
+   * Whether a pipeline's existing writer is blocked. A pure lookup: unlike {@link #writer} it
+   * creates neither a writer nor a producer, and answers {@code false} for a pipeline without a
+   * writer, or an unknown pipeline. Never throws.
+   *
+   * @param pipelineName a {@code kafkafim.pipelines} entry
+   * @return {@code true} only if the pipeline has a writer and it is blocked
+   */
+  public boolean isBlocked(String pipelineName) {
+    DlqWriter writer = writers.get(pipelineName);
+    return writer != null && writer.isBlocked();
+  }
+
+  /**
    * Describes a pipeline's DLQ topic with its DLQ identity, for the supervisor's preflight
    * (ADR-0021: the topic must exist; kafkafim never creates it). Blocks up to {@link
    * DlqOptions#topicCheckTimeout()}.
