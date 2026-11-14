@@ -27,6 +27,9 @@ loadtest/run.sh throughput                      # also: latency, memory, outage,
 loadtest/run.sh down                            # remove the containers and their data
 ```
 
+Run `down` when you change `PIPELINES` between runs: a run deletes only the indices of its own
+pipelines, and leftovers from a run with more pipelines would count as documents.
+
 Settings are environment variables (defaults in [run.sh](run.sh)): `PIPELINES`, `PARTITIONS`,
 `DOCS` (per pipeline), `DOC_BYTES`, `RATE` (docs/s per pipeline), `MAX_IN_FLIGHT`, `HEAP`,
 `BULK_IN_FLIGHT`, `OUTAGE_AT`, `OUTAGE_FOR`. Example: `PIPELINES=4 DOCS=500000 loadtest/run.sh throughput`.

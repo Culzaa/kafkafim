@@ -106,7 +106,8 @@ not part of this test, which used 1 KiB documents.
 ## Elasticsearch outage
 
 One pipeline, 5,000 docs/s (600,000 documents over 120 s), heap 1 GiB. Elasticsearch
-was stopped 26 s in and started again 62 s later; kafkafim ran unchanged throughout.
+was stopped 26 s in and started again 63 s later (measured times; the harness defaults are
+`OUTAGE_AT=30` and `OUTAGE_FOR=60`, this run used 20 and 60 plus start-up time); kafkafim ran unchanged throughout.
 
 | What | Measured |
 |---|---|
