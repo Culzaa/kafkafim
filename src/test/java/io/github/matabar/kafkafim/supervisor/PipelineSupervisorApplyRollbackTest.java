@@ -172,22 +172,25 @@ class PipelineSupervisorApplyRollbackTest {
     assertThat(supervisor.state("b")).isEqualTo(PipelineState.STOPPED);
   }
 
+  /**
+   * A listener that throws an Error on every restart of the rollback neither replaces the original
+   * failure nor stops the rollback: both drained pipelines are back and stoppable. A regression
+   * guard for the rollback as a whole (it also holds through rollBack's own catch around the
+   * restarts); the starter-thread fix of #241 is guarded by the next test.
+   */
   @Test
-  void errorInsideTheRollbackDoesNotLoseTheOriginalOrSkipTheRest() {
+  void listenerErrorsDuringTheRollbackDoNotLoseTheOriginalOrSkipTheRest() {
     start(deadBroker(A + B));
-    supervisor.stopPipeline("b");
     final KafkafimProperties running = supervisor.properties();
     final PipelineRuntime.Context a = context("a");
     KafkafimProperties next = deadBrokerNewPassword(C + A + B);
     ConfigDiff diff = ConfigDiff.between(running, next);
     failAcquire(next, 3);
-    // Starting a again, the last step of the rollback, fails with an Error.
-    LinkageError inRollback = new LinkageError("inside the rollback");
+    // Every state change to starting, which is what the rollback's restarts report, fails.
     onState =
         to -> {
           if (to == PipelineState.STARTING) {
-            onState = ignored -> {};
-            throw inRollback;
+            throw new LinkageError("inside the rollback");
           }
         };
 
@@ -195,10 +198,34 @@ class PipelineSupervisorApplyRollbackTest {
         .isInstanceOf(IllegalStateException.class)
         .hasMessage("no client today");
 
-    // The rollback ran to its end before the restart: nothing of the tree took effect.
     assertThat(supervisor.properties()).isSameAs(running);
     assertThat(context("a")).isSameAs(a);
     assertThat(resources.instances()).isEqualTo(2);
+    assertThat(supervisor.state("a")).isEqualTo(PipelineState.STARTING);
+    assertThat(supervisor.state("b")).isEqualTo(PipelineState.STARTING);
+    onState = to -> {};
+    // Each has a starter thread to join, so each can be stopped.
+    supervisor.stopPipeline("a");
+    supervisor.stopPipeline("b");
+    assertThat(supervisor.state("a")).isEqualTo(PipelineState.STOPPED);
+    assertThat(supervisor.state("b")).isEqualTo(PipelineState.STOPPED);
+  }
+
+  /** The starter thread must exist for every starting pipeline, or nothing ever retries it. */
+  @Test
+  void listenerErrorOnStartDoesNotLeaveThePipelineStartingWithoutStarterThread() {
+    onState =
+        to -> {
+          if (to == PipelineState.STARTING) {
+            throw new LinkageError("listener bug");
+          }
+        };
+
+    start(deadBroker(A));
+
+    assertThat(supervisor.state("a")).isEqualTo(PipelineState.STARTING);
+    supervisor.stopPipeline("a"); // joins the starter; a missing one would leave it starting
+    assertThat(supervisor.state("a")).isEqualTo(PipelineState.STOPPED);
   }
 
   @Test

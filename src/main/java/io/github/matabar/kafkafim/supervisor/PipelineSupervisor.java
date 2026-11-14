@@ -561,7 +561,9 @@ public final class PipelineSupervisor implements SmartLifecycle {
     for (SupervisorListener listener : listeners) {
       try {
         event.accept(listener);
-      } catch (RuntimeException e) {
+      } catch (RuntimeException | Error e) {
+        // An Error escaping here would abort a start() between its state change and the starter
+        // thread, leaving the pipeline starting with nothing to finish or retry it (#241).
         LOG.warn("Supervisor listener {} failed", listener, e);
       }
     }
