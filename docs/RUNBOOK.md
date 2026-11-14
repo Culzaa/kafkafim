@@ -501,6 +501,7 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
   | `Elasticsearch identity '<id>' on cluster '<es>' rejected: HTTP 401 from _security/_authenticate` (or 403) | Bad ES credential | Fix the Secret or the ES user/API key |
   | `Elasticsearch identity ... rejected: TLS handshake failed: ...` | Wrong or expired cluster CA (`ssl.ca-certificate`) or hostname mismatch | Fix the CA Secret (then restart the pods, [§4.3](#43-rotating-a-secret)) or `uris` |
   | `configuration cannot run: ...`, unknown identity, unreadable trust material | Bad mount or config | Fix the values / Secret mounts |
+  | ERROR `Pipeline '<p>': start failed unexpectedly` (stack trace) instead of `failed preflight, staying stopped`; the pipeline's failure text is the exception, e.g. `java.lang.NoClassDefFoundError: ...` | A start step threw something kafkafim does not expect (a bug, a broken image or classpath, an `Error`). Sinks and the source are already closed | Fix the cause from the stack trace (usually a fixed image: a roll-out); a reload then retries it. If it recurs, report a bug |
 
 - **Action**: fix the cause, then run a no-op `POST /actuator/reload` on each pod of
   the group ([§4.1](#41-how-a-change-gets-in)); any accepted reload, such as the next
