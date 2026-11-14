@@ -20,6 +20,8 @@ Status: design and scaffolding. Nothing ships yet.
 - [Helm chart](docs/HELM.md): one release per Kubernetes cluster, groups, secrets.
 - [Runbook](docs/RUNBOOK.md): deploy, observe and recover kafkafim in production;
   incidents as symptom → check → action.
+- [Load test](docs/LOADTEST.md): measured throughput, latency, memory, outage and rebalance
+  behaviour, and the sizing that follows; the harness is in [loadtest/](loadtest/README.md).
 
 ## Develop
 
