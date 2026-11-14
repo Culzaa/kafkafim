@@ -212,15 +212,9 @@ final class PipelineRuntime {
    */
   void restoreDlqBlocked() {
     DlqProducers producers = context.dlqProducers();
-    DlqWriter writer;
-    try {
-      writer = producers.writer(name);
-    } catch (RuntimeException e) {
-      return; // closed or misconfigured: the next start reports it
-    }
-    if (writer.isBlocked()) {
+    if (producers.isBlocked(name)) { // a pure lookup: creates no writer or producer
       pauseIfOwner(r -> r.usesDlq(producers), DLQ_BLOCKED_REASON, true);
-      if (!writer.isBlocked()) {
+      if (!producers.isBlocked(name)) {
         pauseIfOwner(r -> r.usesDlq(producers), DLQ_BLOCKED_REASON, false);
       }
     }

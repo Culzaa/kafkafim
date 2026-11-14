@@ -130,6 +130,21 @@ class DlqWriterTest {
   }
 
   @Test
+  void isBlockedLooksUpWithoutCreatingWriterOrProducer() throws Exception {
+    DlqProducers lookup = producers(Map.of("orders", pipeline("orders.v2", "reader", null)));
+
+    assertThat(lookup.isBlocked("orders")).isFalse();
+    assertThat(lookup.isBlocked("unknown")).isFalse();
+    assertThat(clients).isEmpty();
+    assertThat(lookup.size()).isZero();
+
+    lookup.writer("orders").send(request());
+    clients.get(0).next().fail(new NetworkException("broker gone"));
+    clients.get(0).next().fail(new NetworkException("broker still gone"));
+    await().atMost(TIMEOUT).until(() -> lookup.isBlocked("orders"));
+  }
+
+  @Test
   void completesOnlyAfterTheBrokerAcknowledged() throws Exception {
     DlqWriter writer = ordersWriter();
 

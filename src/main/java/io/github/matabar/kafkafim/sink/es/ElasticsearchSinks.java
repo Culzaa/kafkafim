@@ -104,6 +104,11 @@ public final class ElasticsearchSinks implements AutoCloseable {
     return sink;
   }
 
+  /** Number of sinks opened here and not yet closed; for tests and diagnostics. */
+  public int openSinks() {
+    return sinks.size();
+  }
+
   /** The circuit breaker of a cluster, created on first use. */
   public CircuitBreaker breaker(String cluster) {
     ElasticsearchCluster config = requireCluster(cluster);
