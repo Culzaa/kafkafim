@@ -334,7 +334,11 @@ public final class PipelineSupervisor implements SmartLifecycle {
           updated.put(name, runtime);
         }
       } catch (RuntimeException | Error e) {
-        rollBack(checkpoint, acquired.values(), replaced, active);
+        try {
+          rollBack(checkpoint, acquired.values(), replaced, active);
+        } catch (RuntimeException | Error rollbackFailure) {
+          e.addSuppressed(rollbackFailure); // the original is never lost
+        }
         throw e;
       }
       pipelines = Collections.unmodifiableMap(updated);
@@ -378,7 +382,7 @@ public final class PipelineSupervisor implements SmartLifecycle {
     replaced.forEach((runtime, previous) -> {
       try {
         runtime.reconfigure(previous);
-      } catch (RuntimeException e) {
+      } catch (RuntimeException | Error e) {
         // Something started or is stopping it meanwhile (startPipeline and stopPipeline do not
         // take the lifecycle lock): it has the new context, so that one stays in use.
         PipelineRuntime.Context kept = runtime.context();
@@ -393,12 +397,16 @@ public final class PipelineSupervisor implements SmartLifecycle {
       try {
         runtime
             .restoreDlqBlocked(); // not part of the reconfigure above: its failure keeps previous
-      } catch (RuntimeException e) {
+      } catch (RuntimeException | Error e) {
         LOG.warn(
             "Pipeline '{}': restoring dlq-blocked after a failed reload failed", runtime.name(), e);
       }
     });
-    resources.rollback(checkpoint, toRelease);
+    try {
+      resources.rollback(checkpoint, toRelease);
+    } catch (RuntimeException | Error e) {
+      LOG.warn("Releasing the contexts of a failed reload failed", e);
+    }
     if (!running) {
       return; // a shutdown began during the drains: stop() runs next
     }
@@ -407,7 +415,7 @@ public final class PipelineSupervisor implements SmartLifecycle {
       try {
         runtime.start();
         started.add(runtime.name());
-      } catch (RuntimeException e) {
+      } catch (RuntimeException | Error e) {
         LOG.warn("Pipeline '{}' could not be started again", runtime.name(), e);
       }
     }
