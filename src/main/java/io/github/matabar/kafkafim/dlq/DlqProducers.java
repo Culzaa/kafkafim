@@ -289,7 +289,7 @@ public final class DlqProducers implements SmartLifecycle, AutoCloseable {
   void notify(Consumer<DlqListener> call) {
     try {
       call.accept(listener);
-    } catch (RuntimeException e) {
+    } catch (RuntimeException | Error e) {
       log.warn("DLQ listener failed", e);
     }
   }
