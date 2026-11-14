@@ -23,6 +23,7 @@ production-like hardware before sizing a real cluster.
 | Pipeline | 3 partitions per topic unless stated; defaults otherwise: `max-poll-records` 500, bulk 5000 docs / 5 MB / 200 ms, `bulk.in-flight` 4 |
 | Load | topic backlog written first (throughput, memory), or a fixed rate while kafkafim runs (latency, outage, rebalance) |
 
+Sizes in configuration (`64MB`) are Spring `DataSize` values, i.e. MiB; the tables use MiB.
 Load average on the host was 3 to 9 during the runs (other sessions' work shared the
 machine), so treat differences of a few tens of percent as noise.
 
@@ -47,8 +48,8 @@ data. The spread between the 500,000- and 1,000,000-document single-pipeline run
 likely cause is Elasticsearch merge and refresh work on the larger index and host load, but
 that was not isolated. With four pipelines the total did not grow beyond what one pipeline
 reaches, so on this setup **Elasticsearch, not kafkafim, was the limit**: adding pipelines
-splits the same throughput, it does not add to it. The budget (`max-in-flight-bytes`) did not
-change throughput between 16 MB and 256 MB.
+splits the same throughput, it does not add to it. No effect of the budget
+(`max-in-flight-bytes`, 16 to 256 MB) on throughput was visible above that noise.
 
 ## Latency
 
@@ -57,12 +58,13 @@ which the load generator sets at send time). The histogram's buckets are fixed
 (0.05 s … 3600 s), so percentiles are bucket upper bounds, not interpolated values.
 Steady rate, topics with 3 partitions, 600,000 documents per run:
 
-| Load | Mean | p50 | p95 | p99 | Max |
+| Load | Mean | p50 | p95 | p99 | Max (last window) |
 |---|---|---|---|---|---|
 | 1 pipeline, 10,000 docs/s | 0.22 s | ≤ 0.25 s | ≤ 0.5 s | ≤ 2.5 s | 2.0 s |
 | 4 pipelines, 2,500 docs/s each (10,000 docs/s total) | 0.31 s | ≤ 0.25 s | ≤ 2.5 s | ≤ 5 s | 3.6 s |
 
-The pipeline's own floor is the batch age: the default bulk `max-age` of 200 ms plus the
+The maximum is `kafkafim_e2e_latency_seconds_max`, a decaying window, so it can understate the run's
+true maximum. The pipeline's own floor is the batch age: the default bulk `max-age` of 200 ms plus the
 Elasticsearch bulk time. The first seconds after a start show more (one-second mean latency
 of 6 to 14 s in the first two samples of the rebalance run, while the consumers ramped up
 on a topic already receiving 5,000 docs/s), so quote steady-state numbers only after the
@@ -147,11 +149,15 @@ partition at all.
 These follow from the runs above, for small (about 1 KiB) documents; they are starting
 points to confirm on production-like hardware.
 
-- **Heap against budgets.** Size the heap at no less than three times the sum of
+- **Heap against budgets.** This is an empirical minimum for 1 KiB documents; the
+  [RUNBOOK](RUNBOOK.md) gives the fuller rule (budget plus overshoot, per-copy, DLQ, decode and bulk-body terms), which takes precedence. Size the heap at no less than three times the sum of
   `max-in-flight-bytes` over all pipelines of an instance, and more when documents are larger
   than 1 KiB or when records approach `max-record-bytes` (the decode peak in DESIGN §4.5 comes
   on top). The chart's default container (`1Gi` memory, `MaxRAMPercentage` 75, about 768 MiB
-  of heap) completed four pipelines at the default 64 MB; a fifth was not tested. Lower
+  of heap) is too small for four pipelines at the default 64 MB in practice: that run completed
+  on a 768 MiB heap, but its resident memory was 1,045 MiB, over a 1 GiB limit, so raise the
+  container limit to about 1.25 to 1.5 GiB for four pipelines (container limits were not tested
+  here). More than four were not tested. Lower
   `max-in-flight-bytes` rather than raising the heap when pipelines are added: 16 MB per
   pipeline cost no throughput in this test.
 - **Container memory.** Plan on heap plus about 300 MiB resident.
@@ -166,8 +172,8 @@ points to confirm on production-like hardware.
   interval (10 s) plus the catch-up, which ran at several times the steady rate. Alert on
   `kafkafim_pipeline_state{state="paused"}` and on consumer lag in the Kafka team's
   monitoring (ADR-0034).
-- **Latency.** Expect a steady-state end-to-end latency in the order of 0.2 to 0.5 s with
-  the default 200 ms `max-age`; lowering `latency.max-age` per pipeline is the knob.
+- **Latency.** Expect a steady-state mean end-to-end latency in the order of 0.2 to 0.5 s with
+  the default 200 ms `max-age`, and a tail of a few seconds (p99 bounded by 2.5 s with one pipeline and 5 s with four); lowering `latency.max-age` per pipeline is the knob.
 
 ## Not covered
 

@@ -43,7 +43,7 @@ up() {
     $DC exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create \
       --topic "lt.p$n.dlq" --partitions 1 --replication-factor 1 >/dev/null   # kafkafim never creates topics (ADR-0021)
   done
-  curl -s -XDELETE "$ES/lt-*" >/dev/null || true
+  for n in $(seq 1 "$PIPELINES"); do curl -s -XDELETE "$ES/lt-p$n" >/dev/null || true; done   # wildcard deletes are refused by default
   # one shard, no replicas, 1s refresh: the same for every run
   curl -s -XPUT "$ES/_index_template/lt" -H 'content-type: application/json' \
     -d '{"index_patterns":["lt-*"],"template":{"settings":{"number_of_shards":1,"number_of_replicas":0}}}' >/dev/null
@@ -99,8 +99,13 @@ start_app() { # name port [partitions that must be assigned before it counts as 
   done
   log "kafkafim $1 did not become ready"; return 1
 }
-stop_app() { # name
-  [ -f "$RUN/app-$1.pid" ] && kill "$(cat "$RUN/app-$1.pid")" 2>/dev/null || true
+stop_app() { # name: SIGTERM (graceful), SIGKILL after 20 s; only the pid this run started
+  if [ -f "$RUN/app-$1.pid" ]; then
+    local pid i; pid=$(cat "$RUN/app-$1.pid")
+    kill "$pid" 2>/dev/null || true
+    for i in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+    kill -9 "$pid" 2>/dev/null || true
+  fi
   rm -f "$RUN/app-$1.pid"
 }
 metric() { # port name-regex  -> sum of all matching series (0 when absent)
@@ -157,7 +162,8 @@ finish() { # final metrics snapshot and summary
 
 mkdir -p "$RUN"
 scenario="${1:-}"
-cleanup() { kill "${SAMPLER:-0}" 2>/dev/null || true; stop_app a; stop_app b; pkill -9 -f "java -jar $JAR" 2>/dev/null || true; $DC start elasticsearch >/dev/null 2>&1 || true; }
+case "$scenario" in up|down) ;; *) [ -f "$JAR" ] || { echo "no jar: run ./mvnw -DskipTests package first" >&2; exit 1; } ;; esac
+cleanup() { kill "${SAMPLER:-0}" 2>/dev/null || true; stop_app a; stop_app b; $DC start elasticsearch >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 log "scenario=$scenario pipelines=$PIPELINES partitions=$PARTITIONS docs=$DOCS doc_bytes=$DOC_BYTES rate=$RATE max_in_flight=$MAX_IN_FLIGHT heap=$HEAP bulk_in_flight=$BULK_IN_FLIGHT jar=$JAR"
 
