@@ -6,11 +6,13 @@ import static org.awaitility.Awaitility.await;
 import io.github.matabar.kafkafim.KafkaTestContainers;
 import io.github.matabar.kafkafim.KafkaTopics;
 import io.github.matabar.kafkafim.config.KafkafimProperties;
+import io.github.matabar.kafkafim.source.kafka.KafkaPipelineSource;
 import io.github.matabar.kafkafim.telemetry.PipelineMeters;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.apache.kafka.clients.admin.Admin;
@@ -95,6 +97,8 @@ class PipelineRuntimeStartFailureIntegrationTest {
     runtime.start();
 
     awaitFailed(runtime);
+    // Never published to the runtime, so only the registry knows whether they were closed.
+    assertThat(context.sinks().get("es").openSinks()).isZero();
     assertThat(runtime.retryIfFailed()).isTrue();
     runtime.stop();
   }
@@ -102,22 +106,21 @@ class PipelineRuntimeStartFailureIntegrationTest {
   /** The source is started when the state change to {@code running} is reported. */
   @Test
   void unexpectedExceptionWhileReportingRunningStopsTheSourceAndSinks() {
+    AtomicReference<KafkaPipelineSource> started = new AtomicReference<>();
     Consumer<PipelineRuntime> boom =
         r -> {
           if (r.state() == PipelineState.RUNNING) {
+            started.set(r.source()); // the source of the failed start, just before it is dropped
             throw new IllegalStateException("boom");
           }
         };
     PipelineRuntime runtime = new PipelineRuntime("p", context, boom);
     runtime.start();
-    // The source of the failed start, read while it still exists.
-    await().atMost(TIMEOUT).until(() -> runtime.source() != null || runtime.failure() != null);
-    var started = runtime.source();
 
     awaitFailed(runtime);
-    if (started != null) {
-      await().atMost(TIMEOUT).until(() -> !started.isRunning());
-    }
+    assertThat(started.get()).isNotNull();
+    await().atMost(TIMEOUT).until(() -> !started.get().isRunning());
+    assertThat(context.sinks().get("es").openSinks()).isZero();
     runtime.stop();
   }
 }

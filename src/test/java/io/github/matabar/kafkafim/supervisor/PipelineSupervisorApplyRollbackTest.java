@@ -50,6 +50,9 @@ class PipelineSupervisorApplyRollbackTest {
   /** Runs when a pipeline's pause reasons change, with its lock held. */
   private volatile Consumer<String> onReasons = pipeline -> {};
 
+  /** Runs when a pipeline changes state, with the state it changes to. */
+  private volatile Consumer<PipelineState> onState = state -> {};
+
   private final ListenerRelay relay = new ListenerRelay(List.of(), List.of());
   private final PipelineResources resources =
       new PipelineResources(
@@ -76,6 +79,11 @@ class PipelineSupervisorApplyRollbackTest {
             resources,
             List.of(
                 new SupervisorListener() {
+                  @Override
+                  public void onStateChange(String pipeline, PipelineState from, PipelineState to) {
+                    onState.accept(to);
+                  }
+
                   @Override
                   public void onPauseReasonsChange(String pipeline, Set<String> reasons) {
                     onReasons.accept(pipeline);
@@ -162,6 +170,35 @@ class PipelineSupervisorApplyRollbackTest {
     // a was starting and is again; b was stopped by hand and stays so.
     assertThat(supervisor.state("a")).isEqualTo(PipelineState.STARTING);
     assertThat(supervisor.state("b")).isEqualTo(PipelineState.STOPPED);
+  }
+
+  @Test
+  void errorInsideTheRollbackDoesNotLoseTheOriginalOrSkipTheRest() {
+    start(deadBroker(A + B));
+    supervisor.stopPipeline("b");
+    final KafkafimProperties running = supervisor.properties();
+    final PipelineRuntime.Context a = context("a");
+    KafkafimProperties next = deadBrokerNewPassword(C + A + B);
+    ConfigDiff diff = ConfigDiff.between(running, next);
+    failAcquire(next, 3);
+    // Starting a again, the last step of the rollback, fails with an Error.
+    LinkageError inRollback = new LinkageError("inside the rollback");
+    onState =
+        to -> {
+          if (to == PipelineState.STARTING) {
+            onState = ignored -> {};
+            throw inRollback;
+          }
+        };
+
+    assertThatThrownBy(() -> supervisor.apply(next, diff))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("no client today");
+
+    // The rollback ran to its end before the restart: nothing of the tree took effect.
+    assertThat(supervisor.properties()).isSameAs(running);
+    assertThat(context("a")).isSameAs(a);
+    assertThat(resources.instances()).isEqualTo(2);
   }
 
   @Test

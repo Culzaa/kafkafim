@@ -201,7 +201,13 @@ class PipelineRuntimeTest {
     // The starter rethrows the error after cleaning up; keep it from failing the test run.
     AtomicReference<Throwable> escaped = new AtomicReference<>();
     Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
-    Thread.setDefaultUncaughtExceptionHandler((thread, error) -> escaped.set(error));
+    Thread.setDefaultUncaughtExceptionHandler((thread, error) -> {
+      if ("kafkafim-start-a".equals(thread.getName())) {
+        escaped.set(error);
+      } else if (previous != null) {
+        previous.uncaughtException(thread, error);
+      }
+    });
     try (PipelineResources failing =
         new PipelineResources(
             new ListenerRelay(List.of(), List.of()),
