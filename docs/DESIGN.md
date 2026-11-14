@@ -389,7 +389,7 @@ pipeline that did not start does not keep consuming. All DLQ, group, topic
 and Elasticsearch checks run before a verdict, so one ERROR line names every problem.
 Missing or undescribable topics, a 401/403, an unknown identity or unreadable trust
 material, and a Kafka authentication or authorization error are **configuration**
-failures (`failed_preflight` until the next accepted reload or a restart, §5.6). An unreachable broker or cluster
+failures (`failed_preflight` until the next accepted reload or a restart, §5.6), as does a start that fails unexpectedly (an exception the checks do not expect, an `Error` included): it logs `start failed unexpectedly` at `ERROR` instead of `failed preflight, staying stopped`, records the exception's `toString()` as the failure, closes the sinks and the source it had opened, and a reload retries it. An unreachable broker or cluster
 (timeout, connection error, 5xx) is **transient**: the pipeline stays `starting` and
 retries (1s doubling to 30s), so a pod that starts during a short outage needs no
 restart. A stop (shutdown, or a reload that restarts or removes the pipeline)
