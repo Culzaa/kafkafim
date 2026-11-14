@@ -316,6 +316,10 @@ class PipelineSupervisorIntegrationTest {
       assertThat(supervisor.state("g")).isEqualTo(PipelineState.PAUSED);
       assertThat(gauge(meters, "g", "paused")).isEqualTo(1);
       assertThat(gauge(meters, "g", "running")).isZero();
+      // The reason is the kind of the supervisor's reason, and only that one is 1 (#191).
+      assertThat(pauseReasonGauge(meters, "g", "es_breaker")).isEqualTo(1);
+      assertThat(pauseReasonGauge(meters, "g", "es_auth")).isZero();
+      assertThat(pauseReasonGauge(meters, "g", "dlq_blocked")).isZero();
       // Open, or half-open while a probe is out; never closed while the node is paused.
       assertThat(supervisor.breakerState("local")).isNotEqualTo(CircuitBreaker.State.CLOSED);
       // Nothing of the outage is committed or dead-lettered.
@@ -332,6 +336,7 @@ class PipelineSupervisorIntegrationTest {
     await().atMost(TIMEOUT).untilAsserted(() -> assertThat(count("g-docs")).isEqualTo(120));
     awaitCommittedToEnd("kafkafim.g", "g.events");
     assertThat(gauge(meters, "g", "paused")).isZero();
+    assertThat(pauseReasonGauge(meters, "g", "es_breaker")).isZero();
     assertThat(readAll("g.events.kafkafim-dlq", Duration.ofSeconds(1))).isEmpty();
   }
 
@@ -531,11 +536,26 @@ class PipelineSupervisorIntegrationTest {
         .value();
   }
 
+  private static double pauseReasonGauge(MeterRegistry meters, String pipeline, String reason) {
+    return meters
+        .get(TelemetryNames.PAUSE_REASON)
+        .tag("pipeline", pipeline)
+        .tag("reason", reason)
+        .gauge()
+        .value();
+  }
+
+  /**
+   * The readiness status of the application's own actuator. Asks 127.0.0.1, not {@code localhost}:
+   * the context listens on an ephemeral port, and the same port number can be published by a Docker
+   * container (the shared Elasticsearch answers 404 to this path) on another address {@code
+   * localhost} resolves to (#211).
+   */
   private static int readiness(ConfigurableApplicationContext app) throws Exception {
     String port = app.getEnvironment().getProperty("local.server.port");
     return http.send(
             HttpRequest.newBuilder(
-                    URI.create("http://localhost:" + port + "/actuator/health/readiness"))
+                    URI.create("http://127.0.0.1:" + port + "/actuator/health/readiness"))
                 .build(),
             HttpResponse.BodyHandlers.discarding())
         .statusCode();

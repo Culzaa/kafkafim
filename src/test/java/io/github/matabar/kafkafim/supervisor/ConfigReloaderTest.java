@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.github.matabar.kafkafim.config.KafkafimProperties;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
@@ -16,6 +19,7 @@ import java.util.function.Supplier;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.actuate.endpoint.web.WebEndpointResponse;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.core.env.Environment;
@@ -51,10 +55,16 @@ class ConfigReloaderTest {
         }
       };
 
+  private volatile Runnable onAcquire = () -> {};
   private final ListenerRelay relay = new ListenerRelay(List.of(), List.of());
   private final PipelineResources resources =
       new PipelineResources(
-          relay, p -> (cluster, identity) -> Preflight.Status.OK, PipelineSupervisorTest.SETTINGS);
+          relay,
+          p -> {
+            onAcquire.run();
+            return (cluster, identity) -> Preflight.Status.OK;
+          },
+          PipelineSupervisorTest.SETTINGS);
   private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
   private PipelineSupervisor supervisor;
   private volatile Supplier<Environment> disk;
@@ -335,6 +345,32 @@ class ConfigReloaderTest {
     assertThat(supervisor.pipelineNames()).containsExactly("a");
   }
 
+  /**
+   * A shutdown during a failing apply: the apply was rolled back and nothing started again, but it
+   * is no failure of the tree, so it is neither counted as one nor as a success.
+   */
+  @Test
+  void shutdownDuringFailingApplyIsNotCountedAsFailedReload() {
+    final ConfigReloader reloader = start(A);
+    awaitSettled();
+    final KafkafimProperties running = supervisor.properties();
+    onDisk(A + B);
+    onAcquire =
+        () -> {
+          supervisor.stop();
+          throw new IllegalStateException("no client today");
+        };
+
+    assertThatThrownBy(() -> reloader.reload("test"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("no client today");
+
+    assertThat(reloads("failure")).isZero();
+    assertThat(reloads("success")).isZero();
+    assertThat(reloader.generation()).isEqualTo(1);
+    assertThat(supervisor.properties()).isSameAs(running);
+  }
+
   @Test
   void parseErrorsKeepOnlyTheirFirstLine() {
     assertThat(
@@ -351,5 +387,53 @@ class ConfigReloaderTest {
     supervisor.stop();
     assertThatThrownBy(() -> reloader.reload("test")).isInstanceOf(IllegalStateException.class);
     assertThat(new ReloadEndpoint(reloader).reload().getStatus()).isEqualTo(503);
+  }
+
+  /**
+   * The watcher path after a reload that failed while it was applied: reload() logged the ERROR,
+   * and nothing says "ignored", since a rollback may have drained and restarted pipelines.
+   */
+  @Test
+  void watcherDoesNotCallFailedApplyIgnored() {
+    final ConfigReloader reloader = start(A);
+    awaitSettled();
+    resources.close();
+    onDisk(A + B);
+
+    List<String> messages = watcherLog(reloader::reloadFromWatcher);
+
+    assertThat(messages)
+        .anyMatch(m -> m.contains("failed while applying"))
+        .noneMatch(m -> m.contains("ignored"));
+  }
+
+  /** A shutdown during the reload applied nothing; the watcher says so at INFO. */
+  @Test
+  void watcherReportsShutdownAsNotApplied() {
+    ConfigReloader reloader = start(A);
+    awaitSettled();
+    supervisor.stop();
+
+    List<String> messages = watcherLog(reloader::reloadFromWatcher);
+
+    assertThat(messages)
+        .containsExactly(
+            "Configuration change not applied, the supervisor is shutting down: The pipeline"
+                + " supervisor is not running");
+  }
+
+  private static List<String> watcherLog(Runnable action) {
+    Logger logger = (Logger) LoggerFactory.getLogger(ConfigReloader.class);
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    logger.addAppender(appender);
+    try {
+      action.run();
+      synchronized (appender) {
+        return appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
+      }
+    } finally {
+      logger.detachAppender(appender);
+    }
   }
 }

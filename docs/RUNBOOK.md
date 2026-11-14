@@ -61,7 +61,9 @@ Follow [DELIVERY.md § Importing into the air-gapped environment](DELIVERY.md#im
 download and `cosign verify` on the internet side, carry the bundle across,
 `sha256sum -c SHA256SUMS`, `cosign load` the image into the internal registry,
 `helm push` the chart, and record the image digest in each per-cluster values file
-(`image.registry`, `image.digest`).
+(`image.registry`, `image.digest`). The bundle also carries that version's alert rules and
+dashboards (`kafkafim-<ver>-grafana/`); `helm upgrade` does not install them, so load them
+with each import ([DELIVERY.md § Alert rules and dashboards](DELIVERY.md#alert-rules-and-dashboards)).
 
 ### 2.2 Upgrade
 
@@ -190,6 +192,11 @@ Where to read it:
 - **Logs**: every transition is logged at INFO as `Pipeline '<name>': <from> -> <to>`;
   a pause as WARN `Pipeline '<name>': pausing (<reason>)` and its end as INFO
   `Pipeline '<name>': <reason> cleared`.
+- **Harmless ERROR after a stop or reload**: a stop or reload that interrupts an Elasticsearch
+  preflight check within milliseconds of its start can log `ERROR org.apache.hc.client5.http.impl.async` with a
+  `java.nio.channels.ClosedSelectorException` (from `SingleCoreIOReactor.closeOpenChannels`).
+  The check's short-lived client was closed by force; it held one connection and nothing is
+  lost. Ignore it unless it repeats without any stop or reload ([#202](https://github.com/matabar/kafkafim/issues/202)).
 - **Why it is paused**: `kafkafim_pipeline_pause_reason{pipeline,reason} == 1`, with
   `reason` one of `es_breaker` ([§5.1](#51-elasticsearch-outage-circuit-breaker-open)),
   `es_auth` ([§5.2](#52-elasticsearch-authentication-failure-pipeline-paused)) and
@@ -231,7 +238,9 @@ neither (`kafkafim_config_reload_total` has `result`) ([DESIGN §10](DESIGN.md#1
 | Does this pod own partitions? Is Kafka connected? | `kafkafim_assigned_partitions`, `kafkafim_kafka_connected` (1/0) |
 
 Dashboards and alert rules for these metrics ship in `deploy/grafana/`
-([DESIGN §10](DESIGN.md#shipped-with-the-repo)): see
+([DESIGN §10](DESIGN.md#shipped-with-the-repo)) and, versioned with the image, in the
+release bundle's `kafkafim-<ver>-grafana/` (what the air gap loads, see
+[§2.1](#21-import-a-release-into-the-air-gap)): see
 [deploy/grafana/README.md](../deploy/grafana/README.md) for importing the dashboards
 and loading the rules. Every alert's `runbook_url` points to a section of §5 (or
 §3.1), and each of those sections names the alerts that lead to it.
@@ -492,6 +501,7 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
   | `Elasticsearch identity '<id>' on cluster '<es>' rejected: HTTP 401 from _security/_authenticate` (or 403) | Bad ES credential | Fix the Secret or the ES user/API key |
   | `Elasticsearch identity ... rejected: TLS handshake failed: ...` | Wrong or expired cluster CA (`ssl.ca-certificate`) or hostname mismatch | Fix the CA Secret (then restart the pods, [§4.3](#43-rotating-a-secret)) or `uris` |
   | `configuration cannot run: ...`, unknown identity, unreadable trust material | Bad mount or config | Fix the values / Secret mounts |
+  | `start failed unexpectedly` (ERROR with a stack trace, instead of `failed preflight, staying stopped`); the pipeline's failure text is the exception, e.g. `java.lang.NoClassDefFoundError: ...` | A start step threw something kafkafim does not expect (a bug, a broken image or classpath, an `Error`). Sinks and the source are already closed | Fix the cause from the stack trace (usually a fixed image: a roll-out); a reload then retries it. If it recurs, report a bug |
 
 - **Action**: fix the cause, then run a no-op `POST /actuator/reload` on each pod of
   the group ([§4.1](#41-how-a-change-gets-in)); any accepted reload, such as the next

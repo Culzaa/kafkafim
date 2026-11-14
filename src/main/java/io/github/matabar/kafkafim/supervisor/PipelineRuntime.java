@@ -74,6 +74,10 @@ final class PipelineRuntime {
 
   private static final Logger LOG = LoggerFactory.getLogger(PipelineRuntime.class);
 
+  // A new pause reason must also get a kind in telemetry.PauseReason and a branch in
+  // TelemetryBinder.kinds(): the pause_reason gauge ignores a reason string it does not know, so
+  // nothing else would tell the author (#191).
+
   /** Pause reason prefix while an Elasticsearch cluster's breaker is open. */
   static final String BREAKER_REASON_PREFIX = "es-breaker:";
 
@@ -192,6 +196,33 @@ final class PipelineRuntime {
         report();
       }
       return previous;
+    }
+  }
+
+  /**
+   * Re-adds {@code dlq-blocked} if the DLQ writer of the current context is blocked, after a
+   * rollback gave the previous context back ({@link #reconfigure} dropped the reason when the
+   * writer changed and the old writer reports only the change to blocked, not its state). Called
+   * without the lock: the writer takes its own lock first when it reports to this runtime, so the
+   * check cannot run under {@link #lock}. The reason is added first and dropped again if the writer
+   * unblocked meanwhile, so a report of the writer is not lost between the two. Accepted limit: a
+   * writer that unblocks and blocks again between the recheck and the final resume leaves the
+   * reason cleared until its next event; the window is a few instructions, on a path that needs a
+   * concurrent start or stop.
+   */
+  void restoreDlqBlocked() {
+    DlqProducers producers = context.dlqProducers();
+    DlqWriter writer;
+    try {
+      writer = producers.writer(name);
+    } catch (RuntimeException e) {
+      return; // closed or misconfigured: the next start reports it
+    }
+    if (writer.isBlocked()) {
+      pauseIfOwner(r -> r.usesDlq(producers), DLQ_BLOCKED_REASON, true);
+      if (!writer.isBlocked()) {
+        pauseIfOwner(r -> r.usesDlq(producers), DLQ_BLOCKED_REASON, false);
+      }
     }
   }
 
@@ -318,21 +349,63 @@ final class PipelineRuntime {
       }
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-    } catch (RuntimeException e) {
+    } catch (RuntimeException | Error e) {
       LOG.error("Pipeline '{}': start failed unexpectedly", name, e);
-      synchronized (lock) {
-        // Only while this thread is still the starter: once it published its outcome
-        // (finishStart), a retry may have begun a newer start, whose state this must not replace.
-        if (starter == Thread.currentThread()) {
-          failure = e.toString();
-          setState(PipelineState.FAILED_PREFLIGHT);
-          finishStart();
-        }
+      abandonStart(e);
+      if (e instanceof Error error) {
+        throw error;
       }
     } finally {
       synchronized (lock) {
         finishStart();
       }
+    }
+  }
+
+  /**
+   * Ends a start that failed unexpectedly (anything {@code attemptStart} did not expect, an {@link
+   * Error} included): discards what it published (the sinks, and the source, stopped if it had
+   * started), then marks the pipeline {@code failed_preflight} and forgets the starter, so that a
+   * retry begins from nothing. Only while this thread is still the starter: once it published its
+   * outcome ({@link #finishStart}), a retry may have begun a newer start, whose state and resources
+   * this must not touch.
+   */
+  private void abandonStart(Throwable cause) {
+    KafkaPipelineSource abandoned;
+    Map<RouteTarget.StreamKey, BulkSink<RecordProcessor.DocumentRef>> toClose;
+    synchronized (lock) {
+      if (starter != Thread.currentThread()) {
+        return;
+      }
+      abandoned = source;
+      toClose = sinks;
+      source = null;
+      sinks = Map.of();
+    }
+    try {
+      if (abandoned != null) {
+        abandoned.stop();
+      }
+      closeSinks(toClose, Duration.ZERO);
+    } catch (RuntimeException e) {
+      LOG.warn("Pipeline '{}': discarding the failed start failed", name, e);
+    }
+    synchronized (lock) {
+      if (starter == Thread.currentThread()) {
+        failure = cause.toString();
+        try {
+          setState(PipelineState.FAILED_PREFLIGHT);
+        } finally {
+          finishStart();
+        }
+      }
+    }
+  }
+
+  /** Whether a source or sinks are held; for tests. */
+  boolean holdsResources() {
+    synchronized (lock) {
+      return source != null || !sinks.isEmpty();
     }
   }
 
@@ -454,6 +527,9 @@ final class PipelineRuntime {
       } catch (IllegalArgumentException | KafkaException e) {
         closeSinks(opened, Duration.ZERO);
         return failed(List.of("configuration cannot run: " + e.getMessage()));
+      } catch (RuntimeException | Error e) {
+        closeSinks(opened, Duration.ZERO); // nothing published them: startLoop cannot close them
+        throw e;
       }
       sinks = opened;
       source = created;

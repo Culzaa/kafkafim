@@ -111,7 +111,7 @@ class TelemetryIntegrationTest {
   @BeforeAll
   static void startContainers() {
     Startables.deepStart(KAFKA, ES).join();
-    admin = Admin.create(Map.of("bootstrap.servers", KAFKA.getBootstrapServers()));
+    admin = KafkaTopics.awaitedAdmin(KAFKA.getBootstrapServers());
     producer = new KafkaProducer<>(KafkaTopics.seedingProducerConfig(KAFKA.getBootstrapServers()));
     http = HttpClient.newHttpClient();
   }
@@ -343,9 +343,12 @@ class TelemetryIntegrationTest {
     return offsets.values().stream().filter(o -> o != null).mapToLong(o -> o.offset()).sum();
   }
 
+  /**
+   * Asks 127.0.0.1, not {@code localhost}: see {@code PipelineSupervisorIntegrationTest} (#211).
+   */
   private static String get(String port, String path) throws Exception {
     return http.send(
-            HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).build(),
+            HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path)).build(),
             HttpResponse.BodyHandlers.ofString())
         .body();
   }
