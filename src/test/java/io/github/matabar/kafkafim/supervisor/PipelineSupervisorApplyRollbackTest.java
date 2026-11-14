@@ -174,7 +174,9 @@ class PipelineSupervisorApplyRollbackTest {
 
   /**
    * A listener that throws an Error on every restart of the rollback neither replaces the original
-   * failure nor stops the rollback: both drained pipelines start again (#241).
+   * failure nor stops the rollback: both drained pipelines are back and stoppable. A regression
+   * guard for the rollback as a whole (it also holds through rollBack's own catch around the
+   * restarts); the starter-thread fix of #241 is guarded by the next test.
    */
   @Test
   void listenerErrorsDuringTheRollbackDoNotLoseTheOriginalOrSkipTheRest() {
@@ -201,6 +203,12 @@ class PipelineSupervisorApplyRollbackTest {
     assertThat(resources.instances()).isEqualTo(2);
     assertThat(supervisor.state("a")).isEqualTo(PipelineState.STARTING);
     assertThat(supervisor.state("b")).isEqualTo(PipelineState.STARTING);
+    onState = to -> {};
+    // Each has a starter thread to join, so each can be stopped.
+    supervisor.stopPipeline("a");
+    supervisor.stopPipeline("b");
+    assertThat(supervisor.state("a")).isEqualTo(PipelineState.STOPPED);
+    assertThat(supervisor.state("b")).isEqualTo(PipelineState.STOPPED);
   }
 
   /** The starter thread must exist for every starting pipeline, or nothing ever retries it. */
