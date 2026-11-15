@@ -211,6 +211,24 @@ class PipelineSupervisorApplyRollbackTest {
     assertThat(supervisor.state("b")).isEqualTo(PipelineState.STOPPED);
   }
 
+  /**
+   * A topology listener runs after the new configuration took effect: its Error must not undo it.
+   */
+  @Test
+  void topologyListenerErrorDoesNotFailAnAppliedReload() {
+    start(deadBroker(A));
+    supervisor.onTopologyChange(() -> {
+      throw new LinkageError("listener bug");
+    });
+    final KafkafimProperties running = supervisor.properties();
+    KafkafimProperties next = deadBroker(A + B);
+
+    supervisor.apply(next, ConfigDiff.between(running, next));
+
+    assertThat(supervisor.properties()).isSameAs(next);
+    assertThat(supervisor.pipelineNames()).containsExactly("a", "b");
+  }
+
   /** The starter thread must exist for every starting pipeline, or nothing ever retries it. */
   @Test
   void listenerErrorOnStartDoesNotLeaveThePipelineStartingWithoutStarterThread() {

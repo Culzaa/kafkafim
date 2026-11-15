@@ -53,7 +53,7 @@ final class ListenerRelay {
     if (current != null) {
       try {
         event.accept(current);
-      } catch (RuntimeException e) {
+      } catch (RuntimeException | Error e) {
         LOG.warn("Supervisor failed to handle an event", e);
       }
     }
@@ -63,7 +63,7 @@ final class ListenerRelay {
     for (L listener : listeners) {
       try {
         event.accept(listener);
-      } catch (RuntimeException e) {
+      } catch (RuntimeException | Error e) {
         LOG.warn("Listener {} failed", listener, e);
       }
     }

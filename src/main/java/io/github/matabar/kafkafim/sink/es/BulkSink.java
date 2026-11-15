@@ -875,7 +875,7 @@ public final class BulkSink<H> implements AutoCloseable {
     private static void guard(Runnable call) {
       try {
         call.run();
-      } catch (RuntimeException e) {
+      } catch (RuntimeException | Error e) {
         LOG.warn("Sink listener failed", e);
       }
     }

@@ -540,6 +540,42 @@ class BulkSinkTest {
     assertThat(outcomes.all()).hasSize(2).containsOnly(ActionOutcome.INDEXED);
   }
 
+  @Test
+  void listenerErrorLosesNoAction() throws Exception {
+    FakeTransport transport = new FakeTransport((request, call) -> FakeTransport.allOk());
+    SinkListener throwing =
+        new SinkListener() {
+          @Override
+          public void onFlush(SinkKey key, FlushReason reason, int docs, long bytes) {
+            throw new LinkageError("listener bug");
+          }
+
+          @Override
+          public void onBulkResponse(
+              SinkKey key, int status, int docs, long bytes, Duration latency) {
+            throw new LinkageError("listener bug");
+          }
+        };
+    BulkSink<String> sink =
+        new BulkSink<>(
+            new SinkKey("orders", "search-eu", null),
+            settings(1, 1 << 20, HOUR, 1),
+            transport,
+            breaker,
+            Duration.ofMillis(5),
+            timer,
+            outcomes,
+            throwing,
+            Clock.systemUTC(),
+            closed -> {});
+    sinks.add(sink);
+
+    submitAll(sink, "a", "b");
+
+    assertThat(sink.awaitIdle(WAIT)).isTrue();
+    assertThat(outcomes.all()).hasSize(2).containsOnly(ActionOutcome.INDEXED);
+  }
+
   // ---- request-level failures ----
 
   @Test

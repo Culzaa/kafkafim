@@ -82,4 +82,26 @@ class ListenerRelayTest {
         .containsAll(events(SinkListener.class))
         .containsAll(events(DlqListener.class));
   }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void errorFromOneListenerIsContainedAndLaterListenersStillRun() throws Exception {
+    DlqListener failing =
+        (DlqListener)
+            Proxy.newProxyInstance(
+                DlqListener.class.getClassLoader(),
+                new Class<?>[] {DlqListener.class},
+                (proxy, method, args) -> {
+                  if (method.getDeclaringClass() == Object.class) {
+                    return method.getName().equals("toString") ? "failing" : null;
+                  }
+                  throw new LinkageError("listener bug");
+                });
+    ListenerRelay relay =
+        new ListenerRelay(List.of(), List.of(failing, recorder(DlqListener.class)));
+
+    fireAll(relay.dlqListener(() -> new Object()), DlqListener.class);
+
+    assertThat(received).containsAll(events(DlqListener.class));
+  }
 }

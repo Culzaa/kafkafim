@@ -455,7 +455,7 @@ public final class PipelineSupervisor implements SmartLifecycle {
   private static void runQuietly(Runnable listener) {
     try {
       listener.run();
-    } catch (RuntimeException e) {
+    } catch (RuntimeException | Error e) {
       LOG.warn("Topology listener {} failed", listener, e);
     }
   }

@@ -145,6 +145,30 @@ class DlqWriterTest {
   }
 
   @Test
+  void errorFromTheListenerDoesNotFailTheSend() throws Exception {
+    producers =
+        new DlqProducers(
+            properties(Map.of("orders", pipeline("orders.v2", "reader", null))),
+            new DlqListener() {
+              @Override
+              public void onWritten(String pipeline, DlqRequest request, RecordMetadata metadata) {
+                throw new LinkageError("listener bug");
+              }
+            },
+            FAST,
+            settings -> {
+              FakeClient client = new FakeClient(settings);
+              clients.add(client);
+              return client;
+            });
+    CompletableFuture<RecordMetadata> result = producers.writer("orders").send(request());
+
+    clients.get(0).next().ack(5);
+
+    assertThat(result.get(10, TimeUnit.SECONDS).offset()).isEqualTo(5);
+  }
+
+  @Test
   void completesOnlyAfterTheBrokerAcknowledged() throws Exception {
     DlqWriter writer = ordersWriter();
 
