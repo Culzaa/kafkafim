@@ -16,7 +16,7 @@
 
 [Conventional Commits](https://www.conventionalcommits.org/):
 
-```
+```text
 <type>(<scope>): <imperative summary, ≤ 72 chars>
 
 <why, not what; wrap at 72>
@@ -59,6 +59,19 @@ shellcheck -x $(git ls-files '*.sh') && shfmt -d $(git ls-files '*.sh')   # what
 
 Without them installed: `nix shell nixpkgs#shellcheck nixpkgs#shfmt -c sh -c '...'`, or
 `brew install shellcheck shfmt`.
+
+Markdown (`*.md`) follows the [Google Markdown Style Guide](https://google.github.io/styleguide/docguide/style.html)
+(ADR-0046), checked by markdownlint-cli2; the rules and their exceptions (tables, code blocks and
+headings are exempt from the 100-column limit) are in `.markdownlint-cli2.jsonc`. CI's "Markdown
+style" job runs the pinned version on every tracked `*.md`:
+
+```bash
+markdownlint-cli2          # what CI checks (globs come from the config)
+markdownlint-cli2 --fix    # fixes blank lines around headings and lists, trailing spaces, ...
+```
+
+Without it installed: `nix shell nixpkgs#markdownlint-cli2 -c markdownlint-cli2`, or
+`npx markdownlint-cli2@0.24.0`.
 
 The `*IntegrationTest` classes run in three parallel Failsafe JVMs (each class starts
 its own containers, so up to three sets run at once). On a smaller machine, or

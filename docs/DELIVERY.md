@@ -57,10 +57,13 @@ image build, even when several merges land within minutes.
 ### Docs-only pull requests
 
 A pull request whose every changed path (both sides of a rename) is `*.md` outside
-`src/` (Maven packages `src/main/resources`), under `docs/`, or `LICENSE` skips `build`, `integration` and therefore `image`; `helm` runs only if the
-chart, `deploy/local/`, `ci.yml`, `.github/keys/` or `deploy/grafana/` changed (a pull request that changes
+`src/` (Maven packages `src/main/resources`), under `docs/`, or `LICENSE` skips `build`,
+`integration` and therefore `image`; `helm` runs only if the
+chart, `deploy/local/`, `ci.yml`, `.github/keys/` or `deploy/grafana/` changed (a pull request that
+changes
 only `deploy/grafana/README.md` is docs-only but still gets the Grafana checks). Any other
-file under `deploy/grafana/` is not docs, so the Java and image jobs run for it too. The paths are what merging would change
+file under `deploy/grafana/` is not docs, so the Java and image jobs run for it too. The paths are
+what merging would change
 (`git diff` between the PR merge commit and the base tip). The skip is a job-level `if:`,
 not a workflow-level `paths-ignore`: GitHub reports a job skipped by `if:` as a passing
 check, while a workflow that never starts leaves required checks pending. If `changes`
@@ -105,7 +108,8 @@ against the Spring Boot BOM's OpenTelemetry SDK (instrumentation 2.N pairs with 
 2. Multi-arch image (`linux/amd64`, `linux/arm64`) built with Buildx and pushed to
    GHCR with the tags above and BuildKit provenance attestations.
 3. Image signed with Cosign (keyless, GitHub OIDC) in the classic `.sig`-tag format
-   (`--new-bundle-format=false --use-signing-config=false`; cosign 3.1 rejects the first flag without the second), because that is the format `cosign save` and
+   (`--new-bundle-format=false --use-signing-config=false`; cosign 3.1 rejects the first flag
+   without the second), because that is the format `cosign save` and
    `cosign load` carry into and out of an OCI layout; `cosign verify` accepts it
    without flags. The signature is stored in GHCR next to the image.
 4. SBOM (SPDX JSON, via Syft) generated from the pushed digest and attached to the
@@ -124,7 +128,8 @@ against the Spring Boot BOM's OpenTelemetry SDK (instrumentation 2.N pairs with 
    before transfer, and by checksum inside the air gap (see "Importing into the
    air-gapped environment").
 7. **Air-gap bundle** `kafkafim-<ver>-airgap.tar.gz` attached to the GitHub Release:
-   - `kafkafim-<ver>-image/` (OCI layout from `cosign save`: image index with its BuildKit provenance, signature)
+   - `kafkafim-<ver>-image/` (OCI layout from `cosign save`: image index with its BuildKit
+     provenance, signature)
    - `kafkafim-<ver>-image.digest` (the `ghcr.io/...@sha256:...` reference that was signed)
    - `kafkafim-<ver>.tgz` (the chart)
    - `kafkafim-<ver>.sbom.spdx.json`
@@ -192,7 +197,8 @@ medium, which is why the signature is verified before transfer. (Checked with co
 3.1.3 against the 0.3.0-rc.2 chart: `cosign verify` passes, and `helm pull` returns
 a `.tgz` byte-identical to the release asset.)
 
-The image check is the authoritative one for the image: online, `cosign` refreshes the Sigstore trusted root
+The image check is the authoritative one for the image: online, `cosign` refreshes the Sigstore
+trusted root
 (Fulcio and Rekor keys) from Sigstore's TUF repository. To re-check the signature
 inside the air gap later, take that trusted root across with the bundle. `cosign
 initialize` refreshes the TUF cache; copy the `trusted_root.json` it verified out of

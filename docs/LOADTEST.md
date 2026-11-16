@@ -107,7 +107,8 @@ not part of this test, which used 1 KiB documents.
 
 One pipeline, 5,000 docs/s (600,000 documents over 120 s), heap 1 GiB. Elasticsearch
 was stopped 26 s in and started again 63 s later (measured times; the harness defaults are
-`OUTAGE_AT=30` and `OUTAGE_FOR=60`, this run used 20 and 60 plus start-up time); kafkafim ran unchanged throughout.
+`OUTAGE_AT=30` and `OUTAGE_FOR=60`, this run used 20 and 60 plus start-up time); kafkafim ran
+unchanged throughout.
 
 | What | Measured |
 |---|---|
@@ -151,7 +152,8 @@ These follow from the runs above, for small (about 1 KiB) documents; they are st
 points to confirm on production-like hardware.
 
 - **Heap against budgets.** This is an empirical minimum for 1 KiB documents; the
-  [RUNBOOK](RUNBOOK.md) gives the fuller rule (budget plus overshoot, per-copy, DLQ, decode and bulk-body terms), which takes precedence. Size the heap at no less than three times the sum of
+  [RUNBOOK](RUNBOOK.md) gives the fuller rule (budget plus overshoot, per-copy, DLQ, decode and
+  bulk-body terms), which takes precedence. Size the heap at no less than three times the sum of
   `max-in-flight-bytes` over all pipelines of an instance, and more when documents are larger
   than 1 KiB or when records approach `max-record-bytes` (the decode peak in DESIGN §4.5 comes
   on top). The measured run used the former chart default (`1Gi` memory, `MaxRAMPercentage` 75, about
@@ -175,7 +177,8 @@ points to confirm on production-like hardware.
   `kafkafim_pipeline_state{state="paused"}` and on consumer lag in the Kafka team's
   monitoring (ADR-0034).
 - **Latency.** Expect a steady-state mean end-to-end latency in the order of 0.2 to 0.5 s with
-  the default 200 ms `max-age`, and a tail of a few seconds (p99 bounded by 2.5 s with one pipeline and 5 s with four); lowering `latency.max-age` per pipeline is the knob.
+  the default 200 ms `max-age`, and a tail of a few seconds (p99 bounded by 2.5 s with one pipeline
+  and 5 s with four); lowering `latency.max-age` per pipeline is the knob.
 
 ## Not covered
 

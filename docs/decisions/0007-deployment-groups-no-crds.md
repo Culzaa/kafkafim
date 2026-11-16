@@ -3,12 +3,14 @@
 Status: accepted · Date: 2026-11-07
 
 ## Context
+
 Production clusters permit only resources already present: `Deployment`,
 `ConfigMap`, `Secret`, `Service`, `PodDisruptionBudget`, `HorizontalPodAutoscaler`.
 Requirements: big topics get dedicated pods, small topics share pods but never
 depend on one pod, workers never exceed partitions.
 
 ## Decision
+
 A **group** is a set of pipelines deployed as one `Deployment`. Every replica runs
 every pipeline of its group; Kafka consumer-group assignment spreads partitions
 across replicas.
@@ -23,5 +25,6 @@ across replicas.
 No local disk: Kafka is the only buffer (ADR-0010).
 
 ## Consequences
+
 Rebalancing groups is a `values.yaml` edit. A pipeline moving between groups changes
 nothing about its consumer group id, so offsets carry over.
