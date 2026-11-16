@@ -39,7 +39,20 @@ and multi-value `pipeline` / `es_cluster` variables. Import them through
 `provisioning/kafkafim-dashboards.yaml` pointed at a copy of `dashboards/`. The
 UIDs are fixed (`kafkafim-overview`, `kafkafim-elasticsearch`), so links survive a
 re-import. To change a panel, edit it in Grafana, export the JSON (*Share → Export*,
-without "export for sharing externally") and commit it here.
+without "export for sharing externally"), normalise it and commit it here:
+
+```bash
+jq -S --indent 2 . exported.json > deploy/grafana/dashboards/kafkafim-overview.json
+```
+
+The canonical form is `jq -S --indent 2 .`: 2-space indent, keys sorted, no comments, no
+trailing commas, a final newline. It follows the spirit of the Google JSON Style Guide
+where Grafana's schema allows; Grafana fixes its own field names, so the guide's naming
+rules do not apply. Sorting keys only reorders them, so the import is unaffected (same
+`uid`, panels and targets). CI (job "Grafana format") fails on a dashboard that does not
+parse or differs from that output. The YAML under this directory must pass `yamllint`
+with [`.yamllint.yaml`](.yamllint.yaml); Google has no YAML guide, so that config is the
+standard.
 
 Counters and histograms use `$__rate_interval`; set the data source's scrape interval
 to the real one (Prometheus default 1m, the OTLP export step is 15s).
@@ -104,7 +117,11 @@ Load the rules into Prometheus (`rule_files:`), or into a Prometheus Operator
 ## Validate
 
 ```bash
-jq empty deploy/grafana/dashboards/*.json
+for f in deploy/grafana/dashboards/*.json; do jq -S --indent 2 . "$f" | diff -u "$f" -; done
+```
+
+```bash
+yamllint -s -c deploy/grafana/.yamllint.yaml deploy/grafana   # pip install yamllint==1.37.1
 ```
 
 ```bash

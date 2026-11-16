@@ -384,3 +384,39 @@ jobs:
           [ ${#scripts[@]} -gt 0 ] || { echo "no tracked *.sh files" >&2; exit 1; }
           shellcheck -x "${scripts[@]}"
           shfmt -d "${scripts[@]}"   # indent from .editorconfig ([*.sh]: 2 spaces)
+
+  # ---- Grafana files format (#268) ----
+  # Dashboards must be canonical JSON, the YAML must pass yamllint. Not a required check;
+  # runs only when deploy/grafana or this workflow changed. The step names below are the
+  # job's whole interface, so it merges cleanly beside other format jobs.
+  grafana-format:
+    name: Grafana format
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.grafana != 'false' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Dashboards are canonical JSON
+        shell: bash
+        # Google JSON Style Guide where Grafana's schema allows: valid JSON, 2-space indent,
+        # stable (sorted) key order, no comments, no trailing commas. Grafana fixes its own
+        # field names, so the guide's naming rules do not apply. Canonical form is
+        # `jq -S --indent 2 .`; fix a file with `jq -S --indent 2 . f.json > t && mv t f.json`.
+        run: |
+          shopt -s nullglob
+          files=($(find deploy/grafana -name '*.json' | sort))
+          [ ${#files[@]} -gt 0 ] || { echo "no deploy/grafana JSON found" >&2; exit 1; }
+          jq --version
+          bad=0
+          for f in "${files[@]}"; do
+            jq empty "$f" || { bad=1; continue; }
+            if ! jq -S --indent 2 . "$f" | diff -u "$f" - ; then
+              echo "::error file=$f::not canonical; run: jq -S --indent 2 . $f > t && mv t $f"; bad=1
+            fi
+          done
+          exit $bad
+      - name: YAML passes yamllint
+        # Google has no YAML guide; deploy/grafana/.yamllint.yaml is the small config.
+        run: |
+          pip install --disable-pip-version-check yamllint==1.37.1
+          yamllint -s -c deploy/grafana/.yamllint.yaml deploy/grafana
