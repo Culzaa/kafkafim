@@ -175,7 +175,8 @@ class ConsumerSettingsTest {
             42,
             DataSize.ofMegabytes(1),
             Duration.ofSeconds(1),
-            DataSize.ofKilobytes(1));
+            DataSize.ofKilobytes(1),
+            null);
     Properties overrides = ConsumerSettings.forPipeline(source);
     assertThat(overrides)
         .containsEntry("auto.offset.reset", "earliest")
@@ -183,7 +184,7 @@ class ConsumerSettingsTest {
         .hasSize(2);
 
     Pipeline.Source defaults =
-        new Pipeline.Source("k", List.of("t"), "g", null, null, null, null, null, null);
+        new Pipeline.Source("k", List.of("t"), "g", null, null, null, null, null, null, null);
     assertThat(ConsumerSettings.forPipeline(defaults))
         .containsEntry("auto.offset.reset", "latest")
         .containsEntry("max.poll.records", "500");

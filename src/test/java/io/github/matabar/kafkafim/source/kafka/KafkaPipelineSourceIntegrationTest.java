@@ -585,7 +585,8 @@ class KafkaPipelineSourceIntegrationTest {
         maxPollRecords,
         maxInFlight,
         commitInterval,
-        DataSize.ofBytes(1_000));
+        DataSize.ofBytes(1_000),
+        null);
   }
 
   private static String groupOf(String topic) {

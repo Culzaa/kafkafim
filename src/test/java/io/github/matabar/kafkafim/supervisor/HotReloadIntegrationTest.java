@@ -300,6 +300,36 @@ class HotReloadIntegrationTest {
     awaitRunning(supervisor, "e", "f");
   }
 
+  // ---- source.concurrency ----
+
+  @Test
+  void changedSourceConcurrencyRestartsThePipelineWithTheNewConsumerCount() throws Exception {
+    createTopics("ca.events"); // 3 partitions
+    createUser("kfm-ca", "ca-secret-1");
+    writeSecret("writer-a", "kfm-ca", "ca-secret-1");
+    writeSecret("writer-b", "kfm-ca", "ca-secret-1");
+    writeConfig(false, pipeline("c", "ca.events", "writer-a", "ca", "concurrency: 1,"));
+    ConfigurableApplicationContext app = start();
+    PipelineSupervisor supervisor = app.getBean(PipelineSupervisor.class);
+    awaitRunning(supervisor, "c");
+    assertThat(supervisor.source("c").concurrency()).isEqualTo(1);
+
+    // Below the partition count, then above it (capped), then unset (one per processor, capped).
+    int[] expected = {2, 3, Math.min(Runtime.getRuntime().availableProcessors(), 3)};
+    String[] settings = {"concurrency: 2,", "concurrency: 8,", ""};
+    for (int i = 0; i < settings.length; i++) {
+      final KafkaPipelineSource before = supervisor.source("c");
+      writeConfig(false, pipeline("c", "ca.events", "writer-a", "ca", settings[i]));
+      HttpResponse<String> applied = postReload(app);
+      assertThat(JSON.readTree(applied.body()).get("restarted").get(0).get("reasons").toString())
+          .contains("pipeline definition changed");
+      awaitRunning(supervisor, "c");
+      KafkaPipelineSource after = supervisor.source("c");
+      assertThat(after).isNotSameAs(before);
+      assertThat(after.concurrency()).isEqualTo(expected[i]);
+    }
+  }
+
   // ---- recovery ----
 
   @Test
@@ -455,14 +485,20 @@ class HotReloadIntegrationTest {
   }
 
   private static String pipeline(String name, String topic, String identity, String index) {
+    return pipeline(name, topic, identity, index, "");
+  }
+
+  /** {@code sourceExtra} is a trailing flow-mapping fragment such as {@code concurrency: 2,}. */
+  private static String pipeline(
+      String name, String topic, String identity, String index, String sourceExtra) {
     String yaml =
         """
         %s:
-          source: { cluster: local, topics: [%s], offset-reset: earliest, commit-interval: 200ms }
+          source: { cluster: local, topics: [%s], %s offset-reset: earliest, commit-interval: 200ms }
           document: { id-field: /id }
           routes: [ { default: true, cluster: local, identity: %s, index: %s } ]
         """;
-    return yaml.formatted(name, topic, identity, index);
+    return yaml.formatted(name, topic, sourceExtra, identity, index);
   }
 
   /** Writes {@code application-reload-it.yaml} the way kubelet updates a ConfigMap volume. */
