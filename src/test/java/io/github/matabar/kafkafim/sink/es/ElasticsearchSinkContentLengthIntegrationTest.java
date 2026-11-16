@@ -64,7 +64,7 @@ class ElasticsearchSinkContentLengthIntegrationTest {
   /** One answered bulk request. */
   record Answered(int status, int docs, long bytes) {}
 
-  /** Records every answered request and counts request-level retries. */
+  /** Records every answered request and records the status of every request-level retry. */
   static final class Responses implements SinkListener {
     final List<Answered> answered = new CopyOnWriteArrayList<>();
     final List<Integer> requestRetryStatuses = new CopyOnWriteArrayList<>();
