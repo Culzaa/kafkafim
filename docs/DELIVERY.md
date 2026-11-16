@@ -104,7 +104,7 @@ against the Spring Boot BOM's OpenTelemetry SDK (instrumentation 2.N pairs with 
 2. Multi-arch image (`linux/amd64`, `linux/arm64`) built with Buildx and pushed to
    GHCR with the tags above and BuildKit provenance attestations.
 3. Image signed with Cosign (keyless, GitHub OIDC) in the classic `.sig`-tag format
-   (`--new-bundle-format=false`), because that is the format `cosign save` and
+   (`--new-bundle-format=false --use-signing-config=false`; cosign 3.1 rejects the first flag without the second), because that is the format `cosign save` and
    `cosign load` carry into and out of an OCI layout; `cosign verify` accepts it
    without flags. The signature is stored in GHCR next to the image.
 4. SBOM (SPDX JSON, via Syft) generated from the pushed digest and attached to the
@@ -130,7 +130,8 @@ against the Spring Boot BOM's OpenTelemetry SDK (instrumentation 2.N pairs with 
    - `SHA256SUMS` (every file in the bundle)
    - `IMPORT.md` (this document with the exact version filled in; the procedure is
      "Importing into the air-gapped environment" below)
-8. GitHub Release created with auto-generated notes. Besides the bundle it carries the
+8. GitHub Release created with auto-generated notes (a version with a `-`, such as
+   `0.3.0-rc.1`, is marked a pre-release). Besides the bundle it carries the
    SBOM, the chart, the alert rules and the dashboards as separate assets
    (`kafkafim-alerts.yaml`, `kafkafim-overview.json`, `kafkafim-elasticsearch.json`), so
    whoever runs Prometheus and Grafana can fetch them without the image.

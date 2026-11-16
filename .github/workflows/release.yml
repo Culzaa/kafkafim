@@ -77,11 +77,15 @@ jobs:
       - name: Sign image
         # Legacy (.sig tag) format on purpose: cosign v3 defaults to the OCI-referrer bundle
         # format, which `cosign save` / `cosign load` do not carry into the air-gap layout.
-        # `cosign verify` falls back to the legacy format automatically.
+        # `cosign verify` falls back to the legacy format automatically. cosign v3.1 refuses
+        # `--new-bundle-format=false` alone ("must provide --new-bundle-format or --bundle where
+        # applicable with --signing-config or --use-signing-config"); the TUF signing config only
+        # serves the new format, so it is switched off and Fulcio/Rekor use their public defaults.
+        # Re-check the save/load round trip before bumping cosign: --new-bundle-format is deprecated.
         env:
           IMAGE: ${{ steps.ver.outputs.image }}
           DIGEST: ${{ steps.push.outputs.digest }}
-        run: cosign sign --yes --new-bundle-format=false "${IMAGE}@${DIGEST}"
+        run: cosign sign --yes --use-signing-config=false --new-bundle-format=false "${IMAGE}@${DIGEST}"
       - uses: anchore/sbom-action@v0
         with:
           image: ${{ steps.ver.outputs.image }}@${{ steps.push.outputs.digest }}
@@ -119,7 +123,7 @@ jobs:
           echo "$HELM_TOKEN" | helm registry login ghcr.io -u "$ACTOR" --password-stdin
           helm push "dist/kafkafim-$V.tgz" "$CHART_REPO" 2>&1 | tee push.log
           DIGEST=$(grep -o 'sha256:[a-f0-9]*' push.log | head -1)
-          cosign sign --yes --new-bundle-format=false "${CHART_REPO#oci://}/kafkafim@${DIGEST}"
+          cosign sign --yes --use-signing-config=false --new-bundle-format=false "${CHART_REPO#oci://}/kafkafim@${DIGEST}"
 
       - name: Air-gap bundle
         env:
@@ -136,6 +140,7 @@ jobs:
       - uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
+          prerelease: ${{ contains(steps.ver.outputs.version, '-') }}   # v0.3.0-rc.1 must not become the "latest" release
           fail_on_unmatched_files: true   # the default only warns when a pattern below matches nothing
           files: |
             kafkafim-*-airgap.tar.gz
