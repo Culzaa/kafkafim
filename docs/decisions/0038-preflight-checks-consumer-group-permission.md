@@ -3,6 +3,7 @@
 Status: accepted · Date: 2026-11-11 · Refines [ADR-0021](0021-no-resource-provisioning.md)
 
 ## Context
+
 DESIGN §4.6 listed the consumer group permission among the preflight checks, with "the
 first join is the check". That never reached `failed_preflight`. The listener container
 retries authentication and authorization errors every `authRetryInterval` (10s), so a
@@ -24,19 +25,22 @@ with `includeAuthorizedOperations(true)` reports, by the identity's group ACLs:
 | no authorizer on the broker | yes | every group operation |
 
 ## Decision
+
 - Preflight sends one `DescribeGroups` for the pipeline's group. It uses a short-lived
   admin client built from the source identity's consumer settings (all of them except
   the consumer-only keys, so config providers and custom handler keys still apply),
   bounded by the source's metadata timeout (30s). It runs with the DLQ and
   Elasticsearch checks, so one ERROR line still names every problem.
 - **Configuration** (`failed_preflight`): a group or other authorization error, an
-  authentication error, an existing group whose authorized operations lack `READ`, or a group id another protocol already uses (such as Connect).
+  authentication error, an existing group whose authorized operations lack `READ`, or a group id
+  another protocol already uses (such as Connect).
 - **Passes**: `READ` listed; no operations listed (a broker that cannot say);
   a group that does not exist yet; a broker that does not support the request.
 - **Transient** (stays `starting`, retried with backoff): a timeout or connection error.
   An interrupt from a stop also counts as transient, and the stop discards the verdict.
 
 ## Alternatives
+
 - **Join the group from preflight.** This is exact, but a join rebalances the live group
   of every other pod on each pipeline start and reload.
 - **`describeAcls`.** It needs `Describe` on the cluster, which a consumer identity does
@@ -48,6 +52,7 @@ with `includeAuthorizedOperations(true)` reports, by the identity's group ACLs:
   preflight should send.
 
 ## Consequences
+
 - The common mistakes now reach `failed_preflight` and its alert, with the group, the
   identity and the cluster named: no group ACL at all, an ACL on the wrong group name
   or prefix, and `Describe` without `Read` on a group that has joined before (every
@@ -63,4 +68,6 @@ with `includeAuthorizedOperations(true)` reports, by the identity's group ACLs:
 
 ## Correction (2026-11-14, #213)
 
-This record first listed `ALL` as a passing operation. kafka-clients 4.2 never reports `ALL`, `ANY` or `UNKNOWN` among the authorized operations (`AdminUtils.validAclOperations` filters them out), so only `READ` can pass; the text above is corrected and the dead test removed.
+This record first listed `ALL` as a passing operation. kafka-clients 4.2 never reports `ALL`, `ANY`
+or `UNKNOWN` among the authorized operations (`AdminUtils.validAclOperations` filters them out), so
+only `READ` can pass; the text above is corrected and the dead test removed.

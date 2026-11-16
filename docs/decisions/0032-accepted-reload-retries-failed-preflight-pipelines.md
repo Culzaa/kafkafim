@@ -3,6 +3,7 @@
 Status: accepted · Date: 2026-11-10 · Refines [ADR-0028](0028-hot-reload-rereads-config-data-and-shares-building-blocks-per-cluster.md)
 
 ## Context
+
 A pipeline whose preflight finds a configuration problem (missing topic, missing ACL,
 rejected credential) stays in `failed_preflight` (DESIGN §4.6, ADR-0021). The cause is
 almost always fixed outside kafkafim: the provisioning system creates the topic or the
@@ -13,6 +14,7 @@ pipeline therefore meant a rollout of the whole group, a draining restart of eve
 healthy pipeline in the pod included.
 
 ## Decision
+
 - **Every accepted reload retries**: a reload whose tree is valid (`applied` or
   `unchanged`), from the watcher or from `POST /actuator/reload`, starts once more every
   pipeline that it leaves unchanged and that is in `failed_preflight` at that moment.
@@ -36,6 +38,7 @@ healthy pipeline in the pod included.
   the pipeline's usual log lines. The reload's INFO line names the retried pipelines.
 
 ## Alternatives
+
 - **Only with an explicit flag** (`POST /actuator/reload?retry=true`): one more knob to
   document and remember; a `helm upgrade` after fixing the resource would still leave
   the pipeline stopped. Rejected: the retry is cheap and bounded without it.
@@ -49,6 +52,7 @@ healthy pipeline in the pod included.
   meaning of existing alerts and dashboards for little gain over the state gauge.
 
 ## Consequences
+
 - After fixing a resource, `POST /actuator/reload` (or any accepted reload) recovers a
   `failed_preflight` pipeline without a pod restart and without touching the others.
 - A reload of an unrelated change also retries every `failed_preflight` pipeline of the

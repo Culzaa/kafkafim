@@ -3,6 +3,7 @@
 Status: accepted · Date: 2026-11-13 · Refines [ADR-0038](0038-preflight-checks-consumer-group-permission.md)
 
 ## Context
+
 The source's start check is a metadata fetch (`partitionsFor`), which the broker answers
 with `Describe` alone. An identity with `Describe` but no `Read` on a source topic
 therefore passed every check. Its fetches then failed with a topic authorization error,
@@ -27,6 +28,7 @@ case ADR-0038 could not decide (a resource with nothing to describe yet) does no
 here: a missing topic already fails the start.
 
 ## Decision
+
 - The group check's admin client also sends one `describeTopics` for the pipeline's
   source topics, asking for the authorized operations. Both requests are in flight
   together and share the check's one deadline (the source's metadata timeout), so the
@@ -40,6 +42,7 @@ here: a missing topic already fails the start.
   passes these, so each problem keeps its one message and its one owner.
 
 ## Alternatives
+
 - **Fetch from the topic in preflight.** This is exact, but it needs a consumer with an
   assignment, reads data the pipeline then reads again, and takes far longer than a
   describe.
@@ -52,6 +55,7 @@ here: a missing topic already fails the start.
   restored needs no restart; that behaviour is worth keeping for a running pipeline.
 
 ## Consequences
+
 - `Describe` without `Read` on a source topic now ends in `failed_preflight` and its
   alert, instead of a `running` pipeline that consumes nothing.
 - No new connection and no extra timeout: the request rides on the group check.
@@ -68,4 +72,6 @@ here: a missing topic already fails the start.
 
 ## Correction (2026-11-14, #213)
 
-This record first listed `ALL` as a passing operation. kafka-clients 4.2 never reports `ALL`, `ANY` or `UNKNOWN` among the authorized operations (`AdminUtils.validAclOperations` filters them out), so only `READ` can pass; the text above is corrected and the dead test removed.
+This record first listed `ALL` as a passing operation. kafka-clients 4.2 never reports `ALL`, `ANY`
+or `UNKNOWN` among the authorized operations (`AdminUtils.validAclOperations` filters them out), so
+only `READ` can pass; the text above is corrected and the dead test removed.

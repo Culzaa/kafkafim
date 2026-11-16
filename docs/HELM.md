@@ -210,7 +210,8 @@ schema rejects any other key instead of silently dropping it. That includes
 a pipeline the schema checks only the routes: a route with `drop: true` must not set
 `cluster`, `identity`, `index` or `pipeline` (ADR-0037), and any other route needs
 `cluster` and `index`. The application validates the rest at startup. The
-application refuses `kafkafim.allow-inline-secrets=true` on Kubernetes however it is set (for example through
+application refuses `kafkafim.allow-inline-secrets=true` on Kubernetes however it is set (for
+example through
 `extraEnv`), and likewise refuses to start with the `local` profile active there
 (`config/LocalProfileGuard`, [DESIGN §5.4](DESIGN.md#54-helm-rendering)). So a chart
 install, including the local Kubernetes demo
@@ -263,7 +264,7 @@ A `Secret` mounted at `/etc/kafkafim/secrets/kafka/prod-a.orders-reader/` with k
 through `configtree:/etc/kafkafim/secrets/`. Identity definitions reference them as
 `${kafka.prod-a.orders-reader.username}`. Convention:
 
-```
+```text
 /etc/kafkafim/secrets/kafka/<cluster>/                truststore.p12, truststore-password
 /etc/kafkafim/secrets/kafka/<cluster>.<identity>/     username, password | keystore.p12, keystore-password
 /etc/kafkafim/secrets/elasticsearch/<cluster>/        ca.crt
@@ -406,7 +407,8 @@ this rule, which comes from the load test ([LOADTEST](LOADTEST.md), "Memory unde
 
 - **Heap** needs roughly 3 times the sum of `max-in-flight-bytes` over the pipelines in the
   group (a floor for about 1 KiB documents; the [RUNBOOK](RUNBOOK.md) has the fuller rule).
-- **Container limit** (a conservative rule) is about heap / 0.75 plus 250 to 300 MiB of headroom for metaspace,
+- **Container limit** (a conservative rule) is about heap / 0.75 plus 250 to 300 MiB of headroom for
+  metaspace,
   threads and direct buffers. Exceeding it is an OOMKill, not a Java `OutOfMemoryError`.
 - Worked example: four pipelines at the default 64 MB need a heap of about 768 MB, so a limit
   of about 1.3 GiB and more with larger documents. They did not fit the former 1Gi default

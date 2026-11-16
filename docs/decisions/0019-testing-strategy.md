@@ -3,7 +3,9 @@
 Status: accepted · Date: 2026-11-07
 
 ## Decision
-- Unit: routing rules and index patterns, timestamp parsing per format, decoder (object / array / rejects), bulk body builder, ES error classification (recorded responses),
+
+- Unit: routing rules and index patterns, timestamp parsing per format, decoder (object / array /
+  rejects), bulk body builder, ES error classification (recorded responses),
   offset tracker (out-of-order completion, revoke), config diff.
 - Integration (Testcontainers Kafka + Elasticsearch): happy path, JSON array
   explosion, mapping conflict → DLQ, 429 storm → retry then success, ES down
@@ -14,4 +16,5 @@ Status: accepted · Date: 2026-11-07
 - Load: a Testcontainers-based generator against the compose stack; results recorded in `docs/perf.md`.
 
 ## Consequences
+
 CI runs unit + integration on every PR (Docker available on GitHub runners).

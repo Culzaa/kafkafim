@@ -1,0 +1,51 @@
+// Markdown lint (ADR-0046, #266): markdownlint-cli2 against the Google Markdown Style Guide
+// https://google.github.io/styleguide/docguide/style.html
+// Run: markdownlint-cli2   (globs below; CI job "Markdown style" pins the same version)
+{
+  "globs": ["**/*.md"],
+  "ignores": ["**/target/**", "**/node_modules/**", ".claude/**"],
+  "gitignore": true,
+  "config": {
+    "default": true,
+
+    // Line length. The guide asks for 80 columns but exempts links, tables, headings and code
+    // blocks; DESIGN's table rows and the long ADR sentences make a hard 80 unrealistic. The
+    // limit is 100 (same as the Java limit, .editorconfig), applies to prose only: tables,
+    // code blocks and headings are exempt, and so is any line without whitespace past the
+    // limit (a long URL or link).
+    "MD013": {
+      "line_length": 100,
+      "code_blocks": false,
+      "tables": false,
+      "headings": false,
+      "strict": false
+    },
+
+    // Google: ATX headings. Duplicate heading text is only a problem between siblings (the
+    // guide asks for unique anchors per parent), so MD024 checks siblings only.
+    "MD003": { "style": "atx" },
+    "MD024": { "siblings_only": true },
+
+    // Google: "1." for every item of a long numbered list is allowed; short lists count up.
+    "MD029": { "style": "one_or_ordered" },
+
+    // Google: dashes for unordered lists.
+    "MD004": { "style": "dash" },
+
+    // Google: fenced code blocks, always with a language.
+    "MD046": { "style": "fenced" },
+    "MD040": true,
+
+    // One H1 per file, and the file's first line is it.
+    "MD025": true,
+    "MD041": true,
+
+    // Descriptive link text: no "here", "link", "this".
+    "MD059": true,
+
+    // Tables: the guide does not ask for aligned columns (it says to prefer lists when a table
+    // would be hard to read in source), and the DESIGN tables are too wide to align. Cell
+    // padding is left to the author.
+    "MD060": false
+  }
+}
