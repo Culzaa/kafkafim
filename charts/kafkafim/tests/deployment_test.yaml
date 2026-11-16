@@ -451,8 +451,8 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].resources
           value:
-            requests: { cpu: 500m, memory: 1Gi }
-            limits: { memory: 1Gi }
+            requests: { cpu: 500m, memory: 1536Mi }
+            limits: { memory: 1536Mi }
         documentIndex: 1
       - equal:
           path: spec.template.spec.nodeSelector

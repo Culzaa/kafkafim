@@ -51,7 +51,7 @@ groups:
   orders:
     pipelines: [orders]
     replicas: 6
-    resources: { requests: { cpu: "1", memory: 1Gi }, limits: { memory: 2Gi } }
+    resources: { requests: { cpu: "1", memory: 1536Mi }, limits: { memory: 2Gi } }
     autoscaling: { enabled: true, minReplicas: 2, maxReplicas: 12, targetCPUUtilizationPercentage: 70 }
     nodeSelector: {}
     tolerations: []
@@ -396,6 +396,25 @@ spec:
 - A destination that runs in the same Kubernetes cluster (an in-cluster APM Server,
   or everything in a local demo) is selected with `namespaceSelector` / `podSelector`
   instead of `ipBlock`; `ipBlock` is meant for addresses outside the cluster.
+
+## Sizing memory
+
+The chart's default is a 1536Mi memory request and limit (`resources` in `values.yaml`)
+with `-XX:MaxRAMPercentage=75`, so the heap is 1.1 GiB. Size each group's `resources` by
+this rule, which comes from the load test ([LOADTEST](LOADTEST.md), "Memory under
+`max-in-flight-bytes`"):
+
+- **Heap** needs roughly 3 times the sum of `max-in-flight-bytes` over the pipelines in the
+  group (a floor for about 1 KiB documents; the [RUNBOOK](RUNBOOK.md) has the fuller rule).
+- **Container limit** is about heap / 0.75 plus 250 to 300 MiB of headroom for metaspace,
+  threads and direct buffers. Exceeding it is an OOMKill, not a Java `OutOfMemoryError`.
+- Worked example: four pipelines at the default 64 MB need a heap of about 768 MB, so a limit
+  of about 1.3 GiB and more with larger documents. They did not fit the former 1Gi default
+  (peak resident memory 1,045 MiB, so an OOMKill was to be expected), which is why the
+  default is now 1536Mi. A group with more pipelines, or a higher `max-in-flight-bytes`,
+  needs its own `groups.<g>.resources`; lowering `max-in-flight-bytes` is cheaper than
+  raising memory.
+- Keep `requests.memory` equal to `limits.memory`, so the scheduler reserves what the pod can use.
 
 ## Operating notes
 

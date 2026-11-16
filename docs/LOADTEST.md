@@ -154,11 +154,11 @@ points to confirm on production-like hardware.
   [RUNBOOK](RUNBOOK.md) gives the fuller rule (budget plus overshoot, per-copy, DLQ, decode and bulk-body terms), which takes precedence. Size the heap at no less than three times the sum of
   `max-in-flight-bytes` over all pipelines of an instance, and more when documents are larger
   than 1 KiB or when records approach `max-record-bytes` (the decode peak in DESIGN §4.5 comes
-  on top). The chart's default container (`1Gi` memory, `MaxRAMPercentage` 75, about 768 MiB
-  of heap) is too small for four pipelines at the default 64 MB in practice: that run completed
-  on a 768 MiB heap, but its resident memory was 1,045 MiB, over a 1 GiB limit, so raise the
-  container limit to about 1.25 to 1.5 GiB for four pipelines (container limits were not tested
-  here). More than four were not tested. Lower
+  on top). The measured run used the former chart default (`1Gi` memory, `MaxRAMPercentage` 75, about
+  768 MiB of heap): four pipelines at the default 64 MB completed on that heap, but resident
+  memory peaked at 1,045 MiB, over a 1 GiB limit, so an OOMKill was to be expected. The chart
+  default is now `1536Mi` (heap about 1.1 GiB), per the sizing rule in [HELM](HELM.md#sizing-memory)
+  (container limits were not tested here). More than four were not tested. Lower
   `max-in-flight-bytes` rather than raising the heap when pipelines are added: 16 MB per
   pipeline cost no throughput in this test.
 - **Container memory.** Plan on heap plus about 300 MiB resident.
