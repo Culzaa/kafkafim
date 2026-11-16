@@ -42,3 +42,7 @@ publishes no guide (YAML), nothing is invented: the existing conventions stay.
 A badly formatted or unquoted script fails "Shell style". The check is not yet in the branch
 protection's required list; adding it is Matan's call. The three existing scripts were reformatted
 once and a few shellcheck findings were fixed with no behaviour change.
+
+Addendum (#278): inline `run:` shell in `.github/workflows/*` is in scope too. `actionlint`
+(pinned) runs the same shellcheck on it in "Shell style"; layout rules (`[[ ]]`, one command per
+line) are not machine-checked there.
