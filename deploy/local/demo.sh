@@ -10,24 +10,49 @@
 # CLUSTER=kind (default) or CLUSTER=docker-desktop. SKIP_BUILD=1 reuses kafkafim:dev.
 set -euo pipefail
 
-CLUSTER="${CLUSTER:-kind}"
-KIND_NAME="${KIND_NAME:-kafkafim-demo}"
-NS=kafkafim-demo
-IMAGE=kafkafim:dev
-RELEASE=kafkafim
+readonly CLUSTER="${CLUSTER:-kind}"
+readonly KIND_NAME="${KIND_NAME:-kafkafim-demo}"
+readonly NS=kafkafim-demo
+readonly IMAGE=kafkafim:dev
+readonly RELEASE=kafkafim
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly HERE
 ROOT="$(cd "$HERE/../.." && pwd)"
+readonly ROOT
+CONTEXT="" # kubectl context; set by set_context
 
-case "$CLUSTER" in
-  kind) CONTEXT="kind-$KIND_NAME" ;;
-  docker-desktop) CONTEXT=docker-desktop ;;
-  *)
-    echo "CLUSTER must be kind or docker-desktop, not '$CLUSTER'" >&2
-    exit 2
-    ;;
-esac
+#######################################
+# Derives the kubectl context from CLUSTER; exits 2 for an unknown CLUSTER.
+# Globals:
+#   CLUSTER, KIND_NAME (read), CONTEXT (set)
+# Arguments:
+#   None
+#######################################
+set_context() {
+  case "$CLUSTER" in
+    kind) CONTEXT="kind-$KIND_NAME" ;;
+    docker-desktop) CONTEXT=docker-desktop ;;
+    *)
+      echo "CLUSTER must be kind or docker-desktop, not '$CLUSTER'" >&2
+      exit 2
+      ;;
+  esac
+}
+
+#######################################
+# Runs kubectl against the demo cluster and namespace.
+# Globals:
+#   CONTEXT, NS (read)
+# Arguments:
+#   kubectl arguments, passed through
+#######################################
 k() { kubectl --context "$CONTEXT" -n "$NS" "$@"; }
 
+#######################################
+# Exits 2 with a message on stderr unless every named tool is on the PATH.
+# Arguments:
+#   Tool names to check
+#######################################
 need() {
   for tool in "$@"; do
     command -v "$tool" >/dev/null || {
@@ -37,6 +62,13 @@ need() {
   done
 }
 
+#######################################
+# Builds the image (unless SKIP_BUILD=1), creates the cluster (kind) and installs the demo chart.
+# Globals:
+#   CLUSTER, KIND_NAME, IMAGE, RELEASE, NS, CONTEXT, HERE, ROOT (read); SKIP_BUILD (read)
+# Arguments:
+#   None
+#######################################
 up() {
   need docker kubectl helm
   if [[ "${SKIP_BUILD:-}" != 1 ]]; then
@@ -56,6 +88,15 @@ up() {
   k get pods
 }
 
+#######################################
+# Sends one record to demo.events and waits up to 60 s for it in Elasticsearch.
+# Globals:
+#   CONTEXT, NS (read)
+# Arguments:
+#   None
+# Returns:
+#   0 when the record is indexed, 1 when it is not
+#######################################
 smoke() {
   need kubectl
   local id record now
@@ -80,6 +121,13 @@ smoke() {
   return 1
 }
 
+#######################################
+# Deletes the kind cluster, or on Docker Desktop uninstalls the release and deletes the namespace.
+# Globals:
+#   CLUSTER, KIND_NAME, RELEASE, NS, CONTEXT (read)
+# Arguments:
+#   None
+#######################################
 down() {
   if [[ "$CLUSTER" == kind ]]; then
     need kind
@@ -91,7 +139,13 @@ down() {
   fi
 }
 
+#######################################
+# Entry point: resolves the context, then runs the subcommand.
+# Arguments:
+#   up | smoke | down
+#######################################
 main() {
+  set_context
   case "${1:-}" in
     up) up ;;
     smoke) smoke ;;
