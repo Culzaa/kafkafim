@@ -1,6 +1,7 @@
 package io.github.matabar.kafkafim.route;
 
 import java.math.BigDecimal;
+import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -65,7 +66,7 @@ final class ScalarValue {
   }
 
   /** The node's value in its shortest decimal form, or {@code null} for NaN and infinities. */
-  private static BigDecimal decimalOf(JsonNode node) {
+  private static @Nullable BigDecimal decimalOf(JsonNode node) {
     if (node.isDouble()) {
       double d = node.doubleValue();
       return Double.isFinite(d) ? BigDecimal.valueOf(d) : null;

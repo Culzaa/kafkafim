@@ -1,7 +1,9 @@
 import java.nio.charset.StandardCharsets;
 import java.util.Properties;
 import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.serialization.ByteArraySerializer;
 
 /**
  * Load generator, run on the host (java -cp 'kafka-clients/*' Produce.java ...).
@@ -11,34 +13,61 @@ import org.apache.kafka.clients.producer.ProducerRecord;
  * timestamp is the send time (CreateTime), which is what kafkafim_e2e_latency_seconds measures.
  */
 public final class Produce {
-  public static void main(String[] a) throws Exception {
-    String topic = a[1];
-    long first = Long.parseLong(a[2]);
-    long count = Long.parseLong(a[3]);
-    long rate = Long.parseLong(a[4]);
-    int docBytes = Integer.parseInt(a[5]);
-    Properties p = new Properties();
-    p.put("bootstrap.servers", a[0]);
-    p.put("key.serializer", "org.apache.kafka.common.serialization.ByteArraySerializer");
-    p.put("value.serializer", "org.apache.kafka.common.serialization.ByteArraySerializer");
-    p.put("linger.ms", "5");
-    p.put("compression.type", "lz4");
-    p.put("acks", "1");
+  private static final int ARGUMENT_COUNT = 6;
+  private static final long NANOS_PER_SECOND = 1_000_000_000L;
+  private static final long NANOS_PER_MILLI = 1_000_000L;
+
+  private Produce() {}
+
+  /**
+   * Produces {@code count} documents to a topic, then prints a one-line summary.
+   *
+   * @param args bootstrap topic firstSeq count ratePerSecond docBytes (see the class comment)
+   * @throws Exception when the producer or the throttling sleep fails
+   */
+  public static void main(String[] args) throws Exception {
+    if (args.length != ARGUMENT_COUNT) {
+      usage("expected " + ARGUMENT_COUNT + " arguments, got " + args.length);
+    }
+    String bootstrapServers = args[0];
+    String topic = args[1];
+    long firstSeq;
+    long count;
+    long ratePerSecond;
+    int docBytes;
+    try {
+      firstSeq = Long.parseLong(args[2]);
+      count = Long.parseLong(args[3]);
+      ratePerSecond = Long.parseLong(args[4]);
+      docBytes = Integer.parseInt(args[5]);
+    } catch (NumberFormatException e) {
+      usage("not a number: " + e.getMessage());
+      return;
+    }
+    Properties producerConfig = new Properties();
+    producerConfig.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+    producerConfig.put(
+        ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
+    producerConfig.put(
+        ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
+    producerConfig.put(ProducerConfig.LINGER_MS_CONFIG, "5");
+    producerConfig.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "lz4");
+    producerConfig.put(ProducerConfig.ACKS_CONFIG, "1");
     StringBuilder pad = new StringBuilder();
     for (int i = 0; pad.length() < docBytes; i++) {
       pad.append("lorem ipsum dolor sit amet ").append(i % 97).append(' ');
     }
     long start = System.nanoTime();
-    try (KafkaProducer<byte[], byte[]> producer = new KafkaProducer<>(p)) {
+    try (KafkaProducer<byte[], byte[]> producer = new KafkaProducer<>(producerConfig)) {
       for (long i = 0; i < count; i++) {
-        if (rate > 0) {
-          long due = start + i * 1_000_000_000L / rate;
+        if (ratePerSecond > 0) {
+          long due = start + i * NANOS_PER_SECOND / ratePerSecond;
           long wait = due - System.nanoTime();
           if (wait > 0) {
-            Thread.sleep(wait / 1_000_000, (int) (wait % 1_000_000));
+            Thread.sleep(wait / NANOS_PER_MILLI, (int) (wait % NANOS_PER_MILLI));
           }
         }
-        long id = first + i;
+        long id = firstSeq + i;
         String json =
             "{\"id\":\"" + id + "\",\"region\":\"eu\",\"seq\":" + id + ",\"msg\":\""
                 + pad.substring(0, Math.max(0, docBytes - 60)) + "\"}";
@@ -46,7 +75,16 @@ public final class Produce {
       }
       producer.flush();
     }
-    double s = (System.nanoTime() - start) / 1e9;
-    System.out.printf("produced %d records to %s in %.1fs (%.0f/s)%n", count, topic, s, count / s);
+    double elapsedSeconds = (System.nanoTime() - start) / (double) NANOS_PER_SECOND;
+    System.out.printf(
+        "produced %d records to %s in %.1fs (%.0f/s)%n",
+        count, topic, elapsedSeconds, count / elapsedSeconds);
+  }
+
+  private static void usage(String problem) {
+    System.err.println(problem);
+    System.err.println(
+        "usage: Produce <bootstrap> <topic> <firstSeq> <count> <ratePerSecond> <docBytes>");
+    System.exit(2);
   }
 }

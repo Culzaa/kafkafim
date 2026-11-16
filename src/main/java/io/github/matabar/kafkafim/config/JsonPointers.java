@@ -1,5 +1,6 @@
 package io.github.matabar.kafkafim.config;
 
+import org.jspecify.annotations.Nullable;
 import tools.jackson.core.JsonPointer;
 
 /** JSON pointer (RFC 6901) checks for configured field references. */
@@ -11,7 +12,7 @@ final class JsonPointers {
    * Why {@code pointer} is not a usable field pointer, or {@code null} if it is. The root pointer
    * ({@code ""}) is rejected because every reference names a field inside a document.
    */
-  static String error(String pointer) {
+  static @Nullable String error(@Nullable String pointer) {
     if (pointer == null || pointer.isEmpty()) {
       return "JSON pointer is empty";
     }
