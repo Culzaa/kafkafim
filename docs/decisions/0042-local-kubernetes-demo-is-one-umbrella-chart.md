@@ -3,6 +3,7 @@
 Status: accepted · Date: 2026-11-13 · Refines [ADR-0015](0015-local-dev-compose-and-k8s-demo.md)
 
 ## Context
+
 The local Kubernetes demo was four steps hidden in `demo.sh`: create two Secrets,
 `kubectl apply` a manifest with Kafka and Elasticsearch, create the topics with
 `kubectl exec`, then install `charts/kafkafim`. It had no observability stack, so OTLP
@@ -14,6 +15,7 @@ release and are uploaded by hand. Locally, the whole thing must come up with a s
 `helm install` (#180), with `grafana/otel-lgtm` as the observability stack, as in Compose.
 
 ## Decision
+
 - The demo is a demo-only umbrella chart, `deploy/local/kafkafim-demo`. Its templates are
   Kafka, Elasticsearch, Grafana LGTM and the two credential Secrets; kafkafim is the
   production chart as a subchart, configured under the `kafkafim:` key.
@@ -37,6 +39,7 @@ release and are uploaded by hand. Locally, the whole thing must come up with a s
   topic (`failed_preflight`). No Helm hook and no ordering between resources is needed.
 
 ## Alternatives
+
 - Demo templates in `charts/kafkafim` behind a value that production never sets: one chart,
   but backend and Grafana manifests would ship in the production chart and its schema.
 - A `file://` dependency with `helm dependency build`: a second command, and a `.tgz`
@@ -47,6 +50,7 @@ release and are uploaded by hand. Locally, the whole thing must come up with a s
   access to chart repositories and far more memory than a laptop demo should.
 
 ## Consequences
+
 - The demo needs a checkout with working symlinks (the default on macOS and Linux; on
   Windows `git config core.symlinks true`). The chart's template fails with a clear
   message when the dashboards are missing.

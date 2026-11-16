@@ -3,6 +3,7 @@
 Status: accepted · Date: 2026-11-07
 
 ## Decision
+
 - A single chart in `charts/kafkafim`, published as an OCI artifact with the app's
   version. Per-cluster values files live in the team's private infrastructure repo.
 - One release per Kubernetes cluster; the release's `groups` map renders one
@@ -21,10 +22,12 @@ Status: accepted · Date: 2026-11-07
   override.
 
 ## Alternatives
+
 One release per group (many releases to keep in sync, shared cluster config
 duplicated); an umbrella chart with subcharts (adds indirection with nothing to
 share); Kustomize overlays (fine, but the team already standardises on Helm).
 
 ## Consequences
+
 Adding a pipeline is one values edit: define it, list it in a group, mount its
 Secrets. The chart is tested with `helm unittest` and `kubeconform` in CI.

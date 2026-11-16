@@ -15,7 +15,8 @@ meant to be run by hand on a machine you can leave alone while it runs.
 - kafkafim itself runs from the jar on the host (`java -jar`) with the production `kafkafim`
   profile and a generated `application-kafkafim.yaml` in the run directory. OTLP export is
   switched off; the numbers come from `/actuator/prometheus` and Elasticsearch `_count`.
-- [Produce.java](Produce.java) runs on the host (JDK 27, Kafka client jars taken from the kafkafim jar) and writes JSON documents with
+- [Produce.java](Produce.java) runs on the host (JDK 27, Kafka client jars taken from the kafkafim
+  jar) and writes JSON documents with
   a unique id, so Elasticsearch ends with exactly one document per produced record and a
   redelivery overwrites instead of adding.
 

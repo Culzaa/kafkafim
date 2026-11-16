@@ -3,6 +3,7 @@
 Status: accepted · Date: 2026-11-07
 
 ## Decision
+
 Offsets are committed only after every document from that record is acked by ES or
 written to the DLQ. Duplicates on redelivery are neutralised by a deterministic
 `_id` taken from the record (`document.id-field`, a JSON pointer, default `/id`).
@@ -15,5 +16,6 @@ written to the DLQ. Duplicates on redelivery are neutralised by a deterministic
 - `document.id-missing: auto` (ES-generated id) is allowed but startup warns: retries duplicate.
 
 ## Consequences
+
 Exactly-once is not needed. Migration from Logstash can run both systems in parallel
 on the same `_id`s (ADR-0017).

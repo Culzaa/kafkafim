@@ -89,7 +89,7 @@ into ~20 Elasticsearch 8.x clusters.
 
 ## 4. Architecture
 
-```
+```text
                  ┌────────────────────────── Kubernetes namespace ───────────────────────────┐
                  │  Deployment "orders" (replicas: 6)            Deployment "small" (2)       │
  Kafka A ──────▶ │  ┌──────────────┐ ┌──────────────┐           ┌──────────────┐             │
@@ -130,7 +130,7 @@ preferred anti-affinity across nodes and zones, `maxSurge: 1, maxUnavailable: 0`
 
 ### 4.2 Pod internals
 
-```
+```text
  for each pipeline in the group:
    spring-kafka listener container (batch listener, own out-of-order offset tracker,
    cooperative-sticky, concurrency ≤ partitions)
@@ -328,7 +328,8 @@ element, `kafkafim.doc-index`.
     request and pending send (headers, reason, futures) until the broker acknowledges
     it, roughly 1 KB or more each, and the DLQ producer serialises a copy of the
     record value per failed document into its buffer (lz4-compressed, at most
-    `buffer.memory`, Kafka's default 32 MiB per producer). For ordinary documents these are small next to
+    `buffer.memory`, Kafka's default 32 MiB per producer). For ordinary documents these are small
+    next to
     their bytes; for a record holding many tiny documents they can be many times the
     value. Sizing: [RUNBOOK §5.10](RUNBOOK.md#510-out-of-memory-back-pressure).
 
@@ -394,14 +395,19 @@ pipeline that did not start does not keep consuming. All DLQ, group, topic
 and Elasticsearch checks run before a verdict, so one ERROR line names every problem.
 Missing or undescribable topics, a 401/403, an unknown identity or unreadable trust
 material, and a Kafka authentication or authorization error are **configuration**
-failures (`failed_preflight` until the next accepted reload or a restart, §5.6), as does a start that fails unexpectedly (an exception the checks do not expect, an `Error` included): it logs `start failed unexpectedly` at `ERROR` instead of `failed preflight, staying stopped`, records the exception's `toString()` as the failure, closes the sinks and the source it had opened, and a reload retries it. An unreachable broker or cluster
+failures (`failed_preflight` until the next accepted reload or a restart, §5.6), as does a start
+that fails unexpectedly (an exception the checks do not expect, an `Error` included): it logs `start
+failed unexpectedly` at `ERROR` instead of `failed preflight, staying stopped`, records the
+exception's `toString()` as the failure, closes the sinks and the source it had opened, and a reload
+retries it. An unreachable broker or cluster
 (timeout, connection error, 5xx) is **transient**: the pipeline stays `starting` and
 retries (1s doubling to 30s), so a pod that starts during a short outage needs no
 restart. A stop (shutdown, or a reload that restarts or removes the pipeline)
 cancels a start in progress: it interrupts any check still waiting for an answer and
 discards the verdict, and the pipeline ends `stopped`. A stop therefore never waits out
 the checks' timeouts (10s for the DLQ describe, the source's metadata timeout, 30s by
-default, for the group and topic check, up to 15s per Elasticsearch identity); an Elasticsearch request in flight
+default, for the group and topic check, up to 15s per Elasticsearch identity); an Elasticsearch
+request in flight
 is cancelled, and its client is closed on a thread of its own, because the client's
 graceful close can take 5s. Elasticsearch answers 405 on that path when security is disabled; any
 status other than 401, 403 and 5xx passes.
@@ -438,8 +444,10 @@ any other stop: drained, committed, out of the group, sinks closed (ADR-0036). L
 nothing restarts it on its own.
 
 Readiness (`pipelines` health contributor in the readiness group, next to `kafka`,
-§10): up while at least one pipeline is `running` or `paused`; out of service while every pipeline is still
-`starting` or has failed (`failed_preflight` or `failed`), so a rollout of a broken configuration stops at the first
+§10): up while at least one pipeline is `running` or `paused`; out of service while every pipeline
+is still
+`starting` or has failed (`failed_preflight` or `failed`), so a rollout of a broken configuration
+stops at the first
 pod; up with zero pipelines configured (valid, with a startup warning). A breaker or
 auth pause never affects readiness.
 
@@ -673,7 +681,7 @@ not used in production and not exercised in the MVP tests.
   `pipeline` needs `read_pipeline` on it. No cluster-level privileges; kafkafim
   never calls cluster health.
 
-**Common consequences**
+#### Common consequences
 
 - Secrets are mounted one per identity; the configtree path is free-form and the
   placeholders inside the identity decide which files are used.
@@ -691,7 +699,7 @@ A route matches when **all** of its `when` conditions hold. Condition types:
 |---|---|
 | `equals: v` | field is a string/number/bool equal to `v` |
 | `in: [a, b]` | field value is one of the list |
-| `exists: true|false` | field present (and not null) / absent |
+| `exists: true\|false` | field present (and not null) / absent |
 | `prefix: s` | string field starts with `s` |
 | `matches: regex` | string field matches (anchored, precompiled) |
 | `header: name, equals: v` | Kafka record header equality |
@@ -793,7 +801,7 @@ chart renders a `Deployment`, a `ConfigMap` with `application-kafkafim.yaml`
 (shared cluster definitions + only that group's pipelines), a `PodDisruptionBudget`,
 a `Service` and an optional CPU `HorizontalPodAutoscaler`. Pods start with:
 
-```
+```text
 SPRING_PROFILES_ACTIVE=kafkafim
 SPRING_CONFIG_ADDITIONAL_LOCATION=/etc/kafkafim/config/
 SPRING_CONFIG_IMPORT=configtree:/etc/kafkafim/secrets/
@@ -811,7 +819,8 @@ explicitly) when it detects Kubernetes (`CloudPlatform.KUBERNETES`, which reads
 Without the guard, a pod that lost its profile env would silently run the compose
 sample with inline secrets allowed; with it, such a pod fails at startup with a message
 naming the fix. As a second application-side check, the same guard refuses
-`kafkafim.allow-inline-secrets=true` on Kubernetes in any profile (for example set by hand next to `kafkafim`): there, secrets
+`kafkafim.allow-inline-secrets=true` on Kubernetes in any profile (for example set by hand next to
+`kafkafim`): there, secrets
 must come from mounted `Secret` files imported with `configtree` (§5.5).
 
 Config location failure mode: the image's default is
@@ -861,7 +870,8 @@ placeholder (secret or username) that nothing defines fails startup (except unde
 inline secrets allowed: Spring leaves unresolvable placeholders as literal text, so a
 missing secret file would otherwise become the password. A value with a placeholder embedded in
 other text (for example a `sasl.jaas.config` string containing `password="${...}"`)
-counts as a literal, so such a value is mounted whole as one secret file. Secret provisioning stays outside the chart
+counts as a literal, so such a value is mounted whole as one secret file. Secret provisioning stays
+outside the chart
 (`existingSecret` names): plain Secrets, Sealed Secrets, External Secrets or a Vault
 agent all work. A changed secret file is picked up by the same reload path. No Bean
 Validation constraint sits on a secret component (a reflection test enforces it): Boot's
@@ -885,7 +895,8 @@ in `ConfigValidator`, whose messages never include values.
   checks are those of a normal start with one exception: a credential placeholder
   that nothing defines is accepted, because where the profile runs the Secrets are
   usually not mounted. Literal secrets are still rejected (§5.5). The summary is one
-  INFO event, printed over several lines: the totals, each pipeline (Kafka cluster, identity, topics, group, DLQ
+  INFO event, printed over several lines: the totals, each pipeline (Kafka cluster, identity,
+  topics, group, DLQ
   topic, routes with their Elasticsearch cluster, identity and index) and the secret
   names the tree expects from mounted files, each marked `(not mounted)` when it is
   missing. It never prints a secret value. So a misnamed secret passes validation and
@@ -1218,7 +1229,8 @@ interrupt (a stop during preflight) is not remembered, since no broker answered 
 once seen is only checked again after a send timeout, so a DLQ topic
 deleted while kafkafim runs can still be re-created by the producer's metadata refresh on
 such a broker; brokers should keep auto-creation off, and the writer identity never has
-`Create` (ADR-0021). A resend after `delivery.timeout.ms` (or, without an idempotent producer, a kafka-clients retry) can duplicate a DLQ record and resends are
+`Create` (ADR-0021). A resend after `delivery.timeout.ms` (or, without an idempotent producer, a
+kafka-clients retry) can duplicate a DLQ record and resends are
 not ordered; both are harmless, since replay is idempotent by `_id`.
 
 **Replay is configuration.** After fixing a mapping, add a pipeline whose source is
@@ -1432,7 +1444,7 @@ Summary; see [TECH_STACK.md](TECH_STACK.md) and the ADRs.
 
 ## 13. Repository layout
 
-```
+```text
 pom.xml, mvnw                    Maven build (Spring Boot parent)
 compose.yaml                     local Kafka + Elasticsearch + Grafana LGTM; one-shot kafka-init creates the demo topics
 src/main/java/io/github/matabar/kafkafim/
@@ -1488,7 +1500,8 @@ CI-friendly `${revision}` versioning (ADR-0003, ADR-0022, ADR-0023).
   the infrastructure repository's config checks, refusal of the `local` profile on
   Kubernetes.
 - **0.3** traces/logs, Grafana dashboards + alerts, breaker, versioning, data streams.
-- **1.0** runbook, load-test results ([LOADTEST.md](LOADTEST.md)), first production pipelines (each Logstash
+- **1.0** runbook, load-test results ([LOADTEST.md](LOADTEST.md)), first production pipelines (each
+  Logstash
   pipeline translated by hand, §14 and ADR-0017; there is no config translator).
 - **Later**: DLQ tooling, transformations (if ever, as ES ingest pipelines first),
   `update`/`delete` ops, KEDA where allowed, read-only UI over the same config.

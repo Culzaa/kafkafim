@@ -385,6 +385,17 @@ jobs:
           shellcheck -x "${scripts[@]}"
           shfmt -d "${scripts[@]}"   # indent from .editorconfig ([*.sh]: 2 spaces)
 
+  # --- Markdown style (ADR-0046, #266; Google Markdown Style Guide): markdownlint-cli2 on every
+  # *.md. Rules and their exceptions are in .markdownlint-cli2.jsonc. Self-contained: no `needs`,
+  # runs on every change. The action is pinned to a release; v25.0.0 bundles markdownlint-cli2
+  # 0.24.0, the version CONTRIBUTING gives for local runs.
+  markdown:
+    name: Markdown style
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: DavidAnson/markdownlint-cli2-action@v25.0.0
+
   # ---- Grafana files format (#268) ----
   # Dashboards must be canonical JSON, the YAML must pass yamllint. Not a required check;
   # runs only when deploy/grafana or this workflow changed. The step names below are the

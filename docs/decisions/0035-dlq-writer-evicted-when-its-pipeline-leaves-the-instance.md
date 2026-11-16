@@ -3,6 +3,7 @@
 Status: accepted · Date: 2026-11-10 · Refines [ADR-0028](0028-hot-reload-rereads-config-data-and-shares-building-blocks-per-cluster.md)
 
 ## Context
+
 Under ADR-0028 a reload can move a pipeline to new DLQ producers (its DLQ settings
 changed, or another pipeline new to its Kafka cluster made a new instance current),
 while other pipelines keep the old instance. The old `DlqProducers` cached the moved
@@ -14,6 +15,7 @@ pipeline's next run gets them again. But the writer cost memory, produced duplic
 records and showed misleading DLQ failure counts for the pipeline.
 
 ## Decision
+
 - **`DlqProducers.evict(pipeline)`** drops one writer. Its unacknowledged sends, including
   those waiting for a retry, complete with `DlqClosedException`, exactly as at `close()`.
   Later sends through the dropped writer fail the same way, and it stops retrying. A
@@ -33,6 +35,7 @@ records and showed misleading DLQ failure counts for the pipeline.
   does not track the blocked state.
 
 ## Alternatives
+
 - **Tagging telemetry events with their owner instance**, and filtering out the old
   instance's events: hides the counts but leaves the writer retrying, so memory use and
   duplicate DLQ records stay. The supervisor already filters by owner.
@@ -41,6 +44,7 @@ records and showed misleading DLQ failure counts for the pipeline.
   The instance closes with its last pipeline anyway.
 
 ## Consequences
+
 - After a reload, a pipeline's DLQ writer in an instance it left stops retrying and
   reporting, apart from at most one callback already under way. Each eviction logs one
   INFO line with the number of unacknowledged records dropped. Their offsets stay

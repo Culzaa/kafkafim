@@ -3,6 +3,7 @@
 Status: accepted · Date: 2026-11-13 · Supersedes the logs part of [ADR-0013](0013-observability-otel-via-spring-boot.md)
 
 ## Context
+
 ADR-0013 put logs on stdout as ECS-structured JSON and called OTLP log export optional;
 it was never built. That assumed a log shipper on the nodes would collect stdout.
 
@@ -18,6 +19,7 @@ batch processor, OTLP exporter, the same `Resource` as traces, `OTEL_*` variable
 mapping). It does not connect Logback to it.
 
 ## Decision
+
 - **Every log event is exported over OTLP** to `${OTEL_EXPORTER_OTLP_ENDPOINT}/v1/logs`,
   next to `/v1/metrics` and `/v1/traces`. It is on wherever those are, by default, and has
   the same kind of switch (`management.logging.export.otlp.enabled=false`).
@@ -44,6 +46,7 @@ mapping). It does not connect Logback to it.
   (reserving `OTEL_EXPORTER_OTLP_LOGS_HEADERS` in `extraEnv`).
 
 ## Consequences
+
 - A pod that never gets as far as creating the OpenTelemetry SDK (invalid configuration,
   a missing mount) exports nothing: its startup failure is on stdout only
   (`kubectl logs --previous`, RUNBOOK §5.9), as before.
@@ -64,6 +67,7 @@ mapping). It does not connect Logback to it.
   automatically, so it must never hold a secret or document content (DESIGN §10).
 
 ## Alternatives
+
 - **Keep ECS JSON on stdout and let a node agent ship it.** Rejected: production has no
   such path for kafkafim, and correlation with traces and the per-pod resource would have
   to be rebuilt in the shipper.
