@@ -51,7 +51,7 @@ where Grafana's schema allows; Grafana fixes its own field names, so the guide's
 rules do not apply. Sorting keys only reorders them, so the import is unaffected (same
 `uid`, panels and targets). CI (job "Grafana format") fails on a dashboard that does not
 parse or differs from that output. The YAML under this directory must pass `yamllint`
-with [`.yamllint.yaml`](.yamllint.yaml); Google has no YAML guide, so that config is the
+with [`.yamllint.yaml`](../../.yamllint.yaml); Google has no YAML guide, so that config is the
 standard.
 
 Counters and histograms use `$__rate_interval`; set the data source's scrape interval
@@ -121,7 +121,7 @@ for f in deploy/grafana/dashboards/*.json; do jq -S --indent 2 . "$f" | diff -u 
 ```
 
 ```bash
-yamllint -s -c deploy/grafana/.yamllint.yaml deploy/grafana   # pip install yamllint==1.37.1
+yamllint -s -c .yamllint.yaml deploy/grafana   # pip install yamllint==1.37.1
 ```
 
 ```bash
