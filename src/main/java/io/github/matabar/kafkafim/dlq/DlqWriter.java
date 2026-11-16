@@ -250,7 +250,7 @@ public final class DlqWriter {
       }
       owner.unregister(this);
       // One line per DLQ record (DESIGN §10, logs): coordinates and error type only; the reason
-      // and the record itself are in the DLQ record, never in the LOG.
+      // and the record itself are in the DLQ record, never in the log.
       LOG.warn(
           "Pipeline '{}': dead-lettered {} to {}-{}@{} (target {}/{})",
           pipeline,

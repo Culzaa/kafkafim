@@ -203,7 +203,8 @@ public final class IndexPattern {
   private record Literal(String text) implements Part {}
 
   /** Exactly one of {@code pointer} and {@code name} is set. */
-  private record FieldRef(String reference, JsonPointer pointer, String name) implements Part {
+  private record FieldRef(String reference, @Nullable JsonPointer pointer, @Nullable String name)
+      implements Part {
     JsonNode lookup(JsonNode document) {
       return pointer != null ? document.at(pointer) : document.get(name);
     }

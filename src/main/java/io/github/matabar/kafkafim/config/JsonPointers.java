@@ -12,7 +12,7 @@ final class JsonPointers {
    * Why {@code pointer} is not a usable field pointer, or {@code null} if it is. The root pointer
    * ({@code ""}) is rejected because every reference names a field inside a document.
    */
-  static @Nullable String error(String pointer) {
+  static @Nullable String error(@Nullable String pointer) {
     if (pointer == null || pointer.isEmpty()) {
       return "JSON pointer is empty";
     }

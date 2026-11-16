@@ -69,7 +69,7 @@ public record KafkafimProperties(
   }
 
   private static @Nullable Pipeline resolve(
-      String name, Pipeline pipeline, Kafka kafka, Elasticsearch elasticsearch) {
+      String name, @Nullable Pipeline pipeline, Kafka kafka, Elasticsearch elasticsearch) {
     if (pipeline == null) {
       return null;
     }
@@ -106,7 +106,8 @@ public record KafkafimProperties(
     return identity == null ? route : route.withIdentity(identity);
   }
 
-  private static @Nullable String usableDefault(String defaultIdentity, Map<String, ?> identities) {
+  private static @Nullable String usableDefault(
+      @Nullable String defaultIdentity, Map<String, ?> identities) {
     return defaultIdentity != null && identities.containsKey(defaultIdentity)
         ? defaultIdentity
         : null;

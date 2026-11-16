@@ -1,6 +1,7 @@
 /**
- * Configuration model, loading, validation and hot-reload diffing (ADR-0003: depends only on the
- * JDK and Jackson).
+ * Configuration model, loading, validation and hot-reload diffing, bound through Spring Boot.
+ * Record components that the binder leaves null before the compact constructors apply defaults are
+ * not yet annotated {@code @Nullable}.
  */
 @NullMarked
 package io.github.matabar.kafkafim.config;
