@@ -244,7 +244,7 @@ no Secrets: a secret that is not mounted is listed as `(not mounted)`, not rejec
 Compare that list with `secrets[]`; a misnamed secret is otherwise found only when the
 pod starts. With the command above every secret shows as `(not mounted)`: the image
 does not import secret files by itself (the chart's Deployment does), so to check
-mounted ones also pass `-v <dir>:/etc/kafkafim/secrets:ro` and
+mounted secrets, also pass `-v <dir>:/etc/kafkafim/secrets:ro` and
 `-e SPRING_CONFIG_IMPORT=configtree:/etc/kafkafim/secrets/`. A literal secret in the
 values is rejected as in production. A configuration that defines no Kafka cluster, no
 Elasticsearch cluster and no pipeline also exits 1 (`No kafkafim configuration found`):
@@ -321,8 +321,8 @@ The chart's `NetworkPolicy` is ingress-only and the chart ships no egress policy
 (decided on [#83](https://github.com/matabar/kafkafim/issues/83)). Egress rules need
 IP ranges: a `NetworkPolicy` cannot match the host names in `bootstrap-servers`,
 `uris` or `otel.endpoint`, and only the infrastructure repository knows the ranges
-behind them. A cluster with default-deny egress therefore writes its own policy
-there. It must allow, for every kafkafim pod:
+behind them. A cluster with default-deny egress therefore needs its own policy in that
+repository. The policy must allow, for every kafkafim pod:
 
 | Destination | Port (from the values) | Notes |
 |---|---|---|
@@ -331,16 +331,16 @@ there. It must allow, for every kafkafim pod:
 | OTLP endpoint | the port in `otel.endpoint` (chart default `http://apm-server.observability:8200`) | OTLP over HTTP; every signal the pod exports goes to this one endpoint. |
 | Cluster DNS | UDP and TCP 53 | All of the above are host names. With NodeLocal DNSCache, also allow its link-local address (commonly `169.254.20.10/32`). |
 
-Add what the Kafka `properties` passthrough brings in, if used: the Kerberos KDC for
+If you use the Kafka `properties` passthrough, also allow what it brings in: the Kerberos KDC for
 `GSSAPI` (TCP/UDP 88) or the token endpoint for `OAUTHBEARER`. kafkafim itself calls
 nothing else: no Kubernetes API (the `ServiceAccount` token is not mounted), no
 schema registry, and the image is pulled by the node, not the pod.
 
-Sample policy. The `podSelector` is the chart's release-wide selector
+In the sample policy below, the `podSelector` is the chart's release-wide selector
 (`kafkafim.selectorLabels`): `app.kubernetes.io/name` is the chart name (or
 `nameOverride`) and `app.kubernetes.io/instance` is the release name. Add
 `app.kubernetes.io/component: <group>` to write a narrower policy for one group.
-The CIDRs and ports below are placeholders:
+The CIDRs and ports are placeholders:
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -420,11 +420,11 @@ this rule, which comes from the load test ([LOADTEST](LOADTEST.md), "Memory unde
 
 ## Operating notes
 
-- A per-cluster values file is the single place to add a pipeline: add it under
-  `config.kafkafim.pipelines`, list it in a group, add its Secret mounts. `helm
+- To add a pipeline, edit the per-cluster values file, the single place for it: add the
+  pipeline under `config.kafkafim.pipelines`, list it in a group, add its Secret mounts. `helm
   upgrade --install` updates the ConfigMap, and the affected group hot-reloads.
 - Moving a pipeline between groups changes nothing in Kafka (same `group-id`).
-- Secret rotation: update the `Secret`; kubelet refreshes the mounted files; the
+- To rotate a secret, update the `Secret`. Kubelet refreshes the mounted files, and the
   application reloads the identities that changed and restarts only their pipelines.
   OTLP header Secrets (`otel.secretHeaders`) are the exception: restart the pods.
   Rotate in the order the target accepts: add the new credential in Kafka or
