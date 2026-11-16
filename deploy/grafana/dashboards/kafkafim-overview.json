@@ -1,24 +1,4 @@
 {
-  "uid": "kafkafim-overview",
-  "title": "kafkafim / Overview",
-  "description": "Pipelines: state, throughput, end-to-end latency, DLQ, backpressure, partitions, reloads (DESIGN \u00a710).",
-  "tags": [
-    "kafkafim"
-  ],
-  "editable": true,
-  "schemaVersion": 39,
-  "version": 1,
-  "graphTooltip": 1,
-  "refresh": "30s",
-  "time": {
-    "from": "now-3h",
-    "to": "now"
-  },
-  "timepicker": {},
-  "timezone": "",
-  "fiscalYearStartMonth": 0,
-  "liveNow": false,
-  "weekStart": "",
   "annotations": {
     "list": [
       {
@@ -35,97 +15,49 @@
       }
     ]
   },
+  "description": "Pipelines: state, throughput, end-to-end latency, DLQ, backpressure, partitions, reloads (DESIGN §10).",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
   "links": [
     {
-      "title": "kafkafim dashboards",
-      "type": "dashboards",
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
       "tags": [
         "kafkafim"
       ],
-      "asDropdown": false,
-      "includeVars": false,
-      "keepTime": true,
       "targetBlank": false,
-      "icon": "external link",
-      "url": "",
-      "tooltip": ""
+      "title": "kafkafim dashboards",
+      "tooltip": "",
+      "type": "dashboards",
+      "url": ""
     }
   ],
-  "templating": {
-    "list": [
-      {
-        "name": "datasource",
-        "label": "Data source",
-        "type": "datasource",
-        "query": "prometheus",
-        "current": {},
-        "hide": 0,
-        "refresh": 1,
-        "regex": "",
-        "includeAll": false,
-        "multi": false,
-        "options": [],
-        "skipUrlSync": false
-      },
-      {
-        "name": "pipeline",
-        "label": "Pipeline",
-        "type": "query",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "${datasource}"
-        },
-        "query": {
-          "query": "label_values(kafkafim_pipeline_state, pipeline)",
-          "refId": "PrometheusVariableQueryEditor-VariableQuery",
-          "qryType": 1
-        },
-        "definition": "label_values(kafkafim_pipeline_state, pipeline)",
-        "current": {},
-        "hide": 0,
-        "refresh": 2,
-        "regex": "",
-        "sort": 1,
-        "includeAll": true,
-        "multi": true,
-        "allValue": ".+",
-        "options": [],
-        "skipUrlSync": false
-      }
-    ]
-  },
+  "liveNow": false,
   "panels": [
     {
-      "type": "row",
-      "title": "Pipeline state",
       "collapsed": false,
-      "id": 1,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 0
       },
-      "panels": []
+      "id": 1,
+      "panels": [],
+      "title": "Pipeline state",
+      "type": "row"
     },
     {
-      "type": "stat",
-      "id": 2,
-      "title": "running (pod \u00d7 pipeline)",
-      "description": "Count of (pod, pipeline) pairs whose kafkafim_pipeline_state{state=\"running\"} is 1.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 0,
-        "y": 1
-      },
+      "description": "Count of (pod, pipeline) pairs whose kafkafim_pipeline_state{state=\"running\"} is 1.",
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -135,11 +67,23 @@
                 "value": null
               }
             ]
-          }
+          },
+          "unit": "short"
         },
         "overrides": []
       },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
+      "id": 2,
       "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -147,11 +91,7 @@
           "fields": "",
           "values": false
         },
-        "colorMode": "background",
-        "graphMode": "none",
         "textMode": "value_and_name",
-        "orientation": "horizontal",
-        "justifyMode": "auto",
         "wideLayout": true
       },
       "targets": [
@@ -160,32 +100,24 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "sum(kafkafim_pipeline_state{pipeline=~\"$pipeline\",state=\"running\"}) or vector(0)",
+          "instant": true,
           "legendFormat": "running",
           "range": false,
-          "instant": true
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "running (pod × pipeline)",
+      "type": "stat"
     },
     {
-      "type": "stat",
-      "id": 3,
-      "title": "starting (pod \u00d7 pipeline)",
-      "description": "Count of (pod, pipeline) pairs whose kafkafim_pipeline_state{state=\"starting\"} is 1.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 4,
-        "y": 1
-      },
+      "description": "Count of (pod, pipeline) pairs whose kafkafim_pipeline_state{state=\"starting\"} is 1.",
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -199,11 +131,23 @@
                 "value": 1
               }
             ]
-          }
+          },
+          "unit": "short"
         },
         "overrides": []
       },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 4,
+        "y": 1
+      },
+      "id": 3,
       "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -211,11 +155,7 @@
           "fields": "",
           "values": false
         },
-        "colorMode": "background",
-        "graphMode": "none",
         "textMode": "value_and_name",
-        "orientation": "horizontal",
-        "justifyMode": "auto",
         "wideLayout": true
       },
       "targets": [
@@ -224,22 +164,41 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "sum(kafkafim_pipeline_state{pipeline=~\"$pipeline\",state=\"starting\"}) or vector(0)",
+          "instant": true,
           "legendFormat": "starting",
           "range": false,
-          "instant": true
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "starting (pod × pipeline)",
+      "type": "stat"
     },
     {
-      "type": "stat",
-      "id": 4,
-      "title": "paused (pod \u00d7 pipeline)",
-      "description": "Count of (pod, pipeline) pairs whose kafkafim_pipeline_state{state=\"paused\"} is 1.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "Count of (pod, pipeline) pairs whose kafkafim_pipeline_state{state=\"paused\"} is 1.",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 5,
@@ -247,9 +206,46 @@
         "x": 8,
         "y": 1
       },
+      "id": 4,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(kafkafim_pipeline_state{pipeline=~\"$pipeline\",state=\"paused\"}) or vector(0)",
+          "instant": true,
+          "legendFormat": "paused",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "paused (pod × pipeline)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Count of (pod, pipeline) pairs whose kafkafim_pipeline_state{state=\"failed_preflight\"} is 1.",
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -263,47 +259,10 @@
                 "value": 1
               }
             ]
-          }
+          },
+          "unit": "short"
         },
         "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "background",
-        "graphMode": "none",
-        "textMode": "value_and_name",
-        "orientation": "horizontal",
-        "justifyMode": "auto",
-        "wideLayout": true
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "refId": "A",
-          "expr": "sum(kafkafim_pipeline_state{pipeline=~\"$pipeline\",state=\"paused\"}) or vector(0)",
-          "legendFormat": "paused",
-          "range": false,
-          "instant": true
-        }
-      ]
-    },
-    {
-      "type": "stat",
-      "id": 5,
-      "title": "failed_preflight (pod \u00d7 pipeline)",
-      "description": "Count of (pod, pipeline) pairs whose kafkafim_pipeline_state{state=\"failed_preflight\"} is 1.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
       },
       "gridPos": {
         "h": 5,
@@ -311,9 +270,46 @@
         "x": 12,
         "y": 1
       },
+      "id": 5,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(kafkafim_pipeline_state{pipeline=~\"$pipeline\",state=\"failed_preflight\"}) or vector(0)",
+          "instant": true,
+          "legendFormat": "failed_preflight",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "failed_preflight (pod × pipeline)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Count of (pod, pipeline) pairs whose kafkafim_pipeline_state{state=\"failed\"} is 1: the pipeline stopped after failing while it ran, and stays so until an accepted reload or a pod restart (RUNBOOK §5.13).",
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -327,47 +323,10 @@
                 "value": 1
               }
             ]
-          }
+          },
+          "unit": "short"
         },
         "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "background",
-        "graphMode": "none",
-        "textMode": "value_and_name",
-        "orientation": "horizontal",
-        "justifyMode": "auto",
-        "wideLayout": true
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "refId": "A",
-          "expr": "sum(kafkafim_pipeline_state{pipeline=~\"$pipeline\",state=\"failed_preflight\"}) or vector(0)",
-          "legendFormat": "failed_preflight",
-          "range": false,
-          "instant": true
-        }
-      ]
-    },
-    {
-      "type": "stat",
-      "id": 29,
-      "title": "failed (pod \u00d7 pipeline)",
-      "description": "Count of (pod, pipeline) pairs whose kafkafim_pipeline_state{state=\"failed\"} is 1: the pipeline stopped after failing while it ran, and stays so until an accepted reload or a pod restart (RUNBOOK \u00a75.13).",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
       },
       "gridPos": {
         "h": 5,
@@ -375,27 +334,12 @@
         "x": 16,
         "y": 1
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
+      "id": 29,
       "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -403,11 +347,7 @@
           "fields": "",
           "values": false
         },
-        "colorMode": "background",
-        "graphMode": "none",
         "textMode": "value_and_name",
-        "orientation": "horizontal",
-        "justifyMode": "auto",
         "wideLayout": true
       },
       "targets": [
@@ -416,32 +356,24 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "sum(kafkafim_pipeline_state{pipeline=~\"$pipeline\",state=\"failed\"}) or vector(0)",
+          "instant": true,
           "legendFormat": "failed",
           "range": false,
-          "instant": true
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "failed (pod × pipeline)",
+      "type": "stat"
     },
     {
-      "type": "stat",
-      "id": 6,
-      "title": "stopped (pod \u00d7 pipeline)",
-      "description": "Count of (pod, pipeline) pairs whose kafkafim_pipeline_state{state=\"stopped\"} is 1.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 20,
-        "y": 1
-      },
+      "description": "Count of (pod, pipeline) pairs whose kafkafim_pipeline_state{state=\"stopped\"} is 1.",
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -455,11 +387,23 @@
                 "value": 1
               }
             ]
-          }
+          },
+          "unit": "short"
         },
         "overrides": []
       },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
+      "id": 6,
       "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -467,11 +411,7 @@
           "fields": "",
           "values": false
         },
-        "colorMode": "background",
-        "graphMode": "none",
         "textMode": "value_and_name",
-        "orientation": "horizontal",
-        "justifyMode": "auto",
         "wideLayout": true
       },
       "targets": [
@@ -480,22 +420,39 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "sum(kafkafim_pipeline_state{pipeline=~\"$pipeline\",state=\"stopped\"}) or vector(0)",
+          "instant": true,
           "legendFormat": "stopped",
           "range": false,
-          "instant": true
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "stopped (pod × pipeline)",
+      "type": "stat"
     },
     {
-      "type": "timeseries",
-      "id": 7,
-      "title": "Pipeline state by pod",
-      "description": "The state each pipeline is in on each pod (1 = current). paused means a supervisor reason (breaker open, identity rejected, DLQ blocked); the panel next to this one shows which kind.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "The state each pipeline is in on each pod (1 = current). paused means a supervisor reason (breaker open, identity rejected, DLQ blocked); the panel next to this one shows which kind.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 7,
@@ -503,32 +460,15 @@
         "x": 0,
         "y": 6
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 7,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -541,22 +481,39 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "kafkafim_pipeline_state{pipeline=~\"$pipeline\"} == 1",
+          "instant": false,
           "legendFormat": "{{pipeline}} {{state}} {{instance}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Pipeline state by pod",
+      "type": "timeseries"
     },
     {
-      "type": "timeseries",
-      "id": 30,
-      "title": "Pause reasons by pod",
-      "description": "Why a pipeline is paused on a pod, by kind: es_breaker (RUNBOOK \u00a75.1), es_auth (\u00a75.2), dlq_blocked (\u00a75.6). A series shows only while kafkafim_pipeline_pause_reason is 1; an empty panel means nothing is paused. The cluster or identity a reason names is in the logs (RUNBOOK \u00a73.1).",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "Why a pipeline is paused on a pod, by kind: es_breaker (RUNBOOK §5.1), es_auth (§5.2), dlq_blocked (§5.6). A series shows only while kafkafim_pipeline_pause_reason is 1; an empty panel means nothing is paused. The cluster or identity a reason names is in the logs (RUNBOOK §3.1).",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 7,
@@ -564,32 +521,15 @@
         "x": 14,
         "y": 6
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 30,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -602,35 +542,52 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "kafkafim_pipeline_pause_reason{pipeline=~\"$pipeline\"} == 1",
+          "instant": false,
           "legendFormat": "{{pipeline}} {{reason}} {{instance}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Pause reasons by pod",
+      "type": "timeseries"
     },
     {
-      "type": "row",
-      "title": "Keeping up",
       "collapsed": false,
-      "id": 8,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 13
       },
-      "panels": []
+      "id": 8,
+      "panels": [],
+      "title": "Keeping up",
+      "type": "row"
     },
     {
-      "type": "timeseries",
-      "id": 10,
-      "title": "End-to-end latency",
-      "description": "Elasticsearch ack time minus the Kafka record timestamp (DLQ'd documents are not counted). Buckets end at 1h; above it the quantile reads as 1h. Consumer lag is not a kafkafim metric: see the Kafka team's consumer-lag monitoring for the pipeline's consumer group (ADR-0034).",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "Elasticsearch ack time minus the Kafka record timestamp (DLQ'd documents are not counted). Buckets end at 1h; above it the quantile reads as 1h. Consumer lag is not a kafkafim metric: see the Kafka team's consumer-lag monitoring for the pipeline's consumer group (ADR-0034).",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "min": 0,
+          "unit": "s"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -638,32 +595,15 @@
         "x": 0,
         "y": 14
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 10,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -676,46 +616,63 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "histogram_quantile(0.99, sum by (pipeline, le) (rate(kafkafim_e2e_latency_seconds_bucket{pipeline=~\"$pipeline\"}[$__rate_interval])))",
+          "instant": false,
           "legendFormat": "p99 {{pipeline}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "B",
           "expr": "histogram_quantile(0.5, sum by (pipeline, le) (rate(kafkafim_e2e_latency_seconds_bucket{pipeline=~\"$pipeline\"}[$__rate_interval])))",
+          "instant": false,
           "legendFormat": "p50 {{pipeline}}",
           "range": true,
-          "instant": false
+          "refId": "B"
         }
-      ]
+      ],
+      "title": "End-to-end latency",
+      "type": "timeseries"
     },
     {
-      "type": "row",
-      "title": "Data flowing",
       "collapsed": false,
-      "id": 11,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 22
       },
-      "panels": []
+      "id": 11,
+      "panels": [],
+      "title": "Data flowing",
+      "type": "row"
     },
     {
-      "type": "timeseries",
-      "id": 12,
-      "title": "Records consumed",
-      "description": "Kafka records delivered by the source.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "Kafka records delivered by the source.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "min": 0,
+          "unit": "cps"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -723,32 +680,15 @@
         "x": 0,
         "y": 23
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "cps",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 12,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -761,22 +701,39 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "sum by (pipeline, topic) (rate(kafkafim_records_consumed_total{pipeline=~\"$pipeline\"}[$__rate_interval]))",
+          "instant": false,
           "legendFormat": "{{pipeline}} {{topic}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Records consumed",
+      "type": "timeseries"
     },
     {
-      "type": "timeseries",
-      "id": 13,
-      "title": "Bytes consumed",
-      "description": "Key plus value bytes of the records delivered.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "Key plus value bytes of the records delivered.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "min": 0,
+          "unit": "Bps"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -784,32 +741,15 @@
         "x": 8,
         "y": 23
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "Bps",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 13,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -822,22 +762,39 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "sum by (pipeline, topic) (rate(kafkafim_bytes_consumed_total{pipeline=~\"$pipeline\"}[$__rate_interval]))",
+          "instant": false,
           "legendFormat": "{{pipeline}} {{topic}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Bytes consumed",
+      "type": "timeseries"
     },
     {
-      "type": "timeseries",
-      "id": 14,
-      "title": "Documents done by outcome",
-      "description": "One per routed copy or failed document: indexed, stale (a newer external version was stored) or dlq.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "One per routed copy or failed document: indexed, stale (a newer external version was stored) or dlq.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "min": 0,
+          "unit": "cps"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -845,32 +802,15 @@
         "x": 16,
         "y": 23
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "cps",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "normal",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 14,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -883,22 +823,39 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "sum by (pipeline, outcome) (rate(kafkafim_docs_total{pipeline=~\"$pipeline\"}[$__rate_interval]))",
+          "instant": false,
           "legendFormat": "{{pipeline}} {{outcome}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Documents done by outcome",
+      "type": "timeseries"
     },
     {
-      "type": "timeseries",
-      "id": 15,
-      "title": "Documents by route",
-      "description": "route is the route's name or zero-based position; none counts documents that failed before a route was selected (decode, missing_id, bad_timestamp, no_route); dropped counts documents a drop route discarded.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "route is the route's name or zero-based position; none counts documents that failed before a route was selected (decode, missing_id, bad_timestamp, no_route); dropped counts documents a drop route discarded.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "min": 0,
+          "unit": "cps"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -906,32 +863,15 @@
         "x": 0,
         "y": 31
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "cps",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 15,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -944,22 +884,39 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "sum by (pipeline, route, outcome) (rate(kafkafim_docs_total{pipeline=~\"$pipeline\"}[$__rate_interval]))",
+          "instant": false,
           "legendFormat": "{{pipeline}} {{route}} {{outcome}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Documents by route",
+      "type": "timeseries"
     },
     {
-      "type": "timeseries",
-      "id": 28,
-      "title": "Dropped documents by route",
-      "description": "Documents a drop: true route discarded on purpose, by the drop route that selected them (DESIGN \u00a75.3, ADR-0037). Neither indexed nor dead-lettered; 0 for pipelines without drop routes.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "Documents a drop: true route discarded on purpose, by the drop route that selected them (DESIGN §5.3, ADR-0037). Neither indexed nor dead-lettered; 0 for pipelines without drop routes.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "min": 0,
+          "unit": "cps"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -967,32 +924,15 @@
         "x": 16,
         "y": 31
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "cps",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 28,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -1005,35 +945,52 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "sum by (pipeline, route) (rate(kafkafim_docs_total{pipeline=~\"$pipeline\",outcome=\"dropped\"}[$__rate_interval]))",
+          "instant": false,
           "legendFormat": "{{pipeline}} {{route}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Dropped documents by route",
+      "type": "timeseries"
     },
     {
-      "type": "row",
-      "title": "DLQ",
       "collapsed": false,
-      "id": 16,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 39
       },
-      "panels": []
+      "id": 16,
+      "panels": [],
+      "title": "DLQ",
+      "type": "row"
     },
     {
-      "type": "timeseries",
-      "id": 17,
-      "title": "DLQ records by error type",
-      "description": "DLQ records the broker acknowledged. Any sustained rate fires KafkafimDlqRecords (RUNBOOK \u00a75.6).",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "DLQ records the broker acknowledged. Any sustained rate fires KafkafimDlqRecords (RUNBOOK §5.6).",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "min": 0,
+          "unit": "cps"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -1041,32 +998,15 @@
         "x": 0,
         "y": 40
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "cps",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "normal",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 17,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -1079,22 +1019,39 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "sum by (pipeline, error_type) (rate(kafkafim_dlq_records_total{pipeline=~\"$pipeline\"}[$__rate_interval]))",
+          "instant": false,
           "legendFormat": "{{pipeline}} {{error_type}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "DLQ records by error type",
+      "type": "timeseries"
     },
     {
-      "type": "timeseries",
-      "id": 18,
-      "title": "DLQ ratio",
-      "description": "dlq outcomes over all done documents, dropped ones excluded.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "dlq outcomes over all done documents, dropped ones excluded.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "min": 0,
+          "unit": "percentunit"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -1102,32 +1059,15 @@
         "x": 12,
         "y": 40
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 18,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -1140,35 +1080,52 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "sum by (pipeline) (rate(kafkafim_docs_total{pipeline=~\"$pipeline\",outcome=\"dlq\"}[$__rate_interval])) / sum by (pipeline) (rate(kafkafim_docs_total{pipeline=~\"$pipeline\",outcome!=\"dropped\"}[$__rate_interval]))",
+          "instant": false,
           "legendFormat": "{{pipeline}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "DLQ ratio",
+      "type": "timeseries"
     },
     {
-      "type": "row",
-      "title": "Backpressure and memory",
       "collapsed": false,
-      "id": 19,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 48
       },
-      "panels": []
+      "id": 19,
+      "panels": [],
+      "title": "Backpressure and memory",
+      "type": "row"
     },
     {
-      "type": "timeseries",
-      "id": 20,
-      "title": "In-flight bytes",
-      "description": "Key plus value bytes delivered and not yet completed, per pod. Pinned at the pipeline's source.max-in-flight-bytes means kafkafim is waiting for Elasticsearch (RUNBOOK \u00a75.10).",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "Key plus value bytes delivered and not yet completed, per pod. Pinned at the pipeline's source.max-in-flight-bytes means kafkafim is waiting for Elasticsearch (RUNBOOK §5.10).",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "min": 0,
+          "unit": "bytes"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -1176,32 +1133,15 @@
         "x": 0,
         "y": 49
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "bytes",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 20,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -1214,22 +1154,39 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "kafkafim_in_flight_bytes{pipeline=~\"$pipeline\"}",
+          "instant": false,
           "legendFormat": "{{pipeline}} {{instance}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "In-flight bytes",
+      "type": "timeseries"
     },
     {
-      "type": "timeseries",
-      "id": 21,
-      "title": "JVM heap",
-      "description": "Heap used against the max, per kafkafim pod (other JVMs in the same Prometheus are left out).",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "Heap used against the max, per kafkafim pod (other JVMs in the same Prometheus are left out).",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "min": 0,
+          "unit": "bytes"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -1237,32 +1194,15 @@
         "x": 12,
         "y": 49
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "bytes",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 21,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -1275,46 +1215,63 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "sum by (instance) (jvm_memory_used_bytes{area=\"heap\"} and on (job, instance) kafkafim_config_generation)",
+          "instant": false,
           "legendFormat": "used {{instance}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "B",
           "expr": "sum by (instance) (jvm_memory_max_bytes{area=\"heap\"} and on (job, instance) kafkafim_config_generation)",
+          "instant": false,
           "legendFormat": "max {{instance}}",
           "range": true,
-          "instant": false
+          "refId": "B"
         }
-      ]
+      ],
+      "title": "JVM heap",
+      "type": "timeseries"
     },
     {
-      "type": "row",
-      "title": "Partitions and Kafka",
       "collapsed": false,
-      "id": 22,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 57
       },
-      "panels": []
+      "id": 22,
+      "panels": [],
+      "title": "Partitions and Kafka",
+      "type": "row"
     },
     {
-      "type": "timeseries",
-      "id": 23,
-      "title": "Assigned partitions",
-      "description": "Partitions assigned to each pod's consumers. 0 is normal only when the group has more pods than partitions.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "Partitions assigned to each pod's consumers. 0 is normal only when the group has more pods than partitions.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -1322,32 +1279,15 @@
         "x": 0,
         "y": 58
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 23,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -1360,41 +1300,33 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "kafkafim_assigned_partitions{pipeline=~\"$pipeline\"}",
+          "instant": false,
           "legendFormat": "{{pipeline}} {{instance}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Assigned partitions",
+      "type": "timeseries"
     },
     {
-      "type": "timeseries",
-      "id": 24,
-      "title": "Kafka connected",
-      "description": "1 while every consumer of the pipeline holds a broker connection; a stopped pipeline reads 0.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 58
-      },
+      "description": "1 while every consumer of the pipeline holds a broker connection; a stopped pipeline reads 0.",
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
           "custom": {
             "drawStyle": "line",
-            "lineWidth": 1,
             "fillOpacity": 10,
+            "lineWidth": 1,
             "showPoints": "never",
             "spanNulls": false,
             "stacking": {
-              "mode": "none",
-              "group": "A"
+              "group": "A",
+              "mode": "none"
             },
             "thresholdsStyle": {
               "mode": "line"
@@ -1413,18 +1345,26 @@
                 "value": 1
               }
             ]
-          }
+          },
+          "unit": "short"
         },
         "overrides": []
       },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 58
+      },
+      "id": 24,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -1437,35 +1377,52 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "kafkafim_kafka_connected{pipeline=~\"$pipeline\"}",
+          "instant": false,
           "legendFormat": "{{pipeline}} {{instance}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Kafka connected",
+      "type": "timeseries"
     },
     {
-      "type": "row",
-      "title": "Configuration reload",
       "collapsed": false,
-      "id": 25,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 66
       },
-      "panels": []
+      "id": 25,
+      "panels": [],
+      "title": "Configuration reload",
+      "type": "row"
     },
     {
-      "type": "timeseries",
-      "id": 26,
-      "title": "Config generation",
-      "description": "1 at startup, +1 per applied reload. Pods of one group should agree.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "1 at startup, +1 per applied reload. Pods of one group should agree.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -1473,32 +1430,15 @@
         "x": 0,
         "y": 67
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 26,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -1511,22 +1451,39 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "kafkafim_config_generation",
+          "instant": false,
           "legendFormat": "{{instance}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Config generation",
+      "type": "timeseries"
     },
     {
-      "type": "timeseries",
-      "id": 27,
-      "title": "Reloads by result",
-      "description": "success includes reloads that changed nothing. A failure keeps the running configuration (RUNBOOK \u00a75.11).",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "success includes reloads that changed nothing. A failure keeps the running configuration (RUNBOOK §5.11).",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -1534,32 +1491,15 @@
         "x": 12,
         "y": 67
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 27,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -1572,13 +1512,73 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "sum by (result) (increase(kafkafim_config_reload_total[$__rate_interval]))",
+          "instant": false,
           "legendFormat": "{{result}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Reloads by result",
+      "type": "timeseries"
     }
-  ]
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "kafkafim"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Data source",
+        "multi": false,
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      },
+      {
+        "allValue": ".+",
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(kafkafim_pipeline_state, pipeline)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Pipeline",
+        "multi": true,
+        "name": "pipeline",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(kafkafim_pipeline_state, pipeline)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "kafkafim / Overview",
+  "uid": "kafkafim-overview",
+  "version": 1,
+  "weekStart": ""
 }

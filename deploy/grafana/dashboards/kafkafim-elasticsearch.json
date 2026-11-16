@@ -1,24 +1,4 @@
 {
-  "uid": "kafkafim-elasticsearch",
-  "title": "kafkafim / Elasticsearch",
-  "description": "Per Elasticsearch cluster: breaker, bulk status and latency, 429s, retries, item errors, auth failures (DESIGN \u00a710).",
-  "tags": [
-    "kafkafim"
-  ],
-  "editable": true,
-  "schemaVersion": 39,
-  "version": 1,
-  "graphTooltip": 1,
-  "refresh": "30s",
-  "time": {
-    "from": "now-3h",
-    "to": "now"
-  },
-  "timepicker": {},
-  "timezone": "",
-  "fiscalYearStartMonth": 0,
-  "liveNow": false,
-  "weekStart": "",
   "annotations": {
     "list": [
       {
@@ -35,142 +15,69 @@
       }
     ]
   },
+  "description": "Per Elasticsearch cluster: breaker, bulk status and latency, 429s, retries, item errors, auth failures (DESIGN §10).",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
   "links": [
     {
-      "title": "kafkafim dashboards",
-      "type": "dashboards",
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
       "tags": [
         "kafkafim"
       ],
-      "asDropdown": false,
-      "includeVars": false,
-      "keepTime": true,
       "targetBlank": false,
-      "icon": "external link",
-      "url": "",
-      "tooltip": ""
+      "title": "kafkafim dashboards",
+      "tooltip": "",
+      "type": "dashboards",
+      "url": ""
     }
   ],
-  "templating": {
-    "list": [
-      {
-        "name": "datasource",
-        "label": "Data source",
-        "type": "datasource",
-        "query": "prometheus",
-        "current": {},
-        "hide": 0,
-        "refresh": 1,
-        "regex": "",
-        "includeAll": false,
-        "multi": false,
-        "options": [],
-        "skipUrlSync": false
-      },
-      {
-        "name": "es_cluster",
-        "label": "ES cluster",
-        "type": "query",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "${datasource}"
-        },
-        "query": {
-          "query": "label_values(kafkafim_breaker_state, es_cluster)",
-          "refId": "PrometheusVariableQueryEditor-VariableQuery",
-          "qryType": 1
-        },
-        "definition": "label_values(kafkafim_breaker_state, es_cluster)",
-        "current": {},
-        "hide": 0,
-        "refresh": 2,
-        "regex": "",
-        "sort": 1,
-        "includeAll": true,
-        "multi": true,
-        "allValue": ".+",
-        "options": [],
-        "skipUrlSync": false
-      },
-      {
-        "name": "pipeline",
-        "label": "Pipeline",
-        "type": "query",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "${datasource}"
-        },
-        "query": {
-          "query": "label_values(kafkafim_bulk_docs_count, pipeline)",
-          "refId": "PrometheusVariableQueryEditor-VariableQuery",
-          "qryType": 1
-        },
-        "definition": "label_values(kafkafim_bulk_docs_count, pipeline)",
-        "current": {},
-        "hide": 0,
-        "refresh": 2,
-        "regex": "",
-        "sort": 1,
-        "includeAll": true,
-        "multi": true,
-        "allValue": ".+",
-        "options": [],
-        "skipUrlSync": false
-      }
-    ]
-  },
+  "liveNow": false,
   "panels": [
     {
-      "type": "row",
-      "title": "Circuit breaker",
       "collapsed": false,
-      "id": 1,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 0
       },
-      "panels": []
+      "id": 1,
+      "panels": [],
+      "title": "Circuit breaker",
+      "type": "row"
     },
     {
-      "type": "stat",
-      "id": 2,
-      "title": "Breaker state",
-      "description": "Per Elasticsearch cluster: 0 closed, 1 half-open, 2 open (the worst one while a reload leaves two generations alive). Open pauses every pipeline sending to it (RUNBOOK \u00a75.1).",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "gridPos": {
-        "h": 6,
-        "w": 8,
-        "x": 0,
-        "y": 1
-      },
+      "description": "Per Elasticsearch cluster: 0 closed, 1 half-open, 2 open (the worst one while a reload leaves two generations alive). Open pauses every pipeline sending to it (RUNBOOK §5.1).",
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
           "mappings": [
             {
-              "type": "value",
               "options": {
                 "0": {
-                  "text": "closed",
                   "color": "green",
-                  "index": 0
+                  "index": 0,
+                  "text": "closed"
                 },
                 "1": {
-                  "text": "half-open",
                   "color": "orange",
-                  "index": 1
+                  "index": 1,
+                  "text": "half-open"
                 },
                 "2": {
-                  "text": "open",
                   "color": "red",
-                  "index": 2
+                  "index": 2,
+                  "text": "open"
                 }
-              }
+              },
+              "type": "value"
             }
           ],
           "thresholds": {
@@ -189,11 +96,23 @@
                 "value": 2
               }
             ]
-          }
+          },
+          "unit": "short"
         },
         "overrides": []
       },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      },
+      "id": 2,
       "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -201,11 +120,7 @@
           "fields": "",
           "values": false
         },
-        "colorMode": "background",
-        "graphMode": "none",
         "textMode": "value_and_name",
-        "orientation": "horizontal",
-        "justifyMode": "auto",
         "wideLayout": true
       },
       "targets": [
@@ -214,41 +129,33 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "max by (es_cluster) (kafkafim_breaker_state{es_cluster=~\"$es_cluster\"})",
+          "instant": true,
           "legendFormat": "{{es_cluster}}",
           "range": false,
-          "instant": true
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Breaker state",
+      "type": "stat"
     },
     {
-      "type": "timeseries",
-      "id": 3,
-      "title": "Breaker state over time",
-      "description": "0 closed, 1 half-open, 2 open.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "gridPos": {
-        "h": 6,
-        "w": 16,
-        "x": 8,
-        "y": 1
-      },
+      "description": "0 closed, 1 half-open, 2 open.",
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
           "custom": {
             "drawStyle": "line",
-            "lineWidth": 1,
             "fillOpacity": 10,
+            "lineWidth": 1,
             "showPoints": "never",
             "spanNulls": false,
             "stacking": {
-              "mode": "none",
-              "group": "A"
+              "group": "A",
+              "mode": "none"
             },
             "thresholdsStyle": {
               "mode": "line"
@@ -271,18 +178,26 @@
                 "value": 2
               }
             ]
-          }
+          },
+          "unit": "short"
         },
         "overrides": []
       },
+      "gridPos": {
+        "h": 6,
+        "w": 16,
+        "x": 8,
+        "y": 1
+      },
+      "id": 3,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -295,35 +210,52 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "max by (es_cluster) (kafkafim_breaker_state{es_cluster=~\"$es_cluster\"})",
+          "instant": false,
           "legendFormat": "{{es_cluster}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Breaker state over time",
+      "type": "timeseries"
     },
     {
-      "type": "row",
-      "title": "Bulk requests",
       "collapsed": false,
-      "id": 4,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 7
       },
-      "panels": []
+      "id": 4,
+      "panels": [],
+      "title": "Bulk requests",
+      "type": "row"
     },
     {
-      "type": "timeseries",
-      "id": 5,
-      "title": "Bulk requests by status",
-      "description": "Every attempt, by HTTP status; io_error is a request without a response.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "Every attempt, by HTTP status; io_error is a request without a response.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "min": 0,
+          "unit": "cps"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -331,32 +263,15 @@
         "x": 0,
         "y": 8
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "cps",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "normal",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 5,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -369,41 +284,33 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "sum by (es_cluster, status) (rate(kafkafim_bulk_requests_total{pipeline=~\"$pipeline\",es_cluster=~\"$es_cluster\"}[$__rate_interval]))",
+          "instant": false,
           "legendFormat": "{{es_cluster}} {{status}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Bulk requests by status",
+      "type": "timeseries"
     },
     {
-      "type": "timeseries",
-      "id": 6,
-      "title": "Rejected (429) ratio",
-      "description": "Bulk requests answered 429 over all bulk requests. Above 1% for 5m fires KafkafimBulkRejectRatioHigh. Reads 0 while no request was rejected.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 8
-      },
+      "description": "Bulk requests answered 429 over all bulk requests. Above 1% for 5m fires KafkafimBulkRejectRatioHigh. Reads 0 while no request was rejected.",
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit",
           "custom": {
             "drawStyle": "line",
-            "lineWidth": 1,
             "fillOpacity": 10,
+            "lineWidth": 1,
             "showPoints": "never",
             "spanNulls": false,
             "stacking": {
-              "mode": "none",
-              "group": "A"
+              "group": "A",
+              "mode": "none"
             },
             "thresholdsStyle": {
               "mode": "line"
@@ -422,18 +329,26 @@
                 "value": 0.01
               }
             ]
-          }
+          },
+          "unit": "percentunit"
         },
         "overrides": []
       },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 6,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -446,22 +361,39 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "(sum by (es_cluster) (rate(kafkafim_bulk_requests_total{pipeline=~\"$pipeline\",es_cluster=~\"$es_cluster\",status=\"429\"}[$__rate_interval])) or 0 * sum by (es_cluster) (rate(kafkafim_bulk_requests_total{pipeline=~\"$pipeline\",es_cluster=~\"$es_cluster\"}[$__rate_interval]))) / sum by (es_cluster) (rate(kafkafim_bulk_requests_total{pipeline=~\"$pipeline\",es_cluster=~\"$es_cluster\"}[$__rate_interval]))",
+          "instant": false,
           "legendFormat": "{{es_cluster}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Rejected (429) ratio",
+      "type": "timeseries"
     },
     {
-      "type": "timeseries",
-      "id": 7,
-      "title": "Bulk latency",
-      "description": "From sending to the parsed response, per answered request.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "From sending to the parsed response, per answered request.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "min": 0,
+          "unit": "s"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -469,32 +401,15 @@
         "x": 0,
         "y": 16
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 7,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -507,33 +422,50 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "histogram_quantile(0.99, sum by (es_cluster, le) (rate(kafkafim_bulk_latency_seconds_bucket{pipeline=~\"$pipeline\",es_cluster=~\"$es_cluster\"}[$__rate_interval])))",
+          "instant": false,
           "legendFormat": "p99 {{es_cluster}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "B",
           "expr": "histogram_quantile(0.5, sum by (es_cluster, le) (rate(kafkafim_bulk_latency_seconds_bucket{pipeline=~\"$pipeline\",es_cluster=~\"$es_cluster\"}[$__rate_interval])))",
+          "instant": false,
           "legendFormat": "p50 {{es_cluster}}",
           "range": true,
-          "instant": false
+          "refId": "B"
         }
-      ]
+      ],
+      "title": "Bulk latency",
+      "type": "timeseries"
     },
     {
-      "type": "timeseries",
-      "id": 8,
-      "title": "Docs per request",
-      "description": "Mean actions per answered bulk request.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "Mean actions per answered bulk request.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -541,32 +473,15 @@
         "x": 8,
         "y": 16
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 8,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -579,22 +494,39 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "sum by (es_cluster) (rate(kafkafim_bulk_docs_sum{pipeline=~\"$pipeline\",es_cluster=~\"$es_cluster\"}[$__rate_interval])) / sum by (es_cluster) (rate(kafkafim_bulk_docs_count{pipeline=~\"$pipeline\",es_cluster=~\"$es_cluster\"}[$__rate_interval]))",
+          "instant": false,
           "legendFormat": "{{es_cluster}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Docs per request",
+      "type": "timeseries"
     },
     {
-      "type": "timeseries",
-      "id": 9,
-      "title": "Bytes per request",
-      "description": "Mean uncompressed body size per answered bulk request.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "Mean uncompressed body size per answered bulk request.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "min": 0,
+          "unit": "bytes"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -602,32 +534,15 @@
         "x": 16,
         "y": 16
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "bytes",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 9,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -640,22 +555,39 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "sum by (es_cluster) (rate(kafkafim_bulk_bytes_sum{pipeline=~\"$pipeline\",es_cluster=~\"$es_cluster\"}[$__rate_interval])) / sum by (es_cluster) (rate(kafkafim_bulk_bytes_count{pipeline=~\"$pipeline\",es_cluster=~\"$es_cluster\"}[$__rate_interval]))",
+          "instant": false,
           "legendFormat": "{{es_cluster}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Bytes per request",
+      "type": "timeseries"
     },
     {
-      "type": "timeseries",
-      "id": 10,
-      "title": "Batch flushes by reason",
-      "description": "Sealed batches by the limit that sealed them (explicit: revoke, stop). Mostly age means traffic is below the batch size.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "Sealed batches by the limit that sealed them (explicit: revoke, stop). Mostly age means traffic is below the batch size.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "min": 0,
+          "unit": "cps"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -663,32 +595,15 @@
         "x": 0,
         "y": 24
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "cps",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "normal",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 10,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -701,35 +616,52 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "sum by (es_cluster, reason) (rate(kafkafim_batch_flush_total{pipeline=~\"$pipeline\",es_cluster=~\"$es_cluster\"}[$__rate_interval]))",
+          "instant": false,
           "legendFormat": "{{es_cluster}} {{reason}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Batch flushes by reason",
+      "type": "timeseries"
     },
     {
-      "type": "row",
-      "title": "Retries and item errors",
       "collapsed": false,
-      "id": 11,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 32
       },
-      "panels": []
+      "id": 11,
+      "panels": [],
+      "title": "Retries and item errors",
+      "type": "row"
     },
     {
-      "type": "timeseries",
-      "id": 12,
-      "title": "Retries by scope",
-      "description": "Retryable failures of whole requests (429, 5xx, 401/403, io errors) and of items.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "Retryable failures of whole requests (429, 5xx, 401/403, io errors) and of items.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "min": 0,
+          "unit": "cps"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -737,32 +669,15 @@
         "x": 0,
         "y": 33
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "cps",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 12,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -775,22 +690,39 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "sum by (es_cluster, scope) (rate(kafkafim_retries_total{pipeline=~\"$pipeline\",es_cluster=~\"$es_cluster\"}[$__rate_interval]))",
+          "instant": false,
           "legendFormat": "{{es_cluster}} {{scope}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Retries by scope",
+      "type": "timeseries"
     },
     {
-      "type": "timeseries",
-      "id": 13,
-      "title": "Item errors by type",
-      "description": "Failed bulk items by Elasticsearch error type (status_<n> without one); retryable=false items go to the DLQ.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "Failed bulk items by Elasticsearch error type (status_<n> without one); retryable=false items go to the DLQ.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "min": 0,
+          "unit": "cps"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -798,32 +730,15 @@
         "x": 12,
         "y": 33
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "cps",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 13,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -836,35 +751,52 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "sum by (es_cluster, error_type, retryable) (rate(kafkafim_item_errors_total{pipeline=~\"$pipeline\",es_cluster=~\"$es_cluster\"}[$__rate_interval]))",
+          "instant": false,
           "legendFormat": "{{es_cluster}} {{error_type}} retryable={{retryable}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Item errors by type",
+      "type": "timeseries"
     },
     {
-      "type": "row",
-      "title": "Authentication",
       "collapsed": false,
-      "id": 14,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 41
       },
-      "panels": []
+      "id": 14,
+      "panels": [],
+      "title": "Authentication",
+      "type": "row"
     },
     {
-      "type": "timeseries",
-      "id": 15,
-      "title": "Auth failures (401/403)",
-      "description": "Every 401/403 response per cluster and identity (none for an unauthenticated cluster). The pipeline pauses until the credentials work (RUNBOOK \u00a75.2). A series appears with its first failure; the second term counts that one, which increase() alone misses (approximate: increase() extrapolates).",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
+      },
+      "description": "Every 401/403 response per cluster and identity (none for an unauthenticated cluster). The pipeline pauses until the credentials work (RUNBOOK §5.2). A series appears with its first failure; the second term counts that one, which increase() alone misses (approximate: increase() extrapolates).",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -872,32 +804,15 @@
         "x": 0,
         "y": 42
       },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            }
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
+      "id": 15,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi",
@@ -910,13 +825,98 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "refId": "A",
           "expr": "sum by (es_cluster, identity, pipeline) ((increase(kafkafim_auth_failures_total{pipeline=~\"$pipeline\",es_cluster=~\"$es_cluster\"}[$__rate_interval]) or min_over_time(kafkafim_auth_failures_total{pipeline=~\"$pipeline\",es_cluster=~\"$es_cluster\"}[$__rate_interval]) * 0) + ((min_over_time(kafkafim_auth_failures_total{pipeline=~\"$pipeline\",es_cluster=~\"$es_cluster\"}[$__rate_interval]) unless last_over_time(kafkafim_auth_failures_total{pipeline=~\"$pipeline\",es_cluster=~\"$es_cluster\"}[5m] offset $__rate_interval)) or min_over_time(kafkafim_auth_failures_total{pipeline=~\"$pipeline\",es_cluster=~\"$es_cluster\"}[$__rate_interval]) * 0))",
+          "instant": false,
           "legendFormat": "{{es_cluster}} {{identity}} {{pipeline}}",
           "range": true,
-          "instant": false
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Auth failures (401/403)",
+      "type": "timeseries"
     }
-  ]
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "kafkafim"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Data source",
+        "multi": false,
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      },
+      {
+        "allValue": ".+",
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(kafkafim_breaker_state, es_cluster)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "ES cluster",
+        "multi": true,
+        "name": "es_cluster",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(kafkafim_breaker_state, es_cluster)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".+",
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(kafkafim_bulk_docs_count, pipeline)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Pipeline",
+        "multi": true,
+        "name": "pipeline",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(kafkafim_bulk_docs_count, pipeline)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "kafkafim / Elasticsearch",
+  "uid": "kafkafim-elasticsearch",
+  "version": 1,
+  "weekStart": ""
 }
