@@ -22,3 +22,9 @@ trim_trailing_whitespace = false
 
 [pom.xml]
 indent_style = tab
+
+# Google Shell Style: 2-space indent; shfmt reads this section (case patterns indented).
+[*.sh]
+indent_style = space
+indent_size = 2
+switch_case_indent = true

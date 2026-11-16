@@ -21,13 +21,19 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 case "$CLUSTER" in
   kind) CONTEXT="kind-$KIND_NAME" ;;
   docker-desktop) CONTEXT=docker-desktop ;;
-  *) echo "CLUSTER must be kind or docker-desktop, not '$CLUSTER'" >&2; exit 2 ;;
+  *)
+    echo "CLUSTER must be kind or docker-desktop, not '$CLUSTER'" >&2
+    exit 2
+    ;;
 esac
 k() { kubectl --context "$CONTEXT" -n "$NS" "$@"; }
 
 need() {
   for tool in "$@"; do
-    command -v "$tool" >/dev/null || { echo "missing tool: $tool (see deploy/local/README.md)" >&2; exit 2; }
+    command -v "$tool" >/dev/null || {
+      echo "missing tool: $tool (see deploy/local/README.md)" >&2
+      exit 2
+    }
   done
 }
 
@@ -63,7 +69,7 @@ smoke() {
     local hits
     hits="$(k exec deploy/elasticsearch -- sh -c \
       "curl -fsS -u \"elastic:\$ELASTIC_PASSWORD\" 'http://127.0.0.1:9200/demo-eu-*/_count?q=_id:$id'" \
-      2>/dev/null | sed -n 's/.*"count":\([0-9]*\).*/\1/p')" || hits=0   # retry on any hiccup
+      2>/dev/null | sed -n 's/.*"count":\([0-9]*\).*/\1/p')" || hits=0 # retry on any hiccup
     if [[ "${hits:-0}" -ge 1 ]]; then
       echo "OK: $id is in Elasticsearch (demo-eu-*)"
       return 0
@@ -85,9 +91,16 @@ down() {
   fi
 }
 
-case "${1:-}" in
-  up) up ;;
-  smoke) smoke ;;
-  down) down ;;
-  *) echo "usage: $0 up|smoke|down" >&2; exit 2 ;;
-esac
+main() {
+  case "${1:-}" in
+    up) up ;;
+    smoke) smoke ;;
+    down) down ;;
+    *)
+      echo "usage: $0 up|smoke|down" >&2
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"
