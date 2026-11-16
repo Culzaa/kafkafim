@@ -218,14 +218,19 @@ class HotReloadIntegrationTest {
     assertThat(supervisor.source("a")).isSameAs(a2);
     assertThat(supervisor.source("b")).isSameAs(b1);
     assertThat(meters.find(PipelineStateMetrics.NAME).tag("pipeline", "c").gauges()).isEmpty();
-    assertThat(
-            admin
-                .describeConsumerGroups(List.of("kafkafim.c"))
-                .all()
-                .get()
-                .get("kafkafim.c")
-                .members())
-        .isEmpty();
+    // The stop returns after every consumer's close() returned, but the broker's view of the leaves
+    // is not ordered with that (CI showed all three members listed right after the bump, #256).
+    await()
+        .atMost(TIMEOUT)
+        .untilAsserted(() ->
+            assertThat(
+                    admin
+                        .describeConsumerGroups(List.of("kafkafim.c"))
+                        .all()
+                        .get()
+                        .get("kafkafim.c")
+                        .members())
+                .isEmpty());
 
     // 4. B's password is rotated in Elasticsearch, then in its Secret: only B restarts.
     changePassword("kfm-wb", "pass-b-2");
