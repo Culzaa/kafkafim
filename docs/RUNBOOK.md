@@ -474,7 +474,12 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
 - **Auth or ACL revoked after start**: consumers retry every 10s instead of stopping;
   state stays `running`, consumption stops.
 - **DLQ producer** (missing `Write` on the DLQ topic, which the idempotent producer
-  already needs for `InitProducerId`): see [§5.6](#56-dlq-filling-or-dlq-blocked).
+  already needs for `InitProducerId`): see [§5.6](#56-dlq-filling-or-dlq-blocked). If
+  `ClusterAuthorizationException` persists because the identity lacks the cluster-level
+  `IdempotentWrite` ACL and you cannot grant it, set `enable.idempotence: "false"` in the
+  cluster's `properties` (default `true`; only `true` or `false`). Retries then use one
+  in-flight request, and a retry after a lost acknowledgement may write a duplicate DLQ
+  record, harmless since replay is idempotent by `_id`.
 - **Action**: add the ACL in the provisioning system (consumer identity: `Read` and
   `Describe` on the topics and `Read` on the group; DLQ identity: `Write` and
   `Describe` on the DLQ topic). Running consumers pick it up within 10s; for a

@@ -240,6 +240,47 @@ class KafkaDlqClientTest {
     assertThat(created.get(0).closed()).isFalse();
   }
 
+  /** A client whose producer settings turn idempotence off, as the cluster properties can. */
+  private KafkaDlqClient clientWithoutIdempotence() {
+    Map<String, Object> settings =
+        Map.of(
+            "bootstrap.servers", "localhost:9092",
+            "client.id", "kafkafim-local-dlq",
+            "enable.idempotence", false);
+    return new KafkaDlqClient(
+        settings,
+        s -> {
+          MockProducer<byte[], byte[]> producer =
+              new MockProducer<>(false, null, new ByteArraySerializer(), new ByteArraySerializer());
+          created.add(producer);
+          return producer;
+        });
+  }
+
+  @Test
+  void withoutIdempotenceOrdinaryTransientFailuresNeverReplaceTheProducer() {
+    KafkaDlqClient client = clientWithoutIdempotence();
+    List<RuntimeException> transients =
+        List.of(
+            new NetworkException("broker gone"),
+            new org.apache.kafka.common.errors.TimeoutException("Expiring 1 record(s)"),
+            new org.apache.kafka.common.errors.NotLeaderOrFollowerException("moved"),
+            new org.apache.kafka.common.errors.DisconnectException("closed"),
+            new org.apache.kafka.common.errors.NotEnoughReplicasException("isr"),
+            new NetworkException("slow"));
+
+    for (RuntimeException failure : transients) {
+      assertThat(DlqFailure.isFatalForProducer(failure)).as(failure.toString()).isFalse();
+      AtomicReference<Exception> heard = new AtomicReference<>();
+      client.send(record(), (m, e) -> heard.set(e));
+      created.get(0).errorNext(failure);
+      assertThat(heard.get()).isSameAs(failure);
+    }
+
+    assertThat(created).hasSize(1);
+    assertThat(created.get(0).closed()).isFalse();
+  }
+
   @Test
   void noReplacementAfterClose() {
     KafkaDlqClient client = client();
