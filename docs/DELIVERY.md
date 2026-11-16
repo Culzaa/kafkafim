@@ -167,15 +167,16 @@ cosign verify ghcr.io/matabar/charts/kafkafim:1.2.3 --certificate-identity-regex
 ```
 
 The bundle's `kafkafim-1.2.3.tgz` is the chart that was pushed. To tie it to the
-signed GHCR artifact, pull the chart and compare its checksum with the bundle's (the
-two hashes must be identical):
+signed GHCR artifact, extract the bundle, pull the chart into a separate directory
+(not the bundle's, or the pull overwrites the file being compared) and compare its
+checksum with the bundle's `SHA256SUMS` (the two hashes must be identical):
 
 ```bash
-helm pull oci://ghcr.io/matabar/charts/kafkafim --version 1.2.3
+helm pull oci://ghcr.io/matabar/charts/kafkafim --version 1.2.3 --destination "$(mktemp -d)"
 ```
 
 ```bash
-sha256sum kafkafim-1.2.3.tgz
+sha256sum <that directory>/kafkafim-1.2.3.tgz
 ```
 
 ```bash
@@ -184,8 +185,8 @@ grep ' ./kafkafim-1.2.3.tgz$' SHA256SUMS
 
 The chart's signature is not in the bundle (only the image's is), so it cannot be
 re-verified inside the air gap. There the chart's integrity check is `SHA256SUMS`,
-which covers `kafkafim-1.2.3.tgz` (see the `sha256sum -c` below); like the
-bundle, carry it on the trusted medium. `SHA256SUMS` is only as trustworthy as that
+which covers `kafkafim-1.2.3.tgz` (see the `sha256sum -c` below); carry it on
+the trusted medium. `SHA256SUMS` is only as trustworthy as that
 medium, which is why the signature is verified before transfer. (Checked with cosign
 3.1.3 against the 0.3.0-rc.2 chart: `cosign verify` passes, and `helm pull` returns
 a `.tgz` byte-identical to the release asset.)
