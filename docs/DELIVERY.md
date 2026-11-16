@@ -116,7 +116,12 @@ against the Spring Boot BOM's OpenTelemetry SDK (instrumentation 2.N pairs with 
    Cosign attestation (`cosign attest`), so the layout holds none. There is no
    second build.
 6. Chart packaged with `--version <ver> --app-version <ver>`, pushed to
-   `oci://ghcr.io/matabar/charts`, signed with Cosign.
+   `oci://ghcr.io/matabar/charts`, signed with Cosign (keyless, the same classic
+   format and flags as the image, on the pushed chart digest). The signature lives
+   in GHCR only: the air-gap bundle carries the chart `.tgz` and its `SHA256SUMS`
+   entry, not the chart's signature. The chart is verified on the internet side
+   before transfer, and by checksum inside the air gap (see "Importing into the
+   air-gapped environment").
 7. **Air-gap bundle** `kafkafim-<ver>-airgap.tar.gz` attached to the GitHub Release:
    - `kafkafim-<ver>-image/` (OCI layout from `cosign save`: image index with its BuildKit provenance, signature)
    - `kafkafim-<ver>-image.digest` (the `ghcr.io/...@sha256:...` reference that was signed)
@@ -152,7 +157,41 @@ gh release download v1.2.3 --repo matabar/kafkafim --pattern 'kafkafim-1.2.3-air
 cosign verify ghcr.io/matabar/kafkafim:1.2.3 --certificate-identity-regexp 'https://github.com/matabar/kafkafim/' --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-This is the authoritative check: online, `cosign` refreshes the Sigstore trusted root
+The chart's signature is checked the same way, on this internet-side machine, before
+you carry anything across (`cosign verify` accepts the classic format the release
+signs with, without flags). The reference is the chart's GHCR OCI reference, tag
+included:
+
+```bash
+cosign verify ghcr.io/matabar/charts/kafkafim:1.2.3 --certificate-identity-regexp 'https://github.com/matabar/kafkafim/' --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+The bundle's `kafkafim-1.2.3.tgz` is the chart that was pushed. To tie it to the
+signed GHCR artifact, extract the bundle, pull the chart into a separate directory
+(not the bundle's, or the pull overwrites the file being compared) and compare its
+checksum with the bundle's `SHA256SUMS` (the two hashes must be identical):
+
+```bash
+helm pull oci://ghcr.io/matabar/charts/kafkafim --version 1.2.3 --destination "$(mktemp -d)"
+```
+
+```bash
+sha256sum <that directory>/kafkafim-1.2.3.tgz
+```
+
+```bash
+grep ' ./kafkafim-1.2.3.tgz$' SHA256SUMS
+```
+
+The chart's signature is not in the bundle (only the image's is), so it cannot be
+re-verified inside the air gap. There the chart's integrity check is `SHA256SUMS`,
+which covers `kafkafim-1.2.3.tgz` (see the `sha256sum -c` below); carry it on
+the trusted medium. `SHA256SUMS` is only as trustworthy as that
+medium, which is why the signature is verified before transfer. (Checked with cosign
+3.1.3 against the 0.3.0-rc.2 chart: `cosign verify` passes, and `helm pull` returns
+a `.tgz` byte-identical to the release asset.)
+
+The image check is the authoritative one for the image: online, `cosign` refreshes the Sigstore trusted root
 (Fulcio and Rekor keys) from Sigstore's TUF repository. To re-check the signature
 inside the air gap later, take that trusted root across with the bundle. `cosign
 initialize` refreshes the TUF cache; copy the `trusted_root.json` it verified out of
