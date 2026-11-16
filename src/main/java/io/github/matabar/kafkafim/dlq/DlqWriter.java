@@ -42,7 +42,7 @@ import org.slf4j.LoggerFactory;
  */
 public final class DlqWriter {
 
-  private static final Logger log = LoggerFactory.getLogger(DlqWriter.class);
+  private static final Logger LOG = LoggerFactory.getLogger(DlqWriter.class);
 
   private final String pipeline;
   private final String topic;
@@ -127,7 +127,7 @@ public final class DlqWriter {
           "DLQ produce for pipeline '{}' to topic '{}' ({}) failed ({}), blocking until it"
               + " succeeds: {}";
       if (failure.kind() == DlqFailure.Kind.CONFIGURATION) {
-        log.error(
+        LOG.error(
             message,
             pipeline,
             topic,
@@ -135,7 +135,7 @@ public final class DlqWriter {
             failure.kind(),
             describe(failure.cause()));
       } else {
-        log.warn(
+        LOG.warn(
             message,
             pipeline,
             topic,
@@ -154,7 +154,7 @@ public final class DlqWriter {
       return;
     }
     configurationReported = true;
-    log.error(
+    LOG.error(
         "DLQ produce for pipeline '{}' to topic '{}' ({}) is still blocked, now by a"
             + " configuration failure: {}",
         pipeline,
@@ -169,7 +169,7 @@ public final class DlqWriter {
         return;
       }
       configurationReported = false;
-      log.info("DLQ produce for pipeline '{}' to topic '{}' recovered", pipeline, topic);
+      LOG.info("DLQ produce for pipeline '{}' to topic '{}' recovered", pipeline, topic);
       owner.notify(listener -> listener.onUnblocked(pipeline));
     }
   }
@@ -250,8 +250,8 @@ public final class DlqWriter {
       }
       owner.unregister(this);
       // One line per DLQ record (DESIGN §10, logs): coordinates and error type only; the reason
-      // and the record itself are in the DLQ record, never in the log.
-      log.warn(
+      // and the record itself are in the DLQ record, never in the LOG.
+      LOG.warn(
           "Pipeline '{}': dead-lettered {} to {}-{}@{} (target {}/{})",
           pipeline,
           request,
@@ -282,7 +282,7 @@ public final class DlqWriter {
       Duration retryIn = owner.options().backoff(attempts);
       DlqFailure failure =
           new DlqFailure(DlqFailure.classify(exception), exception, attempts, retryIn);
-      log.debug(
+      LOG.debug(
           "DLQ send of {} for pipeline '{}' failed, attempt {}, retrying in {}",
           request,
           pipeline,

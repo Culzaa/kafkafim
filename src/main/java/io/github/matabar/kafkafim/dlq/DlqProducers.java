@@ -43,7 +43,7 @@ public final class DlqProducers implements SmartLifecycle, AutoCloseable {
   /** Lifecycle phase: stops after the Kafka sources, before the web server (DESIGN §7). */
   public static final int PHASE = Integer.MAX_VALUE - 1000;
 
-  private static final Logger log = LoggerFactory.getLogger(DlqProducers.class);
+  private static final Logger LOG = LoggerFactory.getLogger(DlqProducers.class);
 
   private final KafkafimProperties properties;
   private final DlqListener listener;
@@ -162,7 +162,7 @@ public final class DlqProducers implements SmartLifecycle, AutoCloseable {
         unacknowledged.add(send);
       }
     }
-    log.info(
+    LOG.info(
         "Dropped the DLQ writer of pipeline '{}' to topic '{}'; {} unacknowledged DLQ record(s)"
             + " stay uncommitted (re-delivered if the pipeline runs again)",
         pipelineName,
@@ -290,7 +290,7 @@ public final class DlqProducers implements SmartLifecycle, AutoCloseable {
     try {
       call.accept(listener);
     } catch (RuntimeException | Error e) {
-      log.warn("DLQ listener failed", e);
+      LOG.warn("DLQ listener failed", e);
     }
   }
 
@@ -342,12 +342,12 @@ public final class DlqProducers implements SmartLifecycle, AutoCloseable {
       try {
         producer.client().close(remaining(deadline));
       } catch (RuntimeException e) {
-        log.warn("Closing the DLQ producer ({}) failed", producer.describeIdentity(), e);
+        LOG.warn("Closing the DLQ producer ({}) failed", producer.describeIdentity(), e);
       }
     }
     List<DlqWriter.Send> unacknowledged = new ArrayList<>(pending);
     if (!unacknowledged.isEmpty()) {
-      log.warn(
+      LOG.warn(
           "{} DLQ record(s) not acknowledged at close; their source records will be re-delivered",
           unacknowledged.size());
     }
