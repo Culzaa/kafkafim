@@ -81,6 +81,7 @@ jobs:
         # `--new-bundle-format=false` alone ("must provide --new-bundle-format or --bundle where
         # applicable with --signing-config or --use-signing-config"); the TUF signing config only
         # serves the new format, so it is switched off and Fulcio/Rekor use their public defaults.
+        # Re-check the save/load round trip before bumping cosign: --new-bundle-format is deprecated.
         env:
           IMAGE: ${{ steps.ver.outputs.image }}
           DIGEST: ${{ steps.push.outputs.digest }}

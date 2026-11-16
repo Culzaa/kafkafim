@@ -130,7 +130,8 @@ against the Spring Boot BOM's OpenTelemetry SDK (instrumentation 2.N pairs with 
    - `SHA256SUMS` (every file in the bundle)
    - `IMPORT.md` (this document with the exact version filled in; the procedure is
      "Importing into the air-gapped environment" below)
-8. GitHub Release created with auto-generated notes. Besides the bundle it carries the
+8. GitHub Release created with auto-generated notes (a version with a `-`, such as
+   `0.3.0-rc.1`, is marked a pre-release). Besides the bundle it carries the
    SBOM, the chart, the alert rules and the dashboards as separate assets
    (`kafkafim-alerts.yaml`, `kafkafim-overview.json`, `kafkafim-elasticsearch.json`), so
    whoever runs Prometheus and Grafana can fetch them without the image.
