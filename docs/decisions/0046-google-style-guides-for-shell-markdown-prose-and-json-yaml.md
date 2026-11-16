@@ -45,4 +45,5 @@ publishes no guide (YAML), nothing is invented: the existing conventions stay.
 
 A badly formatted or unquoted script fails "Shell style". The check is not yet in the branch
 protection's required list; adding it is Matan's call. The three existing scripts were reformatted
-once and a few shellcheck findings were fixed with no behaviour change.
+once and a few shellcheck findings were fixed with no behaviour change. "Markdown style" (#266)
+is likewise not yet a required check.
