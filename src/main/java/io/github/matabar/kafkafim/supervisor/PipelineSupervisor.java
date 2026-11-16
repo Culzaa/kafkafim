@@ -110,6 +110,13 @@ public final class PipelineSupervisor implements SmartLifecycle {
     this.pipelines = Collections.unmodifiableMap(runtimes);
   }
 
+  /**
+   * Test seam: called with {@code "begin"} when {@link #rollBack} starts and with {@code
+   * "restart:<pipeline>"} before each pipeline is started again, so that a test can make the
+   * rollback itself fail with an {@link Error} (no listener can reach it any more).
+   */
+  volatile Consumer<String> rollbackProbe = phase -> {};
+
   private PipelineRuntime newRuntime(String name, PipelineRuntime.Context context) {
     return new PipelineRuntime(name, context, this::stateChanged, () -> meters.apply(name));
   }
@@ -378,6 +385,7 @@ public final class PipelineSupervisor implements SmartLifecycle {
       Collection<PipelineRuntime.Context> acquired,
       Map<PipelineRuntime, PipelineRuntime.Context> replaced,
       List<PipelineRuntime> active) {
+    rollbackProbe.accept("begin");
     List<PipelineRuntime.Context> toRelease = new ArrayList<>(acquired);
     replaced.forEach((runtime, previous) -> {
       try {
@@ -413,6 +421,7 @@ public final class PipelineSupervisor implements SmartLifecycle {
     List<String> started = new ArrayList<>();
     for (PipelineRuntime runtime : active) {
       try {
+        rollbackProbe.accept("restart:" + runtime.name());
         runtime.start();
         started.add(runtime.name());
       } catch (RuntimeException | Error e) {

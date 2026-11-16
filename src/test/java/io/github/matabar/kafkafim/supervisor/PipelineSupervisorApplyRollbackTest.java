@@ -175,8 +175,8 @@ class PipelineSupervisorApplyRollbackTest {
   /**
    * A listener that throws an Error on every restart of the rollback neither replaces the original
    * failure nor stops the rollback: both drained pipelines are back and stoppable. A regression
-   * guard for the rollback as a whole (it also holds through rollBack's own catch around the
-   * restarts); the starter-thread fix of #241 is guarded by the next test.
+   * guard for the rollback as a whole; the starter-thread fix of #241 is guarded by the test after
+   * it.
    */
   @Test
   void listenerErrorsDuringTheRollbackDoNotLoseTheOriginalOrSkipTheRest() {
@@ -209,6 +209,56 @@ class PipelineSupervisorApplyRollbackTest {
     supervisor.stopPipeline("b");
     assertThat(supervisor.state("a")).isEqualTo(PipelineState.STOPPED);
     assertThat(supervisor.state("b")).isEqualTo(PipelineState.STOPPED);
+  }
+
+  /** The rollback itself fails: the original is kept, the Error rides along as suppressed. */
+  @Test
+  void errorFailingTheWholeRollbackIsSuppressedUnderTheOriginal() {
+    start(deadBroker(A + B));
+    final KafkafimProperties running = supervisor.properties();
+    KafkafimProperties next = deadBrokerNewPassword(C + A + B);
+    ConfigDiff diff = ConfigDiff.between(running, next);
+    failAcquire(next, 3);
+    LinkageError inRollback = new LinkageError("inside the rollback");
+    supervisor.rollbackProbe =
+        phase -> {
+          if (phase.equals("begin")) {
+            throw inRollback;
+          }
+        };
+
+    assertThatThrownBy(() -> supervisor.apply(next, diff))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("no client today")
+        .hasSuppressedException(inRollback);
+    assertThat(supervisor.properties()).isSameAs(running);
+  }
+
+  /** An Error starting one drained pipeline again does not stop the others from restarting. */
+  @Test
+  void errorRestartingOnePipelineStillRestartsTheOthers() {
+    start(deadBroker(A + B));
+    final KafkafimProperties running = supervisor.properties();
+    final PipelineRuntime.Context a = context("a");
+    KafkafimProperties next = deadBrokerNewPassword(C + A + B);
+    ConfigDiff diff = ConfigDiff.between(running, next);
+    failAcquire(next, 3);
+    supervisor.rollbackProbe =
+        phase -> {
+          if (phase.equals("restart:a")) {
+            throw new LinkageError("inside the rollback");
+          }
+        };
+
+    assertThatThrownBy(() -> supervisor.apply(next, diff))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("no client today")
+        .hasNoSuppressedExceptions();
+
+    assertThat(supervisor.properties()).isSameAs(running);
+    assertThat(context("a")).isSameAs(a);
+    assertThat(supervisor.state("a")).isEqualTo(PipelineState.STOPPED); // not restarted
+    assertThat(supervisor.state("b")).isEqualTo(PipelineState.STARTING);
   }
 
   /**
