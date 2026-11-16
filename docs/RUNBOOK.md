@@ -1,12 +1,12 @@
 # kafkafim operator runbook
 
-For the on-call engineer: how to deploy, observe and recover kafkafim in production.
-It describes what the code does today; where behaviour is missing, it says so and
-lists the gap under [Known gaps](#known-gaps). Background is in
+This runbook shows the on-call engineer how to deploy, observe, and recover kafkafim in
+production. It describes what the code does today; where behaviour is missing, it says so
+and lists the gap under [Known gaps](#known-gaps). Background is in
 [DESIGN.md](DESIGN.md), the chart in [HELM.md](HELM.md), the release and air-gap
 procedure in [DELIVERY.md](DELIVERY.md).
 
-Conventions used below:
+This runbook uses these conventions:
 
 - One Helm release per Kubernetes cluster, conventionally named `kafkafim`. Every
   group `<g>` renders `Deployment`, `ConfigMap`, `Service` and `PodDisruptionBudget`
@@ -20,14 +20,14 @@ Conventions used below:
   ```
 
   Every pod has its own pipelines, state and reload result; a port-forward to
-  `deploy/kafkafim-<g>` picks the first matching pod, so prefer naming the pod.
+  `deploy/kafkafim-<g>` picks the first matching pod, so name the pod.
 - Logs are in two places ([DESIGN §10](DESIGN.md#logs)). The backend that receives
   OTLP (APM Server) has every pod's records, searchable by `service.instance.id` (the
   pod name), severity, logger and trace id: start there. `kubectl logs` shows the same
   events as plain text, with the trace and span id in brackets (a multi-line message or
-  a stack trace continues on the following lines). Only
-  stdout has a pod that failed to start, the last lines of a shutdown, and whatever was
-  logged while the OTLP endpoint was unreachable. The log lines quoted below are the
+  a stack trace continues on the following lines). Only stdout has a pod that failed to
+  start, the last lines of a shutdown, and whatever was logged while the OTLP endpoint was
+  unreachable. The log lines quoted below are the
   message of either.
 - Metric names are the Prometheus names from [DESIGN §10](DESIGN.md#10-observability).
 
@@ -125,9 +125,9 @@ helm rollback kafkafim <revision> -n <ns>
 A rollback is an upgrade to the old manifests and behaves as in the table above: a
 config-only rollback hot-reloads, an image rollback rolls the pods. In the air gap
 the previous image must still be in the internal registry under the digest the old
-revision names; do not prune it until the new release is proven. Equivalently,
+revision names; do not prune it until you have proven the new release. Alternatively,
 revert the values change in the infrastructure repository and let its CI run
-`helm upgrade --install` again; prefer that, so git stays the source of truth.
+`helm upgrade --install` again. Prefer this option, so git stays the source of truth.
 
 Redelivery after a rollback is harmless (idempotent `_id`s). The one exception:
 pipelines with `document.id-missing: auto` (ES-generated ids) index duplicates for
@@ -139,14 +139,14 @@ any record re-read after a restart.
 kubectl -n <ns> rollout restart deployment/kafkafim-<g>
 ```
 
-Needed for: a pipeline paused by a record-handler failure, an OTLP header Secret
+You need a restart for: a pipeline paused by a record-handler failure, an OTLP header Secret
 rotation, TLS certificate or keystore files rotated under the same path, password and
 store type ([§4.3](#43-rotating-a-secret); a new file path, password or store type
 reloads without a restart).
-A pipeline in `failed_preflight` does not need a restart: after fixing the cause, a
+A pipeline in `failed_preflight` does not need a restart: after you fix the cause, a
 no-op `POST /actuator/reload` retries it ([§5.5](#55-failed_preflight-pipelines)).
-Shutdown is graceful: each pipeline stops fetching, gives
-in-flight records up to 30s to complete, commits and leaves its group; records still
+Shutdown is graceful: each pipeline stops fetching, gives in-flight records up to 30s to
+complete, commits, and leaves its group; records still
 incomplete are re-delivered to the next owner. The pod has 90s
 (`terminationGracePeriodSeconds`) for this ([DESIGN §7](DESIGN.md#7-backpressure-and-failure-handling),
 Pod SIGTERM row).
@@ -244,7 +244,7 @@ Dashboards and alert rules for these metrics ship in `deploy/grafana/`
 ([DESIGN §10](DESIGN.md#shipped-with-the-repo)) and, versioned with the image, in the
 release bundle's `kafkafim-<ver>-grafana/` (what the air gap loads, see
 [§2.1](#21-import-a-release-into-the-air-gap)): see
-[deploy/grafana/README.md](../deploy/grafana/README.md) for importing the dashboards
+the [Grafana README](../deploy/grafana/README.md) for importing the dashboards
 and loading the rules. Every alert's `runbook_url` points to a section of §5 (or
 §3.1), and each of those sections names the alerts that lead to it.
 
@@ -255,7 +255,7 @@ and loading the rules. Every alert's `runbook_url` points to a section of §5 (o
 Each pod watches its config directory (`/etc/kafkafim/config/`) and every secret
 directory under `/etc/kafkafim/secrets/` (file watch plus a 10s content-hash poll,
 2s debounce). Kubelet refreshes mounted ConfigMaps and Secrets with up to about a
-minute of delay, so expect a change to apply within about 75s of `helm upgrade` or a
+minute of delay, so a change applies within about 75s of `helm upgrade` or a
 `Secret` update. To reload one pod at once (after kubelet has refreshed its files):
 
 ```bash
@@ -285,7 +285,7 @@ group), so nothing that completed is re-delivered; the group still rebalances.
 
 ### 4.2 Reading the result
 
-The endpoint answers JSON (names and violations only, never values):
+The endpoint returns JSON (names and violations only, never values):
 
 ```json
 {"result":"applied","generation":7,"added":["audit"],"removed":[],
@@ -373,7 +373,7 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
   `type=<error.type>, root_cause=[...]` (`non-JSON, <n> bytes` for a proxy page,
   `empty body` for none), never its `reason`, which can quote document values
   (ADR-0030); a connection error or timeout shows `transport error: <exception>`. To
-  see the response body itself, cut to 1024 characters, at DEBUG, add to the chart's
+  see the response body itself (cut to 1024 characters) at DEBUG, add this to the chart's
   `extraEnv` (this rolls every group's pods):
 
   ```yaml
@@ -391,7 +391,7 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
   health). Is it down, overloaded (429s, `es_rejected_execution_exception`), or is
   the network path broken? Pipelines writing to other ES clusters are unaffected. If
   the failures are timeouts (`transport error: ...Timeout...`) on a cluster that is
-  otherwise healthy, a full bulk may simply take longer than the cluster's
+  otherwise healthy, a full bulk may take longer than the cluster's
   `client.response-timeout`: lower `bulk.max-bytes` or raise the timeout. Startup warns
   `bulk.max-bytes: ... longer than client.response-timeout` when `max-bytes` in MB
   exceeds `response-timeout` in seconds (DESIGN §5.7).
@@ -410,9 +410,8 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
   in later bulks only up to `dlq.max-attempts` (default 10) or `dlq.max-elapsed`
   (default 10m), then goes to the DLQ as `es_retries_exhausted`. A sustained partial
   overload therefore does produce DLQ records; replay them once ES is healthy
-  ([§5.6](#56-dlq-filling-or-dlq-blocked)). If the outage will be long, nothing needs to be scaled
-  down: memory is
-  bounded by `max-in-flight-bytes`. A reload that restarts an affected pipeline drops
+  ([§5.6](#56-dlq-filling-or-dlq-blocked)). If the outage is long, you do not need to scale
+  anything down: `max-in-flight-bytes` bounds memory. A reload that restarts an affected pipeline drops
   its breaker pause; the new run re-pauses on its first failures.
 - **Afterwards**: expect a catch-up burst; watch lag fall and `kafkafim_bulk_latency_seconds`.
 
@@ -709,10 +708,9 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
 `increase(kafkafim_config_reload_total{result="failure"}[10m]) > 0`: see
 [§4.2](#42-reading-the-result). Find the ERROR `Configuration reload (...) rejected`
 (or `... failed while applying generation`) line on any pod of the group for the violations, fix the
-values and upgrade again,
-or roll back. Until then the pods run the previous generation, and new pods fail on a rejected
-tree (a valid tree that only failed while it was applied usually starts on new pods, unless the
-cause in the ERROR line also applies at startup).
+values and upgrade again, or roll back. Until then the pods run the previous generation,
+and new pods fail on a rejected tree (a valid tree that only failed while it was applied
+usually starts on new pods, unless the cause in the ERROR line also applies at startup).
 
 ### 5.12 Pipeline stuck in `starting`
 

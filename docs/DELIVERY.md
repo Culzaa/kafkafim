@@ -89,7 +89,8 @@ Branch protection on `main` (a classic branch protection rule, in force since
 
 The rule requires no approving review; reviews are a process rule (CONTRIBUTING.md).
 
-Dependabot (weekly, grouped) for Maven, GitHub Actions and the Docker base image.
+Dependabot runs weekly, with grouped updates, for Maven, GitHub Actions and the Docker
+base image.
 Dependabot ignores `io.opentelemetry.proto:opentelemetry-proto`. No BOM manages it, and
 `pom.xml` declares it at the version `micrometer-registry-otlp` depends on. A
 `maven-enforcer-plugin` `dependencyConvergence` rule fails `validate` when the two
@@ -217,7 +218,8 @@ Sigstore rotates these keys, so fetch a fresh copy for each import. `SHA256SUMS`
 does not cover `trusted_root.json`, and it is the trust anchor for the check inside
 the air gap, so carry it on the same trusted medium as the bundle (or note its
 `sha256sum` here and compare it there). Then carry both across and, inside the air
-gap, in the directory that holds the extracted bundle and `trusted_root.json`:
+gap, run the following commands in the directory that holds the extracted bundle and
+`trusted_root.json`:
 
 ```bash
 sha256sum -c SHA256SUMS
@@ -229,7 +231,7 @@ cosign load --dir kafkafim-1.2.3-image registry.internal/kafkafim/kafkafim:1.2.3
 
 `cosign load` pushes the image index and its signature together, so the internal
 registry holds the same signed artifact as GHCR. To re-check the signature inside
-the air gap, pass the carried trusted root:
+the air gap, pass the trusted root you carried across:
 
 ```bash
 cosign verify registry.internal/kafkafim/kafkafim:1.2.3 --trusted-root trusted_root.json --certificate-identity-regexp 'https://github.com/matabar/kafkafim/' --certificate-oidc-issuer https://token.actions.githubusercontent.com
@@ -252,10 +254,10 @@ The SBOM describes the `linux/amd64` image, which is what production runs.
 helm push kafkafim-1.2.3.tgz oci://registry.internal/charts
 ```
 
-The release is applied per Kubernetes cluster with plain `helm upgrade --install`, run
-by the infrastructure repository's CI inside the air gap with that cluster's values
-file; there is no Argo CD or Flux. At import time, record the digest from the bundle
-in each per-cluster values file, next to the internal registry:
+The infrastructure repository's CI applies the release to each Kubernetes cluster with
+plain `helm upgrade --install` inside the air gap, using that cluster's values file;
+there is no Argo CD or Flux. At import time, record the digest from the bundle in each
+per-cluster values file, next to the internal registry:
 
 ```bash
 cut -d@ -f2 kafkafim-1.2.3-image.digest
@@ -271,7 +273,7 @@ image:
 helm upgrade --install kafkafim oci://registry.internal/charts/kafkafim --version 1.2.3 -f values-<cluster>.yaml
 ```
 
-For a manual install from the extracted bundle, the same values can be passed as
+For a manual install from the extracted bundle, pass the same values as
 `--set image.registry=registry.internal/kafkafim --set image.digest="$(cut -d@ -f2 kafkafim-1.2.3-image.digest)"`.
 
 `image.digest` pins the pods to the exact image that was signed and checksummed,
@@ -280,8 +282,8 @@ so a tag moved or overwritten in the internal registry cannot change what runs.
 (`ghcr.io/matabar/kafkafim@sha256:...`); the chart takes only the `sha256:<64 hex>`
 part after `@` (the registry comes from `image.registry`), and its schema rejects
 anything else. `cosign load` and `skopeo copy --all --preserve-digests` push the same
-bytes, so the digest is the same in the internal registry. To check (prints `OK` or
-`MISMATCH`):
+bytes, so the digest is the same in the internal registry. To check it, run the following
+command, which prints `OK` or `MISMATCH`:
 
 ```bash
 [ "sha256:$(skopeo inspect --raw docker://registry.internal/kafkafim/kafkafim:1.2.3 | sha256sum | cut -d' ' -f1)" = "$(cut -d@ -f2 kafkafim-1.2.3-image.digest)" ] && echo OK || echo MISMATCH
@@ -292,8 +294,8 @@ the `app.kubernetes.io/version` label still reads `1.2.3` (the chart's appVersio
 Leave `image.tag` empty, or set it to `1.2.3` for a `:1.2.3@sha256:...` reference; never put
 `1.2.3@sha256:...` in `image.tag` (the chart fails and points at `image.digest`).
 
-Where `cosign` is unavailable inside the air gap, skopeo (1.18 or later, for the
-`@<index>` source syntax) pushes the image, then its signature in a second copy:
+If `cosign` is unavailable inside the air gap, use skopeo (1.18 or later, for the
+`@<index>` source syntax) to push the image, then its signature in a second copy:
 
 ```bash
 skopeo copy --all --preserve-digests oci:kafkafim-1.2.3-image:@0 docker://registry.internal/kafkafim/kafkafim:1.2.3
@@ -320,7 +322,7 @@ under the tag `sha256-<hex>.sig` next to the image, where `sha256:<hex>` is the 
 digest from `kafkafim-1.2.3-image.digest`. `:@1` is the second entry of `index.json`,
 the signature manifest; check that
 `jq -r '.manifests[1].annotations.kind' kafkafim-1.2.3-image/index.json` prints
-`dev.cosignproject.cosign/sigs`. Skip the second copy and the internal registry holds
+`dev.cosignproject.cosign/sigs`. If you skip the second copy, the internal registry holds
 the image unsigned: `cosign verify` there fails with `no signatures found`. With both
 copies, `cosign verify --trusted-root trusted_root.json` works on the internal
 reference as after `cosign load`. A release has no Cosign
