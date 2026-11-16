@@ -2,19 +2,36 @@
 # kafkafim load test driver (loadtest/README.md). Usage: ./run.sh <up|down|throughput|latency|memory|outage|rebalance>
 # Every knob is an environment variable with a default below. Output: loadtest/results/<run>/.
 set -euo pipefail
-cd "$(dirname "$0")"
 
-: "${PIPELINES:=1}"        # pipelines, each on its own topic lt.p<n> and its own ES index
-: "${PARTITIONS:=3}"       # partitions per topic
-: "${DOCS:=1000000}"       # documents per pipeline
-: "${DOC_BYTES:=1024}"     # approximate size of one JSON document
-: "${RATE:=5000}"          # docs/s per pipeline (latency, outage, rebalance)
-: "${MAX_IN_FLIGHT:=64MB}" # source.max-in-flight-bytes
-: "${HEAP:=512m}"          # kafkafim -Xmx
-: "${BULK_IN_FLIGHT:=4}"   # elasticsearch bulk.in-flight
-: "${OUTAGE_AT:=30}"       # outage: seconds into the run when ES stops
-: "${OUTAGE_FOR:=60}"      # outage: seconds ES stays down
-default_jar() {            # first built kafkafim jar that is not the pre-repackage "-original" one; empty if none
+readonly PIPELINES="${PIPELINES:-1}"            # pipelines, each on its own topic lt.p<n> and its own ES index
+readonly PARTITIONS="${PARTITIONS:-3}"          # partitions per topic
+readonly DOCS="${DOCS:-1000000}"                # documents per pipeline
+readonly DOC_BYTES="${DOC_BYTES:-1024}"         # approximate size of one JSON document
+readonly RATE="${RATE:-5000}"                   # docs/s per pipeline (latency, outage, rebalance)
+readonly MAX_IN_FLIGHT="${MAX_IN_FLIGHT:-64MB}" # source.max-in-flight-bytes
+readonly HEAP="${HEAP:-512m}"                   # kafkafim -Xmx
+readonly BULK_IN_FLIGHT="${BULK_IN_FLIGHT:-4}"  # elasticsearch bulk.in-flight
+readonly OUTAGE_AT="${OUTAGE_AT:-30}"           # outage: seconds into the run when ES stops
+readonly OUTAGE_FOR="${OUTAGE_FOR:-60}"         # outage: seconds ES stays down
+readonly BOOT=localhost:19092
+readonly ES=http://localhost:19200
+readonly DC="docker compose -f compose.yaml"
+
+# Set by init, which runs first in main (they depend on the script's directory and the scenario).
+JAR="${JAR:-}" # kafkafim jar; the environment may override
+LIB=""
+RUN=""
+SAMPLER="" # pid of the background sampler
+PRODS=()   # pids of the background producers
+
+#######################################
+# Prints the first built kafkafim jar that is not the pre-repackage "-original" one; nothing if none.
+# Arguments:
+#   None
+# Outputs:
+#   Writes the jar path to stdout
+#######################################
+default_jar() {
   local jar
   for jar in ../target/kafkafim-*.jar; do
     [[ "$jar" == *original* ]] || {
@@ -23,23 +40,66 @@ default_jar() {            # first built kafkafim jar that is not the pre-repack
     }
   done
 }
-: "${JAR:=$(default_jar)}"
-BOOT=localhost:19092
-LIB="$PWD/results/.lib"
-ES=http://localhost:19200
-RUN="results/$(date +%Y%m%d-%H%M%S)-${1:-run}"
-DC="docker compose -f compose.yaml"
 
+#######################################
+# Changes into the script's directory and sets the per-run constants JAR, LIB and RUN.
+# Globals:
+#   JAR (read from the environment, set), LIB, RUN (set)
+# Arguments:
+#   Scenario name, used in the run directory name (default "run")
+#######################################
+init() {
+  cd "$(dirname "$0")"
+  JAR="${JAR:-$(default_jar)}"
+  LIB="$PWD/results/.lib"
+  RUN="results/$(date +%Y%m%d-%H%M%S)-${1:-run}"
+  readonly JAR LIB RUN
+}
+
+#######################################
+# Prints a timestamped line to stdout and appends it to the run log.
+# Globals:
+#   RUN (read)
+# Arguments:
+#   Message words
+#######################################
 log() { printf '%s %s\n' "$(date +%T)" "$*" | tee -a "$RUN/run.log"; }
-prod() { # topic firstSeq count rate; runs on the host with the Kafka client jars taken from the kafkafim jar
+
+#######################################
+# Like log, but to stderr (and the run log): for failures.
+# Globals:
+#   RUN (read)
+# Arguments:
+#   Message words
+#######################################
+err() { printf '%s %s\n' "$(date +%T)" "$*" | tee -a "$RUN/run.log" >&2; }
+
+#######################################
+# Runs Produce.java on the host, with the Kafka client jars taken from the kafkafim jar.
+# Globals:
+#   LIB, JAR, BOOT, DOC_BYTES (read)
+# Arguments:
+#   Topic, first sequence number, count, rate in docs/s (0 = unthrottled)
+#######################################
+prod() {
   if [[ ! -d "$LIB" ]]; then
     mkdir -p "$LIB"
     unzip -qj -o "$JAR" 'BOOT-INF/lib/kafka-clients-*' 'BOOT-INF/lib/lz4-java-*' 'BOOT-INF/lib/slf4j-api-*' -d "$LIB"
   fi
   java -cp "$LIB/*" Produce.java "$BOOT" "$1" "$2" "$3" "$4" "$DOC_BYTES" 2>&1 | grep -v '^SLF4J\|^WARNING'
 }
+#######################################
+# Prints the number of documents in the lt-* indices.
+# Globals:
+#   ES (read)
+#######################################
 es_count() { curl -s -m 5 "$ES/lt-*/_count" | sed -n 's/.*"count":\([0-9]*\).*/\1/p'; }
 
+#######################################
+# Starts the compose stack, recreates the topics and index template: the same state for every run.
+# Globals:
+#   DC, PIPELINES, PARTITIONS, ES (read)
+#######################################
 up() {
   $DC up -d --wait
   for n in $(seq 1 "$PIPELINES"); do
@@ -58,7 +118,12 @@ up() {
     -d '{"index_patterns":["lt-*"],"template":{"settings":{"number_of_shards":1,"number_of_replicas":0}}}' >/dev/null
 }
 
-gen_config() { # writes $RUN/config/application-kafkafim.yaml
+#######################################
+# Writes $RUN/config/application-kafkafim.yaml.
+# Globals:
+#   RUN, BOOT, ES, BULK_IN_FLIGHT, PIPELINES, MAX_IN_FLIGHT (read)
+#######################################
+gen_config() {
   mkdir -p "$RUN/config"
   {
     cat <<YAML
@@ -93,9 +158,18 @@ YAML
   } >"$RUN/config/application-kafkafim.yaml"
 }
 
-start_app() { # name port [partitions that must be assigned before it counts as ready]
+#######################################
+# Starts a kafkafim instance in the background and waits up to 90 s until it is ready.
+# Globals:
+#   RUN, JAR, HEAP (read)
+# Arguments:
+#   Name (a or b), port, optionally the partitions that must be assigned before it counts as ready
+# Returns:
+#   0 when ready, 1 when the port is in use or readiness timed out
+#######################################
+start_app() {
   if curl -s -m 2 -o /dev/null "localhost:$2/actuator/health"; then
-    log "port $2 is in use: a kafkafim from an earlier run is still alive"
+    err "port $2 is in use: a kafkafim from an earlier run is still alive"
     return 1
   fi
   JAVA_TOOL_OPTIONS="-Xmx$HEAP" SPRING_PROFILES_ACTIVE=kafkafim \
@@ -109,10 +183,17 @@ start_app() { # name port [partitions that must be assigned before it counts as 
       [[ "$(metric "$2" '^kafkafim_assigned_partitions')" -ge "${3:-1}" ]] && return 0
     sleep 1
   done
-  log "kafkafim $1 did not become ready"
+  err "kafkafim $1 did not become ready"
   return 1
 }
-stop_app() { # name: SIGTERM (graceful), SIGKILL after 20 s; only the pid this run started
+#######################################
+# Stops an instance this run started: SIGTERM (graceful), SIGKILL after 20 s.
+# Globals:
+#   RUN (read)
+# Arguments:
+#   Name (a or b)
+#######################################
+stop_app() {
   if [[ -f "$RUN/app-$1.pid" ]]; then
     local pid
     pid=$(cat "$RUN/app-$1.pid")
@@ -125,50 +206,101 @@ stop_app() { # name: SIGTERM (graceful), SIGKILL after 20 s; only the pid this r
   fi
   rm -f "$RUN/app-$1.pid"
 }
-metric() { # port name-regex  -> sum of all matching series (0 when absent)
+#######################################
+# Prints the sum of all matching series of an instance (0 when absent).
+# Arguments:
+#   Port, metric name regex
+#######################################
+metric() {
   curl -sf -m 3 "localhost:$1/actuator/prometheus" 2>/dev/null |
     awk -v re="$2" '$0 ~ re { s += $NF } END { printf "%.0f\n", s }'
 }
 
-sampler() { # one CSV line per second: time, ES count, indexed A, indexed B, in-flight A, assigned A, e2e sum A, e2e count A, RSS KB A, JVM heap used A
+#######################################
+# Prints the sum of the series of a Prometheus text exposition (stdin) whose line matches a regex.
+# Arguments:
+#   Regex
+#######################################
+sum_series() { awk -v re="$1" '$0 ~ re { s += $NF } END { printf "%.3f", s }'; }
+
+#######################################
+# Appends one CSV line per second to $RUN/samples.csv, forever (run it in the background):
+# time, ES count, indexed A, indexed B, in-flight A, assigned A, e2e sum A, e2e count A,
+# RSS KB A, JVM heap used A.
+# Globals:
+#   RUN (read)
+#######################################
+sampler() {
+  local pid a b
   echo "t,es_count,indexed_a,indexed_b,in_flight_a,assigned_a,e2e_sum_a,e2e_count_a,rss_kb_a,heap_used_a" >"$RUN/samples.csv"
   while :; do
     pid=$(cat "$RUN/app-a.pid" 2>/dev/null || echo 0)
     a=$(curl -sf -m 2 localhost:8080/actuator/prometheus || true)
     b=$(curl -sf -m 2 localhost:8081/actuator/prometheus || true)
-    sum() { awk -v re="$1" '$0 ~ re { s += $NF } END { printf "%.3f", s }'; }
     printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' "$(date +%s)" "$(es_count || echo 0)" \
-      "$(sum '^kafkafim_docs_total.*outcome="indexed"' <<<"$a")" "$(sum '^kafkafim_docs_total.*outcome="indexed"' <<<"$b")" \
-      "$(sum '^kafkafim_in_flight_bytes' <<<"$a")" "$(sum '^kafkafim_assigned_partitions' <<<"$a")" \
-      "$(sum '^kafkafim_e2e_latency_seconds_sum' <<<"$a")" "$(sum '^kafkafim_e2e_latency_seconds_count' <<<"$a")" \
-      "$(ps -o rss= -p "$pid" 2>/dev/null | tr -d ' ')" "$(sum '^jvm_memory_used_bytes.*area="heap"' <<<"$a")" >>"$RUN/samples.csv"
+      "$(sum_series '^kafkafim_docs_total.*outcome="indexed"' <<<"$a")" "$(sum_series '^kafkafim_docs_total.*outcome="indexed"' <<<"$b")" \
+      "$(sum_series '^kafkafim_in_flight_bytes' <<<"$a")" "$(sum_series '^kafkafim_assigned_partitions' <<<"$a")" \
+      "$(sum_series '^kafkafim_e2e_latency_seconds_sum' <<<"$a")" "$(sum_series '^kafkafim_e2e_latency_seconds_count' <<<"$a")" \
+      "$(ps -o rss= -p "$pid" 2>/dev/null | tr -d ' ')" "$(sum_series '^jvm_memory_used_bytes.*area="heap"' <<<"$a")" >>"$RUN/samples.csv"
     sleep 1
   done
 }
 
-prefill() { # all pipelines in parallel, returns when every topic is filled
+#######################################
+# Fills every topic with DOCS documents, all pipelines in parallel; returns when they are filled.
+# Globals:
+#   PRODS (set via produce_all)
+#######################################
+prefill() {
   produce_all 0
   wait_produce
 }
-steady() { # produce DOCS docs per pipeline at RATE, in parallel, in the background
+#######################################
+# Produces DOCS documents per pipeline at RATE, in parallel, in the background.
+# Globals:
+#   RATE (read), PRODS (set via produce_all)
+#######################################
+steady() {
   produce_all "$RATE"
 }
-produce_all() { # rate
+#######################################
+# Starts one background producer per pipeline.
+# Globals:
+#   PIPELINES, DOCS, RUN (read), PRODS (set)
+# Arguments:
+#   Rate in docs/s (0 = unthrottled)
+#######################################
+produce_all() {
   PRODS=()
   for n in $(seq 1 "$PIPELINES"); do
     prod "lt.p$n" 0 "$DOCS" "$1" >>"$RUN/produce.log" &
     PRODS+=("$!")
   done
 }
-wait_produce() { wait "${PRODS[@]}"; } # not a bare `wait`: that would also wait for the sampler
-wait_total() {                         # until ES holds PIPELINES*DOCS documents; gives up after $1 seconds, or 180 s without progress
+#######################################
+# Waits for the producers (not a bare `wait`: that would also wait for the sampler).
+# Globals:
+#   PRODS (read)
+#######################################
+wait_produce() { wait "${PRODS[@]}"; }
+
+#######################################
+# Waits until ES holds PIPELINES*DOCS documents; gives up after a timeout, or 180 s without progress.
+# Globals:
+#   PIPELINES, DOCS (read)
+# Arguments:
+#   Timeout in seconds
+# Returns:
+#   0 when all documents arrived, 1 on timeout or stall
+#######################################
+wait_total() {
   local want=$((PIPELINES * DOCS)) c last=-1 idle=0
   for _ in $(seq 1 "$1"); do
     c=$(es_count || echo 0)
     [[ "${c:-0}" -ge "$want" ]] && return 0
     if [[ "${c:-0}" == "$last" ]]; then idle=$((idle + 1)); else idle=0; fi
     [[ "$idle" -ge 180 ]] && {
-      log "STALLED at ${c:-0} documents"
+      err "STALLED at ${c:-0} documents"
       return 1
     }
     last=${c:-0}
@@ -176,7 +308,12 @@ wait_total() {                         # until ES holds PIPELINES*DOCS documents
   done
   return 1
 }
-finish() { # final metrics snapshot and summary
+#######################################
+# Writes the final metrics snapshot and prints the summary.
+# Globals:
+#   RUN, ES, PIPELINES, DOCS (read)
+#######################################
+finish() {
   curl -sf -m 5 localhost:8080/actuator/prometheus | grep '^kafkafim_' >"$RUN/metrics-final.txt" || true
   curl -s "$ES/_refresh" >/dev/null || true
   grep -c OutOfMemoryError "$RUN"/app-*.log | awk -F: '$2>0 { print "OutOfMemoryError in " $1 }' | tee -a "$RUN/run.log" || true
@@ -184,19 +321,31 @@ finish() { # final metrics snapshot and summary
   ./summary.sh "$RUN" | tee -a "$RUN/run.log"
 }
 
+#######################################
+# EXIT trap: stops the sampler and both instances, and makes sure Elasticsearch is running again.
+# Globals:
+#   SAMPLER, DC (read)
+#######################################
+cleanup() {
+  kill "${SAMPLER:-0}" 2>/dev/null || true
+  stop_app a
+  stop_app b
+  $DC start elasticsearch >/dev/null 2>&1 || true
+}
+
+#######################################
+# Entry point: runs one scenario.
+# Arguments:
+#   Scenario: up | down | throughput | latency | memory | outage | rebalance
+#######################################
 main() {
   local scenario="${1:-}"
+  init "$scenario"
   mkdir -p "$RUN"
-  case "$scenario" in up | down) ;; *) [[ -f "$JAR" ]] || {
+  if [[ "$scenario" != up && "$scenario" != down && ! -f "$JAR" ]]; then
     echo "no jar: run ./mvnw -DskipTests package first" >&2
     exit 1
-  } ;; esac
-  cleanup() {
-    kill "${SAMPLER:-0}" 2>/dev/null || true
-    stop_app a
-    stop_app b
-    $DC start elasticsearch >/dev/null 2>&1 || true
-  }
+  fi
   trap cleanup EXIT
   log "scenario=$scenario pipelines=$PIPELINES partitions=$PARTITIONS docs=$DOCS doc_bytes=$DOC_BYTES rate=$RATE max_in_flight=$MAX_IN_FLIGHT heap=$HEAP bulk_in_flight=$BULK_IN_FLIGHT jar=$JAR"
 
