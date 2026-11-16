@@ -19,18 +19,18 @@
   Log levels still come from logging.level.* properties.
 -->
 <configuration>
-	<include resource="org/springframework/boot/logging/logback/defaults.xml"/>
-	<include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+  <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+  <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
 
-	<appender name="OTLP" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
-		<!-- thread.name and thread.id: which consumer or sink thread logged -->
-		<captureExperimentalAttributes>true</captureExperimentalAttributes>
-		<captureMdcAttributes>*</captureMdcAttributes>
-		<captureKeyValuePairAttributes>true</captureKeyValuePairAttributes>
-	</appender>
+  <appender name="OTLP" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
+    <!-- thread.name and thread.id: which consumer or sink thread logged -->
+    <captureExperimentalAttributes>true</captureExperimentalAttributes>
+    <captureMdcAttributes>*</captureMdcAttributes>
+    <captureKeyValuePairAttributes>true</captureKeyValuePairAttributes>
+  </appender>
 
-	<root level="INFO">
-		<appender-ref ref="CONSOLE"/>
-		<appender-ref ref="OTLP"/>
-	</root>
+  <root level="INFO">
+    <appender-ref ref="CONSOLE"/>
+    <appender-ref ref="OTLP"/>
+  </root>
 </configuration>
