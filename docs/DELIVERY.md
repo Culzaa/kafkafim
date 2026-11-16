@@ -104,7 +104,7 @@ against the Spring Boot BOM's OpenTelemetry SDK (instrumentation 2.N pairs with 
 2. Multi-arch image (`linux/amd64`, `linux/arm64`) built with Buildx and pushed to
    GHCR with the tags above and BuildKit provenance attestations.
 3. Image signed with Cosign (keyless, GitHub OIDC) in the classic `.sig`-tag format
-   (`--new-bundle-format=false`), because that is the format `cosign save` and
+   (`--new-bundle-format=false --use-signing-config=false`; cosign 3.1 rejects the first flag without the second), because that is the format `cosign save` and
    `cosign load` carry into and out of an OCI layout; `cosign verify` accepts it
    without flags. The signature is stored in GHCR next to the image.
 4. SBOM (SPDX JSON, via Syft) generated from the pushed digest and attached to the
