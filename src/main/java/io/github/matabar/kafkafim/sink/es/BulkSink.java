@@ -789,6 +789,8 @@ public final class BulkSink<H> implements AutoCloseable {
       callback.onOutcome(entry.action, outcome);
     } catch (RuntimeException | Error e) {
       // An Error from the callback must not skip the bookkeeping below: awaitIdle would hang.
+      // Unlike sendNext, a VirtualMachineError is logged too: the bookkeeping is local and cheap,
+      // and the caller owns the callback, so the process-level handling is theirs.
       LOG.error("Bulk sink {}: outcome callback failed", key, e);
     }
     lock.lock();
