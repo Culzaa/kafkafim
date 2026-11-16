@@ -1,8 +1,11 @@
 # ADR-0031: Elasticsearch client timeouts are set per cluster; the breaker's half-open limit follows the response timeout
 
-Status: accepted; the `max-bytes` versus `response-timeout` warning noted as missing under Consequences now exists (#89, DESIGN §5.7) · Date: 2026-11-09 · Refines [ADR-0026](0026-bulk-retry-loop-in-the-sink.md)
+Status: accepted; the `max-bytes` versus `response-timeout` warning noted as missing under
+Consequences now exists (#89, DESIGN §5.7) · Date: 2026-11-09 · Refines
+[ADR-0026](0026-bulk-retry-loop-in-the-sink.md)
 
 ## Context
+
 The sink's HTTP clients (ADR-0005, ADR-0026) used code defaults that DESIGN §7 called "not
 configurable in the MVP": connect timeout 5s, response (socket inactivity) timeout 60s,
 30s to lease a pooled connection, 32 connections per node and 128 per client. The
@@ -17,6 +20,7 @@ release. A remote cluster with a slow TLS handshake has the same problem with th
 timeout.
 
 ## Decision
+
 - Each Elasticsearch cluster gets a `client` block with `connect-timeout` (default 5s) and
   `response-timeout` (default 60s), both validated as positive durations. Every
   `(cluster, identity)` client of that cluster uses them.
@@ -31,6 +35,7 @@ timeout.
   authentication check's own short timeouts (§4.6).
 
 ## Consequences
+
 Operators can fit timeouts to a cluster's latency and bulk size without a release. The
 two exposed values are the ones tied to settings that were already configurable. The pool
 and the breaker stay fixed until a production need appears; exposing them later adds keys

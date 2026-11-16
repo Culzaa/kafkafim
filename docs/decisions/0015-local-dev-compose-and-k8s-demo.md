@@ -3,6 +3,7 @@
 Status: accepted · Date: 2026-11-07
 
 ## Decision
+
 - `compose.yaml` (Kafka, Elasticsearch, Grafana LGTM) starts automatically with
   `./mvnw spring-boot:run` via Spring Boot Docker Compose support.
 - Integration tests use Testcontainers (Kafka, Elasticsearch, LGTM).

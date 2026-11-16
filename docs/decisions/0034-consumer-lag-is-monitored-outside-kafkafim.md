@@ -1,8 +1,12 @@
 # ADR-0034: Consumer lag is monitored outside kafkafim
 
-Status: accepted · Date: 2026-11-10 · Supersedes [ADR-0033](0033-consumer-lag-read-per-pipeline-in-parallel-staleness-as-timestamp.md), and the lag-metric parts of [ADR-0014](0014-scaling-static-plus-cpu-hpa.md) and [ADR-0011](0011-dlq-on-source-kafka-cluster.md)
+Status: accepted · Date: 2026-11-10 · Supersedes
+[ADR-0033](0033-consumer-lag-read-per-pipeline-in-parallel-staleness-as-timestamp.md), and the
+lag-metric parts of [ADR-0014](0014-scaling-static-plus-cpu-hpa.md) and
+[ADR-0011](0011-dlq-on-source-kafka-cluster.md)
 
 ## Context
+
 kafkafim read the consumer lag of every running pipeline itself and exported it as
 `kafkafim_consumer_lag{topic}`, with `kafkafim_consumer_lag_timestamp_seconds` for its
 age (ADR-0033). ADR-0014 exported it for a future lag-based autoscaler, and ADR-0011
@@ -22,6 +26,7 @@ costs:
   (ADR-0033), all to recompute a solved number.
 
 ## Decision
+
 - **kafkafim does not read or export consumer lag.** No lag consumer, no lag poller, no
   `kafkafim_consumer_lag` or `kafkafim_consumer_lag_timestamp_seconds` series. Each
   pipeline runs only the consumers of its listener container (plus the short-lived
@@ -39,6 +44,7 @@ costs:
   the Kafka team's monitoring, reaches zero (ADR-0011's backlog number).
 
 ## Consequences
+
 - One consumer per pipeline and its broker traffic fewer; less code in `source`,
   `telemetry` and `supervisor`. kafkafim stays a light pipeline service: concerns that
   are already solved outside it stay outside it.
@@ -55,6 +61,7 @@ costs:
   ones in `deploy/grafana/` are.
 
 ## Alternatives
+
 - **Keep the lag series (ADR-0033).** Duplicates the Kafka team's monitoring and keeps
   the extra consumer and its broker requests on every pod.
 - **Keep it behind a flag, off by default.** Keeps the code, its tests and its

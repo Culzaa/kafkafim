@@ -45,7 +45,7 @@ Versions are the ones pinned at project creation (2026-11-07). Everything marked
 
 ## Source layout (planned)
 
-```
+```text
 io.github.matabar.kafkafim
 ├── config/         @ConfigurationProperties model, validators, watcher, Binder reload, diff
 ├── supervisor/     pipeline lifecycle, hot reload orchestration, reload endpoint (ADR-0028)

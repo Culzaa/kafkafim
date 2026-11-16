@@ -3,6 +3,7 @@
 Status: accepted · Date: 2026-11-08 · Refines [ADR-0026](0026-bulk-retry-loop-in-the-sink.md)
 
 ## Context
+
 A bulk request that fails as a whole (429, 5xx, 401/403, an unexpected status, an
 unparsable 2xx body) is retried forever (ADR-0026, DESIGN §7). DESIGN §7 said such a
 request is "logged with the body", and the sink logged the first 1024 characters of
@@ -32,6 +33,7 @@ confidence. Option 2 leaves a stalled pipeline nothing to debug from without a c
 change. Option 4 is the leak.
 
 ## Decision
+
 - The WARN line of a request-level retry names the status and Elasticsearch's
   `error.type` plus the distinct `error.root_cause[].type`s (at most 5). It never includes
   `error.reason` or any other text from the body. A body that is not JSON is logged as
@@ -56,6 +58,7 @@ change. Option 4 is the leak.
   response text.
 
 ## Consequences
+
 Logs at the default level hold no Elasticsearch text that can quote documents. Diagnosing
 an unusual whole-request failure may take one extra step: raising the `BulkSink` logger
 to DEBUG. The DEBUG body can still hold field values, so enabling it is a deliberate,

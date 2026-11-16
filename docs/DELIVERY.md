@@ -48,6 +48,7 @@ Helm distribution model and is what `helm pull`/`helm push` and `skopeo` underst
 | `image` (check "Container image") | Needs only `build`, so it runs while `integration` is still running. The Dockerfile builds from `build`'s jar (no push); `hadolint` on the Dockerfile; the container starts read-only and answers `/actuator/health/liveness` within 60 s. |
 | `helm` (check "Helm chart") | `helm lint`, `helm template` with every `charts/kafkafim/ci/*-values.yaml`, `kubeconform -strict` (v0.8.0) against Kubernetes schemas, `helm unittest` (helm-unittest 1.2.1) for the group-rendering logic and every template-time `fail`. Helm is pinned (`azure/setup-helm` `version:`, currently v4.3.1, the same in `release.yml`); helm-unittest is installed from its signed release tarball: the tarball and its `.prov` are fetched through the GitHub API asset endpoint (not `releases/download/`), checked against pinned SHA-256s, and Helm verifies the provenance with the release key committed at `.github/keys/helm-unittest-public-key.asc` (fingerprint pinned in `ci.yml`). Both tools are kept in an `actions/cache` keyed on their pins, so once a passing run has warmed it (caches unused for 7 days are evicted) an outage of github.com release downloads or of the Go module proxy cannot fail the job. Checkout, the Actions cache service, `azure/setup-helm` (get.helm.sh) and kubeconform's schemas (raw.githubusercontent.com) are still needed on every run. The local demo's chart ([`deploy/local/kafkafim-demo`](../deploy/local/README.md)) gets `helm lint`, `helm template` and `kubeconform -strict` too, plus a check that every `deploy/grafana/dashboards/*.json` is in its dashboards ConfigMap and that kafkafim's OTLP endpoint is the `lgtm` Service. The chart steps are skipped until the chart exists, and on pull requests that change none of `charts/**`, `deploy/local/**`, `deploy/grafana/**` (the demo chart renders the dashboards), `.github/workflows/ci.yml` or `.github/keys/**`. The same job also checks [`deploy/grafana/`](../deploy/grafana/README.md), so the required checks stay the same: `jq empty` on every `dashboards/*.json`, `promtool check rules` on every `alerts/*.yaml` and `promtool test rules` on every `alerts/*.test.yaml` (run from `alerts/`, since the tests name their rule files relative to themselves); it fails if any of the three globs is empty. promtool comes from the Prometheus 3.15.1 `linux-amd64` release tarball, fetched through the GitHub API asset endpoint, checked against a pinned SHA-256 on every run and kept in its own `actions/cache`. These steps run on pull requests that change `deploy/grafana/**` or `ci.yml`, and on every push to `main`. The job is skipped on pull requests that change none of `charts/**`, `deploy/local/**`, `.github/keys/**`, `deploy/grafana/**` and `ci.yml`. |
 | `shell` (check "Shell style") | `shellcheck` v0.11.0 and `shfmt` v3.14.1 (release assets checked against pinned SHA-256s) on every `git ls-files '*.sh'`; `shfmt` takes its 2-space indent from `.editorconfig` ([ADR-0046](decisions/0046-google-style-guides-for-shell-markdown-prose-and-json-yaml.md)). No `needs`: runs on every pull request and push, docs-only included. Not a required check yet. |
+| `markdown` (check "Markdown style") | `markdownlint-cli2` (action v25.0.0, bundling markdownlint-cli2 0.24.0) on every tracked `*.md`; rules and exceptions in `.markdownlint-cli2.jsonc` ([ADR-0046](decisions/0046-google-style-guides-for-shell-markdown-prose-and-json-yaml.md)). No `needs`: runs on every pull request and push, docs-only included. Not a required check yet. |
 
 A new push to a pull request cancels the pull request's run still in progress. Runs on
 `main` are never cancelled or replaced: each pushed commit has its own concurrency group
@@ -57,10 +58,13 @@ image build, even when several merges land within minutes.
 ### Docs-only pull requests
 
 A pull request whose every changed path (both sides of a rename) is `*.md` outside
-`src/` (Maven packages `src/main/resources`), under `docs/`, or `LICENSE` skips `build`, `integration` and therefore `image`; `helm` runs only if the
-chart, `deploy/local/`, `ci.yml`, `.github/keys/` or `deploy/grafana/` changed (a pull request that changes
+`src/` (Maven packages `src/main/resources`), under `docs/`, or `LICENSE` skips `build`,
+`integration` and therefore `image`; `helm` runs only if the
+chart, `deploy/local/`, `ci.yml`, `.github/keys/` or `deploy/grafana/` changed (a pull request that
+changes
 only `deploy/grafana/README.md` is docs-only but still gets the Grafana checks). Any other
-file under `deploy/grafana/` is not docs, so the Java and image jobs run for it too. The paths are what merging would change
+file under `deploy/grafana/` is not docs, so the Java and image jobs run for it too. The paths are
+what merging would change
 (`git diff` between the PR merge commit and the base tip). The skip is a job-level `if:`,
 not a workflow-level `paths-ignore`: GitHub reports a job skipped by `if:` as a passing
 check, while a workflow that never starts leaves required checks pending. If `changes`
@@ -105,7 +109,8 @@ against the Spring Boot BOM's OpenTelemetry SDK (instrumentation 2.N pairs with 
 2. Multi-arch image (`linux/amd64`, `linux/arm64`) built with Buildx and pushed to
    GHCR with the tags above and BuildKit provenance attestations.
 3. Image signed with Cosign (keyless, GitHub OIDC) in the classic `.sig`-tag format
-   (`--new-bundle-format=false --use-signing-config=false`; cosign 3.1 rejects the first flag without the second), because that is the format `cosign save` and
+   (`--new-bundle-format=false --use-signing-config=false`; cosign 3.1 rejects the first flag
+   without the second), because that is the format `cosign save` and
    `cosign load` carry into and out of an OCI layout; `cosign verify` accepts it
    without flags. The signature is stored in GHCR next to the image.
 4. SBOM (SPDX JSON, via Syft) generated from the pushed digest and attached to the
@@ -124,7 +129,8 @@ against the Spring Boot BOM's OpenTelemetry SDK (instrumentation 2.N pairs with 
    before transfer, and by checksum inside the air gap (see "Importing into the
    air-gapped environment").
 7. **Air-gap bundle** `kafkafim-<ver>-airgap.tar.gz` attached to the GitHub Release:
-   - `kafkafim-<ver>-image/` (OCI layout from `cosign save`: image index with its BuildKit provenance, signature)
+   - `kafkafim-<ver>-image/` (OCI layout from `cosign save`: image index with its BuildKit
+     provenance, signature)
    - `kafkafim-<ver>-image.digest` (the `ghcr.io/...@sha256:...` reference that was signed)
    - `kafkafim-<ver>.tgz` (the chart)
    - `kafkafim-<ver>.sbom.spdx.json`
@@ -192,7 +198,8 @@ medium, which is why the signature is verified before transfer. (Checked with co
 3.1.3 against the 0.3.0-rc.2 chart: `cosign verify` passes, and `helm pull` returns
 a `.tgz` byte-identical to the release asset.)
 
-The image check is the authoritative one for the image: online, `cosign` refreshes the Sigstore trusted root
+The image check is the authoritative one for the image: online, `cosign` refreshes the Sigstore
+trusted root
 (Fulcio and Rekor keys) from Sigstore's TUF repository. To re-check the signature
 inside the air gap later, take that trusted root across with the bundle. `cosign
 initialize` refreshes the TUF cache; copy the `trusted_root.json` it verified out of

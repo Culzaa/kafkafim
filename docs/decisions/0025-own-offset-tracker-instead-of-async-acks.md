@@ -3,6 +3,7 @@
 Status: accepted · Date: 2026-11-07 · Supersedes the `asyncAcks` bullet of [ADR-0004](0004-spring-kafka-programmatic-containers.md)
 
 ## Context
+
 ADR-0004 planned to commit out of order with spring-kafka's `AckMode.MANUAL` plus
 `asyncAcks`. In spring-kafka 4.1 that mode **pauses the consumer after every poll until
 every record of that poll is acknowledged** (`KafkaMessageListenerContainer`,
@@ -12,6 +13,7 @@ would stall its partitions' next fetch. ADR-0008 and ADR-0010 need in-flight wor
 by bytes across many polls, with batches per ES target completing in any order.
 
 ## Decision
+
 kafkafim tracks completion itself (`source/kafka/OffsetTracker`) and commits from the
 consumer thread; spring-kafka's acknowledgement machinery is not used (`AckMode.MANUAL`,
 never acknowledged). The container, batch listener, cooperative-sticky assignor,
@@ -38,6 +40,7 @@ lifecycle and pause/resume stay spring-kafka's (ADR-0004 otherwise unchanged).
   container is paused while any reason is active.
 
 ## Alternatives
+
 - `asyncAcks`: rejected for the reason above.
 - Ack whole batches without `asyncAcks`: spring-kafka keeps the maximum acknowledged
   offset per partition, so an early-finishing later batch would commit past an unfinished
@@ -45,6 +48,7 @@ lifecycle and pause/resume stay spring-kafka's (ADR-0004 otherwise unchanged).
 - A raw `kafka-clients` loop: rejected in ADR-0004 for the same reasons as before.
 
 ## Consequences
+
 Commit correctness is kafkafim code, unit-tested (`OffsetTrackerTest`) and covered against
 a real broker (`KafkaPipelineSourceIntegrationTest`: contiguous-prefix commits, revoke,
 restart, drain). The commit hook relies on `BatchInterceptor.setupThreadState` running

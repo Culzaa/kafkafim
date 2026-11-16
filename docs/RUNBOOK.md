@@ -167,7 +167,8 @@ Each pipeline on each pod is in one `PipelineState`
 | `failed` | Was running, then the record handler threw or a Kafka consumer stopped on its own. kafkafim stopped the pipeline (drained, committed, left the group); it stays stopped until the next accepted reload retries it, or the pod restarts ([§5.13](#513-failed-pipelines)). | No. |
 | `stopped` | Not started yet, or stopped by a reload or shutdown. | Only transiently. |
 
-**Alerts**: [`KafkafimPipelinePaused`](../deploy/grafana/alerts/kafkafim-alerts.yaml) (a pipeline `paused` for 5m; the
+**Alerts**: [`KafkafimPipelinePaused`](../deploy/grafana/alerts/kafkafim-alerts.yaml) (a pipeline
+`paused` for 5m; the
 kind of reason is in `kafkafim_pipeline_pause_reason`, the cluster or identity it names in
 the log lines below, and §5 has a section per reason).
 
@@ -193,7 +194,8 @@ Where to read it:
   a pause as WARN `Pipeline '<name>': pausing (<reason>)` and its end as INFO
   `Pipeline '<name>': <reason> cleared`.
 - **Harmless ERROR after a stop or reload**: a stop or reload that interrupts an Elasticsearch
-  preflight check within milliseconds of its start can log `ERROR org.apache.hc.client5.http.impl.async` with a
+  preflight check within milliseconds of its start can log `ERROR
+  org.apache.hc.client5.http.impl.async` with a
   `java.nio.channels.ClosedSelectorException` (from `SingleCoreIOReactor.closeOpenChannels`).
   The check's short-lived client was closed by force; it held one connection and nothing is
   lost. Ignore it unless it repeats without any stop or reload ([#202](https://github.com/matabar/kafkafim/issues/202)).
@@ -220,7 +222,8 @@ without being restarted, until a reload retries them ([§5.5](#55-failed_preflig
 
 ### 3.3 Metrics to look at first
 
-Pipeline metrics carry `pipeline` and `kafka_cluster`; `kafkafim_pipeline_state` has only `pipeline` and `state`, `kafkafim_breaker_state` only `es_cluster`, the reload meters
+Pipeline metrics carry `pipeline` and `kafka_cluster`; `kafkafim_pipeline_state` has only `pipeline`
+and `state`, `kafkafim_breaker_state` only `es_cluster`, the reload meters
 neither (`kafkafim_config_reload_total` has `result`) ([DESIGN §10](DESIGN.md#10-observability)).
 
 | Question | Metric |
@@ -362,7 +365,8 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
 
 **Alerts**: [`KafkafimBreakerOpen`](../deploy/grafana/alerts/kafkafim-alerts.yaml).
 
-- **Symptom**: pipelines routing to one ES cluster go `paused`; lag grows. Logs: WARN `Elasticsearch cluster '<es>' circuit breaker: State transition
+- **Symptom**: pipelines routing to one ES cluster go `paused`; lag grows. Logs: WARN `Elasticsearch
+  cluster '<es>' circuit breaker: State transition
   from CLOSED to OPEN`, WARN `Pipeline '<p>': pausing (es-breaker:<es>)`, WARN
   `Bulk sink ...: request failed (status <s>, attempt <n>), retrying in <ms>ms: ...`.
   For an HTTP answer the text after the colon is Elasticsearch's
@@ -406,7 +410,8 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
   in later bulks only up to `dlq.max-attempts` (default 10) or `dlq.max-elapsed`
   (default 10m), then goes to the DLQ as `es_retries_exhausted`. A sustained partial
   overload therefore does produce DLQ records; replay them once ES is healthy
-  ([§5.6](#56-dlq-filling-or-dlq-blocked)). If the outage will be long, nothing needs to be scaled down: memory is
+  ([§5.6](#56-dlq-filling-or-dlq-blocked)). If the outage will be long, nothing needs to be scaled
+  down: memory is
   bounded by `max-in-flight-bytes`. A reload that restarts an affected pipeline drops
   its breaker pause; the new run re-pauses on its first failures.
 - **Afterwards**: expect a catch-up burst; watch lag fall and `kafkafim_bulk_latency_seconds`.
@@ -686,7 +691,8 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
   2 × (`max-in-flight-bytes` + the one-poll overshoot) for the raw bytes and their
   document copies, plus indexed copies in flight × ~450 B, plus documents bound for
   the DLQ × ~1 KB, plus consumer threads × 28 × that pipeline's `max-record-bytes`;
-  then add the bulk bodies and DLQ producer buffers above. No metric counts copies in flight: estimate them as
+  then add the bulk bodies and DLQ producer buffers above. No metric counts copies in flight:
+  estimate them as
   `kafkafim_in_flight_bytes` ÷ average document size × routes per document. For
   documents of a few hundred bytes or more the per-copy term is small; for arrays of
   tiny objects, count it (or lower `max-in-flight-bytes`). Compare
@@ -702,7 +708,8 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
 
 `increase(kafkafim_config_reload_total{result="failure"}[10m]) > 0`: see
 [§4.2](#42-reading-the-result). Find the ERROR `Configuration reload (...) rejected`
-(or `... failed while applying generation`) line on any pod of the group for the violations, fix the values and upgrade again,
+(or `... failed while applying generation`) line on any pod of the group for the violations, fix the
+values and upgrade again,
 or roll back. Until then the pods run the previous generation, and new pods fail on a rejected
 tree (a valid tree that only failed while it was applied usually starts on new pods, unless the
 cause in the ERROR line also applies at startup).
@@ -742,7 +749,8 @@ cause in the ERROR line also applies at startup).
 - **Symptom**: `kafkafim_pipeline_state{state="failed"} == 1`; ERROR
   `Pipeline '<p>': failed while running; stopping it until the next accepted reload or
   a restart: <cause>`, then INFO `Pipeline '<p>': running -> failed` (or `paused ->
-  failed`, or `starting -> failed` if it failed right after its source started). The pipeline consumes nothing on this pod. It left the consumer group, so
+  failed`, or `starting -> failed` if it failed right after its source started). The pipeline
+  consumes nothing on this pod. It left the consumer group, so
   the group's other pods take its partitions; records it had not finished are
   re-delivered to them (idempotent by `_id`). After a handler failure the stop waits
   the full drain timeout (30s) for the failed batch before it leaves the group, and a

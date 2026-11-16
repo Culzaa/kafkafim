@@ -3,6 +3,7 @@
 Status: accepted · Date: 2026-11-13 · Refines [ADR-0040](0040-validate-profile-accepts-unmounted-secrets.md)
 
 ## Context
+
 ADR-0040 kept one startup rule under the `validate` profile: a tree without pipelines
 is valid (a normal start only warns about it). In the infrastructure repository's CI
 that also covered a mistake in the check itself. If `application-kafkafim.yaml` is not
@@ -20,6 +21,7 @@ The options were:
    mount and still allows an empty group, at the price of one more special case.
 
 ## Decision
+
 (Matan, 2026-11-13, issue #177: option 3.)
 
 - Under the `validate` profile a tree that defines no Kafka cluster, no Elasticsearch
@@ -36,6 +38,7 @@ The options were:
   and validated.
 
 ## Consequences
+
 - A wrong mount path, a missing or empty file, or a missing `kafkafim` profile no
   longer passes the check.
 - The profile no longer accepts exactly what a start accepts. A pod started normally
@@ -48,6 +51,7 @@ The options were:
   ([HELM.md](../HELM.md)).
 
 ## Alternatives
+
 - Options 1 and 2 above.
 - Checking where properties come from (anything outside the classpath counts as
   "found"): more code, and any stray `KAFKAFIM_*` environment variable would count as
