@@ -1092,6 +1092,71 @@ class BulkSinkTest {
     assertThat(sink.awaitIdle(WAIT)).isTrue();
   }
 
+  @Test
+  void callbackErrorStillCountsTheActionAsDone() throws Exception {
+    FakeTransport transport = new FakeTransport((request, call) -> FakeTransport.allOk());
+    BulkSink<String> sink =
+        new BulkSink<>(
+            new SinkKey("orders", "search-eu", null),
+            settings(1, 1 << 20, HOUR, 1),
+            transport,
+            breaker,
+            Duration.ofMillis(5),
+            timer,
+            (action, outcome) -> {
+              throw new LinkageError("callback bug");
+            },
+            SinkListener.NONE,
+            Clock.systemUTC(),
+            closed -> {});
+    sinks.add(sink);
+
+    submitAll(sink, "a", "b");
+
+    assertThat(sink.awaitIdle(WAIT)).isTrue();
+    assertThat(sink.pendingActions()).isZero();
+    assertThat(sink.pendingBytes()).isZero();
+  }
+
+  @Test
+  void nonFatalErrorDuringSendRetriesTheBatch() throws Exception {
+    FakeTransport transport =
+        new FakeTransport((request, call) -> {
+          if (call == 1) {
+            throw new AssertionError("client bug");
+          }
+          return FakeTransport.allOk();
+        });
+    BulkSink<String> sink = sink(settings(1, 1 << 20, HOUR, 1), transport);
+
+    submitAll(sink, "a");
+
+    assertThat(sink.awaitIdle(WAIT)).isTrue();
+    assertThat(outcomes.all()).containsExactly(ActionOutcome.INDEXED);
+  }
+
+  @Test
+  void fatalErrorDuringSendPropagatesAndReleasesTheSenderPermit() throws Exception {
+    FakeTransport transport =
+        new FakeTransport((request, call) -> {
+          if (call == 1) {
+            throw new OutOfMemoryError("simulated");
+          }
+          return FakeTransport.allOk();
+        });
+    BulkSink<String> sink = sink(settings(1, 1 << 20, HOUR, 1), transport);
+
+    sink.submit(doc("a"));
+    // The fatal Error is not turned into a retry: "a" stays pending, visibly stuck.
+    assertThat(sink.awaitIdle(Duration.ofMillis(500))).isFalse();
+    assertThat(outcomes.count()).isZero();
+
+    // The one permit was released, so the sink still sends.
+    sink.submit(doc("b"));
+    await().atMost(WAIT).until(() -> outcomes.count() == 1);
+    assertThat(outcomes.get("b")).isEqualTo(ActionOutcome.INDEXED);
+  }
+
   static void block(CountDownLatch latch) throws IOException {
     try {
       if (!latch.await(30, TimeUnit.SECONDS)) {
