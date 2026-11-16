@@ -255,7 +255,7 @@ and loading the rules. Every alert's `runbook_url` points to a section of §5 (o
 Each pod watches its config directory (`/etc/kafkafim/config/`) and every secret
 directory under `/etc/kafkafim/secrets/` (file watch plus a 10s content-hash poll,
 2s debounce). Kubelet refreshes mounted ConfigMaps and Secrets with up to about a
-minute of delay, so a change applies within about 75s of `helm upgrade` or a
+minute of delay, so expect a change to apply within about 75s of `helm upgrade` or a
 `Secret` update. To reload one pod at once (after kubelet has refreshed its files):
 
 ```bash

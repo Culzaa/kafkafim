@@ -113,7 +113,7 @@ Integration tests must be safe to run alongside each other: no fixed host ports 
   the git log, not for chat.
 - Every pull request gets an independent review before merge (a reviewer agent or a
   teammate). Fix findings on the branch. Approval plus green CI merges the pull request, and
-  you delete the branch.
+  the branch is deleted.
 - Keep pull requests small enough to review in one sitting. If a change needs two concerns,
   open two pull requests.
 - Design changes come with an ADR in `docs/decisions/` in the same pull request.

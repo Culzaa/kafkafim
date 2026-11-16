@@ -165,7 +165,7 @@ as starting points and confirm them on production-like hardware.
   cover more than four pipelines. When you add pipelines, lower `max-in-flight-bytes` instead
   of raising the heap: 16 MB per pipeline cost no throughput in this test.
 - **Container memory.** Plan for heap plus about 300 MiB resident.
-- **Throughput.** Expect the sink (Elasticsearch) to be the limit. Per instance, this
+- **Throughput.** Plan for the sink (Elasticsearch) to be the limit. Per instance, this
   setup sustained 25,000 to 47,000 documents/s of 1 KiB documents into a two-CPU Elasticsearch
   node. Spreading the same load over more pipelines does not raise the total.
 - **Partitions.** An instance runs `min(concurrency, partitions)` consumers per pipeline,
