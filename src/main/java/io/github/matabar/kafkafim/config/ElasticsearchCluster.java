@@ -8,6 +8,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import org.jspecify.annotations.Nullable;
 import org.springframework.util.unit.DataSize;
 
 /**
@@ -24,9 +25,9 @@ import org.springframework.util.unit.DataSize;
  */
 public record ElasticsearchCluster(
     @NotEmpty List<String> uris,
-    @Valid Trust ssl,
+    @Valid @Nullable Trust ssl,
     Map<String, @Valid ElasticsearchIdentity> identities,
-    String defaultIdentity,
+    @Nullable String defaultIdentity,
     @Valid Bulk bulk,
     Boolean compression,
     @Valid Client client) {
@@ -72,7 +73,10 @@ public record ElasticsearchCluster(
    * @param ssl client-certificate keystore (PKI realm); optional
    */
   public record ElasticsearchIdentity(
-      String username, String password, String apiKey, @Valid Keystore ssl) {
+      @Nullable String username,
+      @Nullable String password,
+      @Nullable String apiKey,
+      @Valid @Nullable Keystore ssl) {
 
     /** Whether basic-auth fields are present (complete or not). */
     public boolean hasBasic() {
@@ -102,7 +106,9 @@ public record ElasticsearchCluster(
    * @param keystoreType {@code PKCS12} (default when unset) or {@code JKS}
    */
   public record Keystore(
-      @NotBlank String keystoreLocation, String keystorePassword, String keystoreType) {
+      @NotBlank String keystoreLocation,
+      @Nullable String keystorePassword,
+      @Nullable String keystoreType) {
 
     /** Masks the password (§5.5). */
     @Override

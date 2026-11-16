@@ -39,7 +39,7 @@ final class ScalarValue {
     this.longValue = exact;
   }
 
-  static ScalarValue of(String text) {
+  static ScalarValue of(@Nullable String text) {
     Specs.require(text != null, "value must not be null");
     return new ScalarValue(text);
   }

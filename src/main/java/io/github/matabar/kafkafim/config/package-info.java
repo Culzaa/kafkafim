@@ -1,7 +1,8 @@
 /**
  * Configuration model, loading, validation and hot-reload diffing, bound through Spring Boot.
- * Record components that the binder leaves null before the compact constructors apply defaults are
- * not yet annotated {@code @Nullable}.
+ * Record components that stay optional after construction are {@code @Nullable}. Components whose
+ * compact constructor applies a default are not: the binder may pass null in, but the record never
+ * holds or returns it, and a record component annotation would also make its accessor nullable.
  */
 @NullMarked
 package io.github.matabar.kafkafim.config;

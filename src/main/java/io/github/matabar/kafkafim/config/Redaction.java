@@ -2,6 +2,7 @@ package io.github.matabar.kafkafim.config;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Masks secret values in the {@code toString()} of configuration records, so a logged or printed
@@ -22,7 +23,7 @@ final class Redaction {
   private Redaction() {}
 
   /** {@link #MASK} for a set secret; {@code null} stays {@code null}, so "unset" is visible. */
-  static String mask(Object secret) {
+  static String mask(@Nullable Object secret) {
     return secret == null ? "null" : MASK;
   }
 

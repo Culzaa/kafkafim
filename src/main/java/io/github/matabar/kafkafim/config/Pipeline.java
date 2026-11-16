@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Positive;
 import java.time.Duration;
 import java.util.List;
+import org.jspecify.annotations.Nullable;
 import org.springframework.boot.context.properties.bind.Name;
 import org.springframework.util.unit.DataSize;
 
@@ -72,16 +73,16 @@ public record Pipeline(
    *     processor. Capped at the topics' partition count when the pipeline starts; at least 1
    */
   public record Source(
-      @NotBlank String cluster,
+      @NotBlank @Nullable String cluster,
       @NotEmpty List<String> topics,
-      String groupId,
-      String identity,
+      @Nullable String groupId,
+      @Nullable String identity,
       OffsetReset offsetReset,
       @Positive Integer maxPollRecords,
       DataSize maxInFlightBytes,
       Duration commitInterval,
       DataSize maxRecordBytes,
-      Integer concurrency) {
+      @Nullable Integer concurrency) {
 
     static final Source EMPTY =
         new Source(null, null, null, null, null, null, null, null, null, null);
@@ -135,9 +136,9 @@ public record Pipeline(
   public record Document(
       String idField,
       IdMissing idMissing,
-      String versionField,
+      @Nullable String versionField,
       OnVersionConflict onVersionConflict,
-      String timestampField,
+      @Nullable String timestampField,
       String timestampFormat,
       OnBadTimestamp onBadTimestamp,
       Op op) {
@@ -210,14 +211,14 @@ public record Pipeline(
    * @param pipeline ES ingest pipeline; optional
    */
   public record Route(
-      String name,
+      @Nullable String name,
       List<@Valid Condition> when,
       @Name("default") Boolean isDefault,
       Boolean drop,
-      String cluster,
-      String identity,
-      String index,
-      String pipeline) {
+      @Nullable String cluster,
+      @Nullable String identity,
+      @Nullable String index,
+      @Nullable String pipeline) {
 
     /** The {@code route} label of a document that failed before a route was selected. */
     public static final String NO_ROUTE_LABEL = "none";
@@ -266,14 +267,14 @@ public record Pipeline(
    * @param matches {@code matches: regex}, anchored
    */
   public record Condition(
-      String field,
-      String header,
-      String topic,
-      @Name("equals") String equalTo,
-      @Name("in") List<String> oneOf,
-      Boolean exists,
-      String prefix,
-      String matches) {}
+      @Nullable String field,
+      @Nullable String header,
+      @Nullable String topic,
+      @Name("equals") @Nullable String equalTo,
+      @Name("in") @Nullable List<String> oneOf,
+      @Nullable Boolean exists,
+      @Nullable String prefix,
+      @Nullable String matches) {}
 
   /**
    * Dead-letter topic on the source Kafka cluster (ADR-0011).
@@ -284,7 +285,10 @@ public record Pipeline(
    * @param maxElapsed per document, item-level retryable errors only; default 10m
    */
   public record Dlq(
-      String topic, String identity, @Positive Integer maxAttempts, Duration maxElapsed) {
+      @Nullable String topic,
+      @Nullable String identity,
+      @Positive Integer maxAttempts,
+      Duration maxElapsed) {
 
     static final Dlq DEFAULTS = new Dlq(null, null, null, null);
 
@@ -308,7 +312,7 @@ public record Pipeline(
    *
    * @param maxAge overrides the target cluster's {@code bulk.max-age} for this pipeline; optional
    */
-  public record Latency(Duration maxAge) {
+  public record Latency(@Nullable Duration maxAge) {
 
     static final Latency DEFAULTS = new Latency(null);
   }

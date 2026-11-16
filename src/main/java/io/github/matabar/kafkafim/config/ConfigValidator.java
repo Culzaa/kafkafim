@@ -17,6 +17,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Stream;
+import org.jspecify.annotations.Nullable;
 import org.springframework.util.unit.DataSize;
 
 /**
@@ -153,7 +154,8 @@ public final class ConfigValidator {
         });
   }
 
-  private void checkKafkaIdentity(String path, KafkaIdentity identity, SecurityProtocol protocol) {
+  private void checkKafkaIdentity(
+      String path, @Nullable KafkaIdentity identity, SecurityProtocol protocol) {
     if (identity == null || (identity.sasl() == null && identity.ssl() == null)) {
       error(path, "a Kafka identity needs a sasl block, an ssl keystore block, or both");
       return;
@@ -230,7 +232,7 @@ public final class ConfigValidator {
    * and sends again (DESIGN §7), so that batch is uploaded more than once. A warning only, because
    * a cluster may raise the limit.
    */
-  private void checkBulkFitsDefaultContentLength(String path, DataSize maxBytes) {
+  private void checkBulkFitsDefaultContentLength(String path, @Nullable DataSize maxBytes) {
     if (maxBytes == null || maxBytes.compareTo(ES_DEFAULT_MAX_CONTENT_LENGTH) <= 0) {
       return;
     }
@@ -253,7 +255,8 @@ public final class ConfigValidator {
    * would only produce lag. The heuristic assumes {@link #SLOW_BULK_BYTES_PER_SECOND}, a
    * pessimistic rate for a loaded cluster, so it fires only for clearly mismatched settings.
    */
-  private void checkBulkFitsResponseTimeout(String path, DataSize maxBytes, Duration timeout) {
+  private void checkBulkFitsResponseTimeout(
+      String path, @Nullable DataSize maxBytes, @Nullable Duration timeout) {
     if (maxBytes == null || timeout == null || maxBytes.toBytes() <= 0) {
       return;
     }
@@ -306,7 +309,7 @@ public final class ConfigValidator {
   }
 
   private void checkElasticsearchIdentity(
-      String path, ElasticsearchCluster.ElasticsearchIdentity identity, boolean https) {
+      String path, ElasticsearchCluster.@Nullable ElasticsearchIdentity identity, boolean https) {
     if (identity == null) {
       error(path, "an Elasticsearch identity needs username+password, api-key or an ssl keystore");
       return;
@@ -421,7 +424,7 @@ public final class ConfigValidator {
   }
 
   private void checkKafkaIdentityReference(
-      String path, String identity, String clusterName, KafkaCluster cluster) {
+      String path, @Nullable String identity, String clusterName, KafkaCluster cluster) {
     SecurityProtocol protocol = cluster.securityProtocol();
     if (identity == null) {
       // An invalid default-identity is reported on the cluster; do not send users here too.
@@ -614,7 +617,8 @@ public final class ConfigValidator {
    * by its position and a document that failed before routing by {@value Route#NO_ROUTE_LABEL}.
    * Rejects every name that would make two of those labels collide.
    */
-  private void checkRouteName(String path, String name, int position, Map<String, Integer> names) {
+  private void checkRouteName(
+      String path, @Nullable String name, int position, Map<String, Integer> names) {
     if (name == null) {
       return;
     }
@@ -675,7 +679,7 @@ public final class ConfigValidator {
     }
   }
 
-  private void checkCondition(String path, Condition condition, Pipeline pipeline) {
+  private void checkCondition(String path, @Nullable Condition condition, Pipeline pipeline) {
     if (condition == null) {
       error(path, "must not be empty");
       return;
@@ -744,7 +748,7 @@ public final class ConfigValidator {
   // ---------------------------------------------------------------- helpers
 
   private void checkDefaultIdentity(
-      String path, String defaultIdentity, Map<String, ?> identities) {
+      String path, @Nullable String defaultIdentity, Map<String, ?> identities) {
     if (defaultIdentity != null && !identities.containsKey(defaultIdentity)) {
       error(
           path + ".default-identity",
@@ -791,7 +795,7 @@ public final class ConfigValidator {
     return value > 0 && value <= 65535;
   }
 
-  private static boolean isBlank(String value) {
+  private static boolean isBlank(@Nullable String value) {
     return value == null || value.isBlank();
   }
 

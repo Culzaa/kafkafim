@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotEmpty;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A named Kafka connection, {@code kafkafim.kafka.clusters.<name>} (DESIGN §5.1). Trust material
@@ -21,9 +22,9 @@ import java.util.Set;
 public record KafkaCluster(
     @NotEmpty List<String> bootstrapServers,
     SecurityProtocol securityProtocol,
-    @Valid Trust ssl,
+    @Valid @Nullable Trust ssl,
     Map<String, @Valid KafkaIdentity> identities,
-    String defaultIdentity,
+    @Nullable String defaultIdentity,
     Map<String, String> properties) {
 
   /** Applies the documented defaults. */
@@ -83,7 +84,9 @@ public record KafkaCluster(
    *     JKS}/{@code PEM}
    */
   public record Trust(
-      @NotBlank String truststoreLocation, String truststorePassword, String truststoreType) {
+      @NotBlank String truststoreLocation,
+      @Nullable String truststorePassword,
+      @Nullable String truststoreType) {
 
     /** Masks the password (§5.5). */
     @Override
@@ -104,7 +107,7 @@ public record KafkaCluster(
    * @param sasl SASL credentials; optional
    * @param ssl client-certificate keystore for mTLS; optional
    */
-  public record KafkaIdentity(@Valid Sasl sasl, @Valid Keystore ssl) {}
+  public record KafkaIdentity(@Valid @Nullable Sasl sasl, @Valid @Nullable Keystore ssl) {}
 
   /**
    * SASL credentials. GSSAPI and OAUTHBEARER take their extra settings from the cluster's {@code
@@ -114,7 +117,8 @@ public record KafkaCluster(
    * @param username user name
    * @param password password; must come from a placeholder (§5.5)
    */
-  public record Sasl(@NotBlank String mechanism, String username, String password) {
+  public record Sasl(
+      @NotBlank String mechanism, @Nullable String username, @Nullable String password) {
 
     private static final Set<String> PASSWORD_MECHANISMS =
         Set.of("PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512");
@@ -147,9 +151,9 @@ public record KafkaCluster(
    */
   public record Keystore(
       @NotBlank String keystoreLocation,
-      String keystorePassword,
-      String keyPassword,
-      String keystoreType) {
+      @Nullable String keystorePassword,
+      @Nullable String keyPassword,
+      @Nullable String keystoreType) {
 
     /** Masks both passwords (§5.5). */
     @Override

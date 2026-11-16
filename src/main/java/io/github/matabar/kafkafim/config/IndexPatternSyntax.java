@@ -29,7 +29,7 @@ final class IndexPatternSyntax {
   private IndexPatternSyntax() {}
 
   /** Problems with the pattern, empty when it is well-formed. */
-  static List<String> errors(String pattern) {
+  static List<String> errors(@Nullable String pattern) {
     List<String> errors = new ArrayList<>();
     if (pattern == null || pattern.isBlank()) {
       errors.add("index pattern is empty");
@@ -62,7 +62,7 @@ final class IndexPatternSyntax {
   }
 
   /** Warnings for well-formed but suspicious patterns. */
-  static List<String> warnings(String pattern) {
+  static List<String> warnings(@Nullable String pattern) {
     List<String> warnings = new ArrayList<>();
     if (pattern == null) {
       return warnings;
