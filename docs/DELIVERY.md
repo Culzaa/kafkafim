@@ -9,7 +9,7 @@ chart that the team transfers into the air-gapped environment and deploys there.
 1. **The jar that passed tests is the jar in the image.** CI builds once, tests, then
    the Dockerfile only wraps `target/*.jar`. No second compile inside Docker.
 2. **Everything that leaves CI is versioned, signed and self-describing.** Image,
-   chart, SBOM and checksums share one semver, derived from a git tag.
+   chart, SBOM, and checksums share one semver, derived from a git tag.
 3. **Nothing in the image or chart reaches the internet at runtime.** No init
    containers, no subcharts, no downloads. The chart's image reference is fully
    overridable for the internal registry.
@@ -46,9 +46,9 @@ Helm distribution model and is what `helm pull`/`helm push` and `skopeo` underst
 | `build` (check "Build and test") | `./mvnw verify -DskipITs`: Spotless, Checkstyle, compile, unit tests (Surefire defaults minus `*IntegrationTest`), ArchUnit package-boundary tests. Uploads the unit test reports and the jar. |
 | `integration` (check "Integration tests") | Failsafe only (`*IntegrationTest`, Testcontainers Kafka + Elasticsearch + LGTM): `./mvnw verify -Dtest=NONE -Dsurefire.failIfNoSpecifiedTests=false -Dspotless.check.skip=true -Dcheckstyle.skip=true`; the classes run in three parallel JVMs (`it.forkCount` in `pom.xml`). Runs in parallel with `build`, needing only `changes`; one job, not a matrix of shards, to stay well inside the Free plan's 20 concurrent jobs. Its first step starts pulling, in the background, every image named by a `DockerImageName.parse("...")` in `src/test` (so the list cannot drift from the tests), overlapping the pulls with Java setup and compilation; a test that starts a container before its pull finishes joins the daemon's in-flight pull. Uploads the Failsafe reports. |
 | `image` (check "Container image") | Needs only `build`, so it runs while `integration` is still running. The Dockerfile builds from `build`'s jar (no push); `hadolint` on the Dockerfile; the container starts read-only and answers `/actuator/health/liveness` within 60 s. |
-| `helm` (check "Helm chart") | `helm lint`, `helm template` with every `charts/kafkafim/ci/*-values.yaml`, `kubeconform -strict` (v0.8.0) against Kubernetes schemas, `helm unittest` (helm-unittest 1.2.1) for the group-rendering logic and every template-time `fail`. Helm is pinned (`azure/setup-helm` `version:`, currently v4.3.1, the same in `release.yml`); helm-unittest is installed from its signed release tarball: the tarball and its `.prov` are fetched through the GitHub API asset endpoint (not `releases/download/`), checked against pinned SHA-256s, and Helm verifies the provenance with the release key committed at `.github/keys/helm-unittest-public-key.asc` (fingerprint pinned in `ci.yml`). Both tools are kept in an `actions/cache` keyed on their pins, so once a passing run has warmed it (caches unused for 7 days are evicted) an outage of github.com release downloads or of the Go module proxy cannot fail the job. Checkout, the Actions cache service, `azure/setup-helm` (get.helm.sh) and kubeconform's schemas (raw.githubusercontent.com) are still needed on every run. The local demo's chart ([`deploy/local/kafkafim-demo`](../deploy/local/README.md)) gets `helm lint`, `helm template` and `kubeconform -strict` too, plus a check that every `deploy/grafana/dashboards/*.json` is in its dashboards ConfigMap and that kafkafim's OTLP endpoint is the `lgtm` Service. The chart steps are skipped until the chart exists, and on pull requests that change none of `charts/**`, `deploy/local/**`, `deploy/grafana/**` (the demo chart renders the dashboards), `.github/workflows/ci.yml` or `.github/keys/**`. The same job also checks [`deploy/grafana/`](../deploy/grafana/README.md), so the required checks stay the same: `jq empty` on every `dashboards/*.json`, `promtool check rules` on every `alerts/*.yaml` and `promtool test rules` on every `alerts/*.test.yaml` (run from `alerts/`, since the tests name their rule files relative to themselves); it fails if any of the three globs is empty. promtool comes from the Prometheus 3.15.1 `linux-amd64` release tarball, fetched through the GitHub API asset endpoint, checked against a pinned SHA-256 on every run and kept in its own `actions/cache`. These steps run on pull requests that change `deploy/grafana/**` or `ci.yml`, and on every push to `main`. The job is skipped on pull requests that change none of `charts/**`, `deploy/local/**`, `.github/keys/**`, `deploy/grafana/**` and `ci.yml`. |
+| `helm` (check "Helm chart") | `helm lint`, `helm template` with every `charts/kafkafim/ci/*-values.yaml`, `kubeconform -strict` (v0.8.0) against Kubernetes schemas, `helm unittest` (helm-unittest 1.2.1) for the group-rendering logic and every template-time `fail`. Helm is pinned (`azure/setup-helm` `version:`, currently v4.3.1, the same in `release.yml`); helm-unittest is installed from its signed release tarball: the tarball and its `.prov` are fetched through the GitHub API asset endpoint (not `releases/download/`), checked against pinned SHA-256s, and Helm verifies the provenance with the release key committed at `.github/keys/helm-unittest-public-key.asc` (fingerprint pinned in `ci.yml`). Both tools are kept in an `actions/cache` keyed on their pins, so once a passing run has warmed it (caches unused for 7 days are evicted) an outage of github.com release downloads or of the Go module proxy cannot fail the job. Checkout, the Actions cache service, `azure/setup-helm` (get.helm.sh) and kubeconform's schemas (raw.githubusercontent.com) are still needed on every run. The local demo's chart ([`deploy/local/kafkafim-demo`](../deploy/local/README.md)) gets `helm lint`, `helm template`, and `kubeconform -strict` too, plus a check that every `deploy/grafana/dashboards/*.json` is in its dashboards ConfigMap and that kafkafim's OTLP endpoint is the `lgtm` Service. The chart steps are skipped until the chart exists, and on pull requests that change none of `charts/**`, `deploy/local/**`, `deploy/grafana/**` (the demo chart renders the dashboards), `.github/workflows/ci.yml` or `.github/keys/**`. The same job also checks [`deploy/grafana/`](../deploy/grafana/README.md), so the required checks stay the same: `jq empty` on every `dashboards/*.json`, `promtool check rules` on every `alerts/*.yaml` and `promtool test rules` on every `alerts/*.test.yaml` (run from `alerts/`, since the tests name their rule files relative to themselves); it fails if any of the three globs is empty. promtool comes from the Prometheus 3.15.1 `linux-amd64` release tarball, fetched through the GitHub API asset endpoint, checked against a pinned SHA-256 on every run and kept in its own `actions/cache`. These steps run on pull requests that change `deploy/grafana/**` or `ci.yml`, and on every push to `main`. The job is skipped on pull requests that change none of `charts/**`, `deploy/local/**`, `.github/keys/**`, `deploy/grafana/**` and `ci.yml`. |
 | `shell` (check "Shell style") | `shellcheck` v0.11.0 and `shfmt` v3.14.1 (release assets checked against pinned SHA-256s) on every `git ls-files '*.sh'`, and `actionlint` 1.7.12 (also SHA-256 pinned), which runs that shellcheck on the inline `run:` blocks of every workflow; `shfmt` takes its 2-space indent from `.editorconfig` ([ADR-0046](decisions/0046-google-style-guides-for-shell-markdown-prose-and-json-yaml.md)). No `needs`: runs on every pull request and push, docs-only included. Not a required check yet. |
-| `yaml` (check "YAML format") | `yamllint` 1.37.1 with the repo-root `.yamllint.yaml` over the chart's `Chart.yaml`, `values.yaml`, `ci/` and `tests/`, `deploy/grafana`, `.github`, both compose files and `src/main/resources` (not `charts/*/templates`, which are Helm templates); plus a check that no tracked XML except `pom.xml` contains a tab. No `needs`. Not a required check. |
+| `yaml` (check "YAML format") | `yamllint` 1.37.1 with the repo-root `.yamllint.yaml` over the chart's `Chart.yaml`, `values.yaml`, `ci/` and `tests/`, `deploy/grafana`, `.github`, both compose files, and `src/main/resources` (not `charts/*/templates`, which are Helm templates); plus a check that no tracked XML except `pom.xml` contains a tab. No `needs`. Not a required check. |
 | `markdown` (check "Markdown style") | `markdownlint-cli2` (action v25.0.0, bundling markdownlint-cli2 0.24.0) on every tracked `*.md`; rules and exceptions in `.markdownlint-cli2.jsonc` ([ADR-0046](decisions/0046-google-style-guides-for-shell-markdown-prose-and-json-yaml.md)). No `needs`: runs on every pull request and push, docs-only included. Not a required check yet. |
 
 A new push to a pull request cancels the pull request's run still in progress. Runs on
@@ -77,11 +77,11 @@ Branch protection on `main` (a classic branch protection rule, in force since
 2026-11-09):
 
 - Four required status checks: "Build and test", "Integration tests", "Container
-  image" and "Helm chart". "Detect changes" is not required. `image` does not wait
+  image", and "Helm chart". "Detect changes" is not required. `image` does not wait
   for the integration tests, so "Integration tests" and "Container image" are both
   required: both must pass before a pull request merges. A job skipped by its `if:`
   (docs-only pull requests, or `helm` when none of `charts/**`, `deploy/local/**`, `ci.yml`,
-  `.github/keys/**` and `deploy/grafana/**` changed) reports as passing, so it does not block the merge.
+  `.github/keys/**`, and `deploy/grafana/**` changed) reports as passing, so it does not block the merge.
 - Branches must be up to date with `main` before merging (strict status checks).
 - Administrators are included: the rule applies to them too.
 - Force-pushes to `main` and deleting `main` are blocked.
@@ -90,7 +90,7 @@ Branch protection on `main` (a classic branch protection rule, in force since
 
 The rule requires no approving review; reviews are a process rule (CONTRIBUTING.md).
 
-Dependabot runs weekly, with grouped updates, for Maven, GitHub Actions and the Docker
+Dependabot runs weekly, with grouped updates, for Maven, GitHub Actions, and the Docker
 base image.
 Dependabot ignores `io.opentelemetry.proto:opentelemetry-proto`. No BOM manages it, and
 `pom.xml` declares it at the version `micrometer-registry-otlp` depends on. A
@@ -146,7 +146,7 @@ against the Spring Boot BOM's OpenTelemetry SDK (instrumentation 2.N pairs with 
      "Importing into the air-gapped environment" below)
 8. GitHub Release created with auto-generated notes (a version with a `-`, such as
    `0.3.0-rc.1`, is marked a pre-release). Besides the bundle it carries the
-   SBOM, the chart, the alert rules and the dashboards as separate assets
+   SBOM, the chart, the alert rules, and the dashboards as separate assets
    (`kafkafim-alerts.yaml`, `kafkafim-overview.json`, `kafkafim-elasticsearch.json`), so
    whoever runs Prometheus and Grafana can fetch them without the image.
 
@@ -340,8 +340,8 @@ unchanged.
 
 The bundle carries the Prometheus alert rules and the Grafana dashboards that match
 this version in `kafkafim-1.2.3-grafana/`, and `SHA256SUMS` covers them. `helm upgrade`
-does not install them. Load them with each import, because metric names, labels and
-thresholds can change between versions:
+does not install them. Load them with each import, because metric names, labels,
+and thresholds can change between versions:
 
 - `alerts/kafkafim-alerts.yaml`: copy it to a path that the `rule_files:` of the
   Prometheus inside the air gap names, then reload Prometheus (`SIGHUP`, or

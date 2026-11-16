@@ -9,7 +9,7 @@ procedure in [DELIVERY.md](DELIVERY.md).
 This runbook uses these conventions:
 
 - One Helm release per Kubernetes cluster, conventionally named `kafkafim`. Every
-  group `<g>` renders `Deployment`, `ConfigMap`, `Service` and `PodDisruptionBudget`
+  group `<g>` renders `Deployment`, `ConfigMap`, `Service`, and `PodDisruptionBudget`
   named `kafkafim-<g>`; pods carry `app.kubernetes.io/instance=kafkafim` and
   `app.kubernetes.io/component=<g>` ([HELM.md](HELM.md#rendering-rules)).
 - The actuator is on port 8080 and reachable only in-cluster
@@ -19,11 +19,11 @@ This runbook uses these conventions:
   kubectl -n <ns> port-forward pod/<pod> 8080:8080
   ```
 
-  Every pod has its own pipelines, state and reload result; a port-forward to
+  Every pod has its own pipelines, state, and reload result; a port-forward to
   `deploy/kafkafim-<g>` picks the first matching pod, so name the pod.
 - Logs are in two places ([DESIGN §10](DESIGN.md#logs)). The backend that receives
   OTLP (APM Server) has every pod's records, searchable by `service.instance.id` (the
-  pod name), severity, logger and trace id: start there. `kubectl logs` shows the same
+  pod name), severity, logger, and trace id: start there. `kubectl logs` shows the same
   events as plain text, with the trace and span id in brackets (a multi-line message or
   a stack trace continues on the following lines). Only stdout has a pod that failed to
   start, the last lines of a shutdown, and whatever was logged while the OTLP endpoint was
@@ -51,7 +51,7 @@ This runbook uses these conventions:
   data ([DESIGN §9](DESIGN.md#9-dlq)).
 - kafkafim **creates nothing** in Kafka or Elasticsearch
   ([ADR-0021](decisions/0021-no-resource-provisioning.md)). A missing topic,
-  ACL, user or role is fixed in the provisioning systems, not here.
+  ACL, user, or role is fixed in the provisioning systems, not here.
 
 ## 2. Deploy, upgrade, roll back
 
@@ -79,7 +79,7 @@ What happens depends on what changed ([HELM.md](HELM.md#rendering-rules),
 
 | Change | Effect |
 |---|---|
-| Only `config.kafkafim.*` (pipelines, clusters, identities) | The group's `ConfigMap` changes; pods are **not** rolled. Each pod hot-reloads within about a minute (kubelet refresh) plus 10s poll and 2s debounce. See [§4](#4-hot-reload-and-secret-rotation). |
+| Only `config.kafkafim.*` (pipelines, clusters, identities) | The group's `ConfigMap` changes; pods are **not** rolled. Each pod hot-reloads within about a minute (kubelet refresh) plus 10s poll and 2s debounce. See [Hot reload and secret rotation (§4)](#4-hot-reload-and-secret-rotation). |
 | A `Secret` named in `secrets[]` (outside Helm) | Same as above: kubelet refreshes the files, pods reload the identities that changed. |
 | Image, `extraEnv`, resources, mounts, `secrets[]` list, `otel.*`, `jvm.options`, probes | The `Deployment`'s pod template changes; pods roll one at a time (`maxSurge: 1`, `maxUnavailable: 0`). |
 | Both kinds at once | Old pods may hot-reload the new configuration before the rollout replaces them; new pods start with it. |
@@ -103,11 +103,11 @@ Before you call an upgrade done:
 
 1. `kubectl -n <ns> get pods -l app.kubernetes.io/instance=kafkafim`: all `Running`,
    all ready, restart counts not climbing.
-2. Every pipeline is `running` on every pod (see [§3.1](#31-pipeline-state)); none
+2. Every pipeline is `running` on every pod (see [Pipeline state (§3.1)](#31-pipeline-state)); none
    is `failed_preflight` or stuck in `starting`.
 3. For a config-only change: `kafkafim_config_generation` went up by one on every
    pod of the group and `kafkafim_config_reload_total{result="failure"}` did not
-   move ([§4.2](#42-reading-the-result)).
+   move ([Reading the result (§4.2)](#42-reading-the-result)).
 4. The pipelines' consumer-group lag, in the Kafka team's consumer-lag monitoring, is
    flat or falling, `kafkafim_e2e_latency_seconds` p99 did not jump, and
    `rate(kafkafim_dlq_records_total[5m])` did not jump.
@@ -140,11 +140,11 @@ kubectl -n <ns> rollout restart deployment/kafkafim-<g>
 ```
 
 You need a restart for: a pipeline paused by a record-handler failure, an OTLP header Secret
-rotation, TLS certificate or keystore files rotated under the same path, password and
-store type ([§4.3](#43-rotating-a-secret); a new file path, password or store type
+rotation, TLS certificate, or keystore files rotated under the same path, password, and
+store type ([Rotating a secret (§4.3)](#43-rotating-a-secret); a new file path, password, or store type
 reloads without a restart).
 A pipeline in `failed_preflight` does not need a restart: after you fix the cause, a
-no-op `POST /actuator/reload` retries it ([§5.5](#55-failed_preflight-pipelines)).
+no-op `POST /actuator/reload` retries it ([`failed_preflight` pipelines (§5.5)](#55-failed_preflight-pipelines)).
 Shutdown is graceful: each pipeline stops fetching, gives in-flight records up to 30s to
 complete, commits, and leaves its group; records still
 incomplete are re-delivered to the next owner. The pod has 90s
@@ -162,9 +162,9 @@ Each pipeline on each pod is in one `PipelineState`
 |---|---|---|
 | `starting` | Preflight running, or retrying after a **transient** failure (broker or ES unreachable, 5xx): 1s doubling to 30s, forever. | Briefly at start and after a restart. Minutes in `starting` means something is unreachable. |
 | `running` | Source started and fetching (it may still be throttled by the in-flight byte budget, which is ordinary backpressure). | Yes. |
-| `paused` | Source started, fetching stopped for a supervisor reason: `es-breaker:<cluster>`, `es-auth:<cluster>/<identity>` or `dlq-blocked`. Resumes by itself when the reason clears. | No; see [§5](#5-incidents). |
+| `paused` | Source started, fetching stopped for a supervisor reason: `es-breaker:<cluster>`, `es-auth:<cluster>/<identity>` or `dlq-blocked`. Resumes by itself when the reason clears. | No; see [Incidents (§5)](#5-incidents). |
 | `failed_preflight` | A preflight or start check found a **configuration** problem. Stays stopped until the next accepted reload (any `applied` or `unchanged` one, including a no-op `POST /actuator/reload`) retries it, or the pod restarts. | No. |
-| `failed` | Was running, then the record handler threw or a Kafka consumer stopped on its own. kafkafim stopped the pipeline (drained, committed, left the group); it stays stopped until the next accepted reload retries it, or the pod restarts ([§5.13](#513-failed-pipelines)). | No. |
+| `failed` | Was running, then the record handler threw or a Kafka consumer stopped on its own. kafkafim stopped the pipeline (drained, committed, left the group); it stays stopped until the next accepted reload retries it, or the pod restarts ([`failed` pipelines (§5.13)](#513-failed-pipelines)). | No. |
 | `stopped` | Not started yet, or stopped by a reload or shutdown. | Only transiently. |
 
 **Alerts**: [`KafkafimPipelinePaused`](../deploy/grafana/alerts/kafkafim-alerts.yaml) (a pipeline
@@ -182,7 +182,7 @@ Where to read it:
   ```
 
   The shipped `KafkafimPipelineFailed` keeps `job` and `instance` instead, since a
-  `failed` pipeline is retried pod by pod ([§5.13](#513-failed-pipelines)).
+  `failed` pipeline is retried pod by pod ([`failed` pipelines (§5.13)](#513-failed-pipelines)).
 
   From a port-forwarded pod:
 
@@ -200,9 +200,12 @@ Where to read it:
   The check's short-lived client was closed by force; it held one connection and nothing is
   lost. Ignore it unless it repeats without any stop or reload ([#202](https://github.com/matabar/kafkafim/issues/202)).
 - **Why it is paused**: `kafkafim_pipeline_pause_reason{pipeline,reason} == 1`, with
-  `reason` one of `es_breaker` ([§5.1](#51-elasticsearch-outage-circuit-breaker-open)),
-  `es_auth` ([§5.2](#52-elasticsearch-authentication-failure-pipeline-paused)) and
-  `dlq_blocked` ([§5.6](#56-dlq-filling-or-dlq-blocked)); more than one can be 1. It is 1
+  `reason` one of `es_breaker`
+  ([Elasticsearch outage, circuit breaker open (§5.1)](#51-elasticsearch-outage-circuit-breaker-open)),
+  `es_auth`
+  ([Elasticsearch authentication failure (pipeline paused) (§5.2)](#52-elasticsearch-authentication-failure-pipeline-paused)),
+  and `dlq_blocked` ([DLQ filling, or DLQ blocked (§5.6)](#56-dlq-filling-or-dlq-blocked)); more than
+  one can be 1. It is 1
   only while the state is `paused`. Which cluster or identity is in the log lines above.
 - **Health**: `/actuator/health/readiness` includes the `pipelines` component. With
   the packaged `show-details: when-authorized` and no authentication, the response
@@ -212,13 +215,13 @@ Where to read it:
 
 | Endpoint | Up when | Used by |
 |---|---|---|
-| `/actuator/health/liveness` | The process is alive (`livenessState`) and `supervisor`: the pipeline supervisor runs (or is draining for shutdown). Pipeline, Kafka and Elasticsearch problems never fail liveness: a restart would not fix them. | Startup probe (30 × 2s) and liveness probe. |
+| `/actuator/health/liveness` | The process is alive (`livenessState`) and `supervisor`: the pipeline supervisor runs (or is draining for shutdown). Pipeline, Kafka, and Elasticsearch problems never fail liveness: a restart would not fix them. | Startup probe (30 × 2s) and liveness probe. |
 | `/actuator/health/readiness` | `readinessState` and `pipelines`: at least one pipeline `running` or `paused`, or zero pipelines configured; and `kafka`: at least one started pipeline's consumers hold broker connections (or none is started). Never gated on Elasticsearch. | Readiness probe; the `Service` (actuator only, no business traffic). |
 
 An unready pod still consumes: readiness only gates the actuator `Service` and the
 rollout. A pod whose every pipeline is `failed_preflight` or `failed` stays unready,
-without being restarted, until a reload retries them ([§5.5](#55-failed_preflight-pipelines),
-[§5.13](#513-failed-pipelines)).
+without being restarted, until a reload retries them ([`failed_preflight` pipelines (§5.5)](#55-failed_preflight-pipelines),
+[`failed` pipelines (§5.13)](#513-failed-pipelines)).
 
 ### 3.3 Metrics to look at first
 
@@ -235,7 +238,7 @@ neither (`kafkafim_config_reload_total` has `result`) ([DESIGN §10](DESIGN.md#1
 | Is Elasticsearch healthy? | `kafkafim_breaker_state{es_cluster}` (0 closed, 1 half-open, 2 open), `kafkafim_bulk_requests_total{es_cluster,status}`, `kafkafim_bulk_latency_seconds`, `kafkafim_retries_total{scope}` |
 | Credentials rejected? | `kafkafim_auth_failures_total{es_cluster,identity}` |
 | What is going to the DLQ? | `kafkafim_dlq_records_total{error_type}`, `kafkafim_item_errors_total{es_cluster,error_type,retryable}` |
-| What are drop routes discarding? | `rate(kafkafim_docs_total{outcome="dropped"}[5m])` by `route` ([§5.14](#514-documents-missing-from-elasticsearch-dropped-or-lost)) |
+| What are drop routes discarding? | `rate(kafkafim_docs_total{outcome="dropped"}[5m])` by `route` ([Documents missing from Elasticsearch: dropped or lost? (§5.14)](#514-documents-missing-from-elasticsearch-dropped-or-lost)) |
 | Backpressure / memory? | `kafkafim_in_flight_bytes` against the pipeline's `source.max-in-flight-bytes`; `jvm_memory_used_bytes{area="heap"}` |
 | Why is a pipeline paused? | `kafkafim_pipeline_pause_reason{reason}` (1/0 per kind: `es_breaker`, `es_auth`, `dlq_blocked`) |
 | Does this pod own partitions? Is Kafka connected? | `kafkafim_assigned_partitions`, `kafkafim_kafka_connected` (1/0) |
@@ -243,7 +246,7 @@ neither (`kafkafim_config_reload_total` has `result`) ([DESIGN §10](DESIGN.md#1
 Dashboards and alert rules for these metrics ship in `deploy/grafana/`
 ([DESIGN §10](DESIGN.md#shipped-with-the-repo)) and, versioned with the image, in the
 release bundle's `kafkafim-<ver>-grafana/` (what the air gap loads, see
-[§2.1](#21-import-a-release-into-the-air-gap)): see
+[Import a release into the air gap (§2.1)](#21-import-a-release-into-the-air-gap)): see
 the [Grafana README](../deploy/grafana/README.md) for importing the dashboards
 and loading the rules. Every alert's `runbook_url` points to a section of §5 (or
 §3.1), and each of those sections names the alerts that lead to it.
@@ -295,23 +298,23 @@ The endpoint returns JSON (names and violations only, never values):
 
 | HTTP / `result` | Meaning | What to do |
 |---|---|---|
-| 200 `applied` | Valid and changed something; `generation` went up by one. `kafkafim_config_reload_total{result="success"}` +1; INFO lines `Configuration reload (<trigger>): applying generation <n>: added ..., removed ..., restarted ..., unchanged ...` and `... generation <n> applied`, with `; retrying failed pipeline(s) [...]` appended when `retried` is not empty. | Check the restarted, added and retried pipelines reach `running`. |
+| 200 `applied` | Valid and changed something; `generation` went up by one. `kafkafim_config_reload_total{result="success"}` +1; INFO lines `Configuration reload (<trigger>): applying generation <n>: added ..., removed ..., restarted ..., unchanged ...` and `... generation <n> applied`, with `; retrying failed pipeline(s) [...]` appended when `retried` is not empty. | Check the restarted, added, and retried pipelines reach `running`. |
 | 200 `unchanged` | Valid, identical to what runs; nothing restarted, `generation` stays. Pipelines in `failed_preflight` or `failed` are still retried and listed under `retried`; INFO `Configuration reload (<trigger>): no change, generation <n> stays`. Counts as `success`. | If you expected a change: kubelet has not refreshed the mount yet, or the change was outside `kafkafim.*`. Check the retried pipelines reach `running`. |
 | 400 `rejected` | The new tree is invalid or unreadable; **the running configuration stays**, nothing was touched. `errors` lists every violation as `<property path>: <problem>`; `kafkafim_config_reload_total{result="failure"}` +1; one ERROR line `Configuration reload (<trigger>) rejected; generation <n> keeps running. ...`. | Fix the values and upgrade again. See the warning below. |
 | 503 | Body `"result":"rejected"` with the reason in `errors`. Usually the supervisor is not running (startup not finished, or shutting down); an internal state error while applying is also mapped here, and is rolled back like a 500. | Retry once the pod is up; if it persists on a running pod, treat it like a 500. |
-| 500 | Applying a valid tree failed (ERROR `... failed while applying generation <n>; the running configuration stays in effect`, with the cause); `kafkafim_config_reload_total{result="failure"}` +1. The reload was rolled back: `generation` stays, and the pipelines drained for it were started again on the previous configuration (WARN `Applying the configuration failed; ...` lists them). | Check those pipelines reach `running` again. The files still hold the new tree and the watcher does not retry the same content: once the cause in the ERROR line is fixed, `POST /actuator/reload` on each pod applies it; if it fails again, restart the group's pods ([§2.4](#24-restart-pods)) so they start from the files. |
+| 500 | Applying a valid tree failed (ERROR `... failed while applying generation <n>; the running configuration stays in effect`, with the cause); `kafkafim_config_reload_total{result="failure"}` +1. The reload was rolled back: `generation` stays, and the pipelines drained for it were started again on the previous configuration (WARN `Applying the configuration failed; ...` lists them). | Check those pipelines reach `running` again. The files still hold the new tree and the watcher does not retry the same content: once the cause in the ERROR line is fixed, `POST /actuator/reload` on each pod applies it; if it fails again, restart the group's pods ([Restart pods (§2.4)](#24-restart-pods)) so they start from the files. |
 
 > **A rejected reload is a time bomb.** The pods keep running the old generation, but
-> the `ConfigMap` now holds the invalid one: any pod that restarts, is rescheduled or
+> the `ConfigMap` now holds the invalid one: any pod that restarts, is rescheduled, or
 > is added by the HPA fails at startup with the same violations. Revert or fix the
-> values promptly ([§2.3](#23-roll-back)). The watcher does not retry a rejected tree
+> values promptly ([Roll back (§2.3)](#23-roll-back)). The watcher does not retry a rejected tree
 > until the files change again.
 
 Not reloaded (needs a pod restart): `kafkafim.reload.*` (a WARN says so), OTLP export
 headers and endpoint, and anything outside `kafkafim.*`. With the chart these only
-arrive through `otel.*`, `extraEnv` or the image, which roll the pods anyway (except
+arrive through `otel.*`, `extraEnv`, or the image, which roll the pods anyway (except
 rotating the contents of an `otel.secretHeaders` Secret, which needs a restart; the
-chart's `config.kafkafim` accepts only `kafka`, `elasticsearch` and `pipelines`).
+chart's `config.kafkafim` accepts only `kafka`, `elasticsearch`, and `pipelines`).
 Every accepted reload (`applied` or `unchanged`, from the watcher or the endpoint)
 starts each unchanged `failed_preflight` or `failed` pipeline once more and lists it
 under `retried` instead of `unchanged`; a rejected reload retries nothing. A retry is
@@ -337,13 +340,14 @@ Secrets reach the application as files through Spring's `configtree`
    every pod of the affected groups and the pipelines are `running`.
 4. Revoke the old credential.
 
-**TLS files are the exception.** Truststores, keystores and `ssl.ca-certificate` are
+**TLS files are the exception.** Truststores, keystores, and `ssl.ca-certificate` are
 referenced by **path**; only their passwords are properties. When a certificate or
-keystore file changes but its path, password and store type stay the same (for
+keystore file changes but its path, password, and store type stay the same (for
 example cert-manager renewing a keystore), the reload sees an identical configuration
 and answers `unchanged`; running Kafka and Elasticsearch clients keep the old
 material, read when they were built. After rotating TLS files, restart the affected
-groups' pods ([§2.4](#24-restart-pods)). A rotation that also changes the file's path (the
+groups' pods ([Restart pods (§2.4)](#24-restart-pods)). A rotation that also changes the file's path
+(the
 new file mounted under a new name), its password (a `configtree` property) or its
 store type reloads normally: the identity or cluster definition changed, so the
 restarted pipelines build new clients from the new files.
@@ -404,13 +408,14 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
   identities and pipelines) opens at ≥50% failures over the last 20 requests (at
   least 10), stays open 10s, then lets 2 probes through; once it closes, the pause
   clears and the backlog drains. A **request-level** failure (connection error,
-  timeout, 5xx or 429 for the whole bulk) never dead-letters anything. **Item-level**
+  timeout, 5xx, or 429 for the whole bulk) never dead-letters anything. **Item-level**
   failures inside a successful bulk response are different: an item 429
   (`es_rejected_execution_exception`), item 5xx or item `index_not_found` is retried
   in later bulks only up to `dlq.max-attempts` (default 10) or `dlq.max-elapsed`
   (default 10m), then goes to the DLQ as `es_retries_exhausted`. A sustained partial
   overload therefore does produce DLQ records; replay them once ES is healthy
-  ([§5.6](#56-dlq-filling-or-dlq-blocked)). If the outage is long, you do not need to scale
+  ([DLQ filling, or DLQ blocked (§5.6)](#56-dlq-filling-or-dlq-blocked)). If the outage is long, you
+  do not need to scale
   anything down: `max-in-flight-bytes` bounds memory. A reload that restarts an affected pipeline drops
   its breaker pause; the new run re-pauses on its first failures.
 - **Afterwards**: expect a catch-up burst; watch lag fall and `kafkafim_bulk_latency_seconds`.
@@ -422,7 +427,7 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
 - **Symptom**: a pipeline is `paused`; WARN `Pipeline '<p>': pausing
   (es-auth:<es>/<identity>)` (`<none>` when the route has no identity); bulk sink
   WARNs with `status 401` or `403` and `authentication failure: type=security_exception,
-  ..., reason=...`; the reason names the user, roles, action and index.
+  ..., reason=...`; the reason names the user, roles, action, and index.
   `kafkafim_auth_failures_total{es_cluster,identity}` increasing. Not a breaker
   failure; nothing goes to the DLQ.
 - **Check**: is the credential in the mounted Secret current? Was it rotated in ES
@@ -434,7 +439,7 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
 - **Action**: fix the credential or role at the source. Retries continue with backoff;
   when ES accepts the identity again the sink logs INFO `Bulk sink ...: Elasticsearch
   accepts the identity again` and the pause clears by itself. Updating the Secret also
-  restarts the pipelines using that identity ([§4.3](#43-rotating-a-secret)).
+  restarts the pipelines using that identity ([Rotating a secret (§4.3)](#43-rotating-a-secret)).
 
 ### 5.3 Kafka unreachable
 
@@ -453,24 +458,25 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
 - **Check**: broker health, DNS, network policy/firewall from the pod's namespace to
   `bootstrap-servers`, TLS trust (an expired or rotated cluster CA shows up as an SSL
   handshake failure in the logs; after a truststore file is replaced under the same
-  path, password and type, running clients keep the old one until a pod restart, while
-  a new path, password or type reloads without one, [§4.3](#43-rotating-a-secret)).
+  path, password, and type, running clients keep the old one until a pod restart, while
+  a new path, password, or type reloads without one, [Rotating a secret (§4.3)](#43-rotating-a-secret)).
 - **Action**: fix the path; kafkafim recovers by itself. Restart pods only if a
-  pipeline stays wedged after Kafka is back (see [§5.7](#57-pipeline-shows-running-but-consumes-nothing)).
+  pipeline stays wedged after Kafka is back (see [Pipeline shows `running` but consumes nothing (§5.7)](#57-pipeline-shows-running-but-consumes-nothing)).
 
 ### 5.4 Kafka authentication or ACL missing
 
 - **Source topics not visible at start** (topic absent, no `Describe` for the
   consumer identity, SASL rejected): the pipeline goes `failed_preflight` (see
-  [§5.5](#55-failed_preflight-pipelines)). The start check is a metadata fetch, which
+  [`failed_preflight` pipelines (§5.5)](#55-failed_preflight-pipelines)). The start check is a
+  metadata fetch, which
   needs only `Describe`.
 - **`Read` missing on a source topic** (but `Describe` present): the pipeline goes
-  `failed_preflight`. The ERROR line names the topic, the identity and the cluster
-  (ADR-0039; see [§5.5](#55-failed_preflight-pipelines)).
+  `failed_preflight`. The ERROR line names the topic, the identity, and the cluster
+  (ADR-0039; see [`failed_preflight` pipelines (§5.5)](#55-failed_preflight-pipelines)).
 - **Consumer group not permitted** (no ACL on the group, an ACL on another group name
   or prefix, or `Describe` without `Read` on a group that has joined before): the
-  pipeline goes `failed_preflight`. The ERROR line names the group, the identity and the
-  cluster (see [§5.5](#55-failed_preflight-pipelines)).
+  pipeline goes `failed_preflight`. The ERROR line names the group, the identity, and the
+  cluster (see [`failed_preflight` pipelines (§5.5)](#55-failed_preflight-pipelines)).
 - **`Describe` without `Read` on a group that has never been joined**: preflight cannot
   tell it from `Read` (ADR-0038). The pipeline shows **`running`**, but its consumers
   retry the join every 10s and log the group authorization error; it never gets
@@ -478,7 +484,8 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
 - **Auth or ACL revoked after start**: consumers retry every 10s instead of stopping;
   state stays `running`, consumption stops.
 - **DLQ producer** (missing `Write` on the DLQ topic, which the idempotent producer
-  already needs for `InitProducerId`): see [§5.6](#56-dlq-filling-or-dlq-blocked). If
+  already needs for `InitProducerId`): see
+  [DLQ filling, or DLQ blocked (§5.6)](#56-dlq-filling-or-dlq-blocked). If
   `ClusterAuthorizationException` persists because the identity lacks the cluster-level
   `IdempotentWrite` ACL and you cannot grant it, set `enable.idempotence: "false"` in the
   cluster's `properties` (default `true`; only `true` or `false`). Retries then use one
@@ -488,7 +495,7 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
   `Describe` on the topics and `Read` on the group; DLQ identity: `Write` and
   `Describe` on the DLQ topic). Running consumers pick it up within 10s; for a
   `failed_preflight` pipeline, run a no-op `POST /actuator/reload` on each pod
-  ([§5.5](#55-failed_preflight-pipelines)).
+  ([`failed_preflight` pipelines (§5.5)](#55-failed_preflight-pipelines)).
 
 ### 5.5 `failed_preflight` pipelines
 
@@ -508,16 +515,18 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
   | `consumer group '<g>' (identity '<id>' on Kafka cluster '<c>'): identity may not use the group` or `...: identity may describe the group but not read it` | No ACL on the group (or on another group name or prefix), or `Describe` without `Read` | Add `Read` on the group for the consumer identity |
   | `DLQ topic '<t>' (identity '<id>' on Kafka cluster '<c>') does not exist` or `...: identity may not describe it` | DLQ topic (default `<first topic>.kafkafim-dlq`) not provisioned, or no `Describe` for the DLQ identity | Create it / add the ACL; kafkafim never auto-creates it |
   | `Elasticsearch identity '<id>' on cluster '<es>' rejected: HTTP 401 from _security/_authenticate` (or 403) | Bad ES credential | Fix the Secret or the ES user/API key |
-  | `Elasticsearch identity ... rejected: TLS handshake failed: ...` | Wrong or expired cluster CA (`ssl.ca-certificate`) or hostname mismatch | Fix the CA Secret (then restart the pods, [§4.3](#43-rotating-a-secret)) or `uris` |
+  | `Elasticsearch identity ... rejected: TLS handshake failed: ...` | Wrong or expired cluster CA (`ssl.ca-certificate`) or hostname mismatch | Fix the CA Secret (then restart the pods, [Rotating a secret (§4.3)](#43-rotating-a-secret)) or `uris` |
   | `configuration cannot run: ...`, unknown identity, unreadable trust material | Bad mount or config | Fix the values / Secret mounts |
   | `start failed unexpectedly` (ERROR with a stack trace, instead of `failed preflight, staying stopped`); the pipeline's failure text is the exception, e.g. `java.lang.NoClassDefFoundError: ...` | A start step threw something kafkafim does not expect (a bug, a broken image or classpath, an `Error`). Sinks and the source are already closed | Fix the cause from the stack trace (usually a fixed image: a roll-out); a reload then retries it. If it recurs, report a bug |
 
 - **Action**: fix the cause, then run a no-op `POST /actuator/reload` on each pod of
-  the group ([§4.1](#41-how-a-change-gets-in)); any accepted reload, such as the next
+  the group ([How a change gets in (§4.1)](#41-how-a-change-gets-in)); any accepted reload, such as
+  the next
   `helm upgrade` of the group, does the same. The pipeline appears under `retried` in
   the response and goes `starting` → `running`; if it is back in `failed_preflight`,
   the ERROR line says what is still wrong, and if it stays `starting`, something is
-  unreachable ([§5.12](#512-pipeline-stuck-in-starting)). **Fixing the resource alone does not
+  unreachable ([Pipeline stuck in `starting` (§5.12)](#512-pipeline-stuck-in-starting)). **Fixing
+  the resource alone does not
   recover the pipeline**: nothing retries on its own, only a reload or a pod restart
   ([ADR-0032](decisions/0032-accepted-reload-retries-failed-preflight-pipelines.md)).
   Transient causes (unreachable broker or ES, 5xx) never produce `failed_preflight`;
@@ -530,7 +539,7 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
 **DLQ filling** (records are being dead-lettered):
 
 - **Symptom**: `rate(kafkafim_dlq_records_total[10m]) > 0`, by `error_type`; WARN
-  lines per DLQ record naming the source coordinates, error type and target.
+  lines per DLQ record naming the source coordinates, error type, and target.
 - **Check**: what the records say. Read the DLQ topic with headers:
 
   ```bash
@@ -596,16 +605,17 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
 - **Symptom**: state `running`, but lag grows and `kafkafim_records_consumed_total`
   is flat for that pipeline on that pod.
 - **Check**, in order:
-  1. Group or topic `Read` authorization errors ([§5.4](#54-kafka-authentication-or-acl-missing)).
+  1. Group or topic `Read` authorization errors ([Kafka authentication or ACL missing (§5.4)](#54-kafka-authentication-or-acl-missing)).
   2. `kafkafim_assigned_partitions`: 0 on this pod is normal only if the group has
      more pods than partitions (replicas above partitions are idle).
   3. `kafkafim_in_flight_bytes` at or above `max-in-flight-bytes`:
-     backpressure, see [§5.8](#58-consumer-lag-growing).
-- **Action**: for 1, fix the ACL ([§5.4](#54-kafka-authentication-or-acl-missing));
+     backpressure, see [Consumer lag growing (§5.8)](#58-consumer-lag-growing).
+- **Action**: for 1, fix the ACL ([Kafka authentication or ACL missing (§5.4)](#54-kafka-authentication-or-acl-missing));
   for 2, nothing if the group has more pods than partitions, else check the group's
-  other members; for 3, see [§5.8](#58-consumer-lag-growing). A record handler that
+  other members; for 3, see [Consumer lag growing (§5.8)](#58-consumer-lag-growing). A record
+  handler that
   threw or a listener container that stopped on its own no longer shows as `running`:
-  the pipeline is `failed` ([§5.13](#513-failed-pipelines)).
+  the pipeline is `failed` ([`failed` pipelines (§5.13)](#513-failed-pipelines)).
 
 ### 5.8 Consumer lag growing
 
@@ -616,10 +626,11 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
   the Kafka team's consumer-lag monitoring; `kafkafim_e2e_latency_seconds` p99 above
   target.
 - **Check**, in order:
-  1. Is the pipeline `paused` on any pod? Then it is [§5.1](#51-elasticsearch-outage-circuit-breaker-open),
-     [§5.2](#52-elasticsearch-authentication-failure-pipeline-paused) or
-     [§5.6](#56-dlq-filling-or-dlq-blocked).
-  2. Is it consuming at all? [§5.7](#57-pipeline-shows-running-but-consumes-nothing).
+  1. Is the pipeline `paused` on any pod? Then it is
+     [Elasticsearch outage, circuit breaker open (§5.1)](#51-elasticsearch-outage-circuit-breaker-open),
+     [Elasticsearch authentication failure (pipeline paused) (§5.2)](#52-elasticsearch-authentication-failure-pipeline-paused),
+     or [DLQ filling, or DLQ blocked (§5.6)](#56-dlq-filling-or-dlq-blocked).
+  2. Is it consuming at all? [Pipeline shows `running` but consumes nothing (§5.7)](#57-pipeline-shows-running-but-consumes-nothing).
   3. Is Elasticsearch slow? `kafkafim_bulk_latency_seconds` up, `status="429"` in
      `kafkafim_bulk_requests_total`, `kafkafim_retries_total` rising. With
      `kafkafim_in_flight_bytes` pinned at `max-in-flight-bytes`, kafkafim is waiting
@@ -649,13 +660,14 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
   | Message | Cause | Fix |
   |---|---|---|
   | `The 'local' profile (development sample, inline secrets allowed) is active on Kubernetes. Set SPRING_PROFILES_ACTIVE=kafkafim ...` | The `local` profile got activated: a hand-edited Deployment dropped `SPRING_PROFILES_ACTIVE=kafkafim`, or `SPRING_PROFILES_INCLUDE` / `spring.profiles.include` adds `local` (via `extraEnv` or `extraEnvFrom`) | Restore the chart's env; remove the include |
-  | `kafkafim.allow-inline-secrets=true is set on Kubernetes. Secrets must come from mounted Secret files ...` | Someone set the local-only switch (e.g. via `extraEnv`) | Remove it; mount secrets as files ([§4.3](#43-rotating-a-secret)) |
+  | `kafkafim.allow-inline-secrets=true is set on Kubernetes. Secrets must come from mounted Secret files ...` | Someone set the local-only switch (e.g. via `extraEnv`) | Remove it; mount secrets as files ([Rotating a secret (§4.3)](#43-rotating-a-secret)) |
   | A binding/validation report listing `<property path>: <problem>` | Invalid configuration: unknown key under `kafkafim.*`, broken reference, an **inline secret** literal in YAML or env, or a `${...}` placeholder with no secret file behind it | Fix the values; for a missing secret check the `secrets[]` mount path against the placeholder name ([HELM.md](HELM.md#secrets-and-configtree-naming)) |
   | `ConfigDataLocationNotFoundException` for `/etc/kafkafim/config/` | The ConfigMap is not mounted | Check the release rendered the group's `ConfigMap` |
   | Pod stuck in `ContainerCreating` with `FailedMount` events (`kubectl describe pod`) | A `secrets[]` entry names a `Secret` that does not exist | Create the `Secret` (the chart never does) |
 
   Validation lists every violation at once and never prints secret values. The same
-  report appears in a rejected reload ([§4.2](#42-reading-the-result)): if running pods
+  report appears in a rejected reload ([Reading the result (§4.2)](#42-reading-the-result)): if
+  running pods
   rejected a change, new pods crash on it.
 - Preflight does **not** block startup: it runs per pipeline in the background, so an
   unreachable cluster leaves the pod running but unready, not crash-looping.
@@ -706,7 +718,7 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
 **Alerts**: [`KafkafimConfigReloadFailed`](../deploy/grafana/alerts/kafkafim-alerts.yaml).
 
 `increase(kafkafim_config_reload_total{result="failure"}[10m]) > 0`: see
-[§4.2](#42-reading-the-result). Find the ERROR `Configuration reload (...) rejected`
+[Reading the result (§4.2)](#42-reading-the-result). Find the ERROR `Configuration reload (...) rejected`
 (or `... failed while applying generation`) line on any pod of the group for the violations, fix the
 values and upgrade again, or roll back. Until then the pods run the previous generation,
 and new pods fail on a rejected tree (a valid tree that only failed while it was applied
@@ -725,18 +737,18 @@ usually starts on new pods, unless the cause in the ERROR line also applies at s
 
   | Log line contains | Cause | See |
   |---|---|---|
-  | `DLQ topic '<t>' (...): broker did not answer` in `<problems>` | Kafka unreachable for the DLQ identity | [§5.3](#53-kafka-unreachable) |
-  | `source could not start, retrying: <KafkaException>` (its own WARN line, after preflight passed) | Kafka unreachable for the source | [§5.3](#53-kafka-unreachable) |
-  | `Elasticsearch identity '<id>' on cluster '<es>' not reachable: <exception>` | No connection to the ES cluster within the preflight's short timeouts: DNS, network policy or firewall, ES down | The cluster and the network path from the pod's namespace to its `uris` |
+  | `DLQ topic '<t>' (...): broker did not answer` in `<problems>` | Kafka unreachable for the DLQ identity | [Kafka unreachable (§5.3)](#53-kafka-unreachable) |
+  | `source could not start, retrying: <KafkaException>` (its own WARN line, after preflight passed) | Kafka unreachable for the source | [Kafka unreachable (§5.3)](#53-kafka-unreachable) |
+  | `Elasticsearch identity '<id>' on cluster '<es>' not reachable: <exception>` | No connection to the ES cluster within the preflight's short timeouts: DNS, network policy, or firewall, ES down | The cluster and the network path from the pod's namespace to its `uris` |
   | `Elasticsearch identity ... not reachable: HTTP 5xx from _security/_authenticate` | ES or a proxy in front of it answers 5xx | The ES cluster's own monitoring |
 
   Preflight sends one `GET /_security/_authenticate` per Elasticsearch cluster and
   identity the pipeline routes to. A TLS handshake failure, 401 or 403 is not transient: it sends
-  the pipeline to `failed_preflight` ([§5.5](#55-failed_preflight-pipelines)).
+  the pipeline to `failed_preflight` ([`failed_preflight` pipelines (§5.5)](#55-failed_preflight-pipelines)).
 - **Action**: fix the path or the cluster. Preflight retries on its own (1s doubling
-  to 30s, forever, [§3.1](#31-pipeline-state)) and the pipeline goes `running` at the
+  to 30s, forever, [Pipeline state (§3.1)](#31-pipeline-state)) and the pipeline goes `running` at the
   next attempt that gets through; no restart or reload is needed. Elasticsearch
-  becoming unreachable **after** start is [§5.1](#51-elasticsearch-outage-circuit-breaker-open)
+  becoming unreachable **after** start is [Elasticsearch outage, circuit breaker open (§5.1)](#51-elasticsearch-outage-circuit-breaker-open)
   instead: the pipeline is `paused`, not `starting`.
 
 ### 5.13 `failed` pipelines
@@ -760,11 +772,13 @@ usually starts on new pods, unless the cause in the ERROR line also applies at s
   | `<cause>` | Before it | Meaning |
   |---|---|---|
   | `record handler failed: <exception>` | `Pipeline '<p>': record handler failed; pausing until the pipeline is restarted` | Decoding, routing or submitting a batch threw: a kafkafim bug. The batch's records were not committed, so whoever reads them next (a retry, or another pod) may hit it again. |
-  | `Kafka consumer stopped (<reason>)` | Spring Kafka's ERROR from the listener container, such as `Stopping container due to an Error` | A consumer hit an error the container does not retry. Authentication and authorization errors are retried every 10s instead ([§5.4](#54-kafka-authentication-or-acl-missing)), so they do not end here. After an `Error`, Spring Kafka logs a second ERROR for the same failure, `Error while stopping the container`, just after the pipeline's `failed while running` line, with a `CompletionException` wrapping that `Error`. The container stopped itself, and that ERROR reports its consumer thread ending with the `Error`. It is not a second failure. |
+  | `Kafka consumer stopped (<reason>)` | Spring Kafka's ERROR from the listener container, such as `Stopping container due to an Error` | A consumer hit an error the container does not retry. Authentication and authorization errors are retried every 10s instead ([Kafka authentication or ACL missing (§5.4)](#54-kafka-authentication-or-acl-missing)), so they do not end here. After an `Error`, Spring Kafka logs a second ERROR for the same failure, `Error while stopping the container`, just after the pipeline's `failed while running` line, with a `CompletionException` wrapping that `Error`. The container stopped itself, and that ERROR reports its consumer thread ending with the `Error`. It is not a second failure. |
 
-- **Action**: collect the ERROR lines ([§6](#6-escalation-data-to-collect)), fix the
+- **Action**: collect the ERROR lines
+  ([Escalation data to collect (§6)](#6-escalation-data-to-collect)), fix the
   cause if it is outside kafkafim, then run a no-op `POST /actuator/reload` on the pod
-  ([§4.1](#41-how-a-change-gets-in)). The pipeline appears under `retried` and goes
+  ([How a change gets in (§4.1)](#41-how-a-change-gets-in)). The pipeline appears under `retried`
+  and goes
   `starting` → `running`. A pipeline that fails again on the same records points to a
   bug: escalate with the logs. A pod restart also recovers it. Nothing retries on its
   own ([ADR-0036](decisions/0036-pipeline-that-fails-while-running-is-stopped-as-failed.md)).
@@ -790,7 +804,8 @@ usually starts on new pods, unless the cause in the ERROR line also applies at s
      `indexed + stale + dlq + dropped` for an object-per-record topic. Array records
      add one count per element, and `route-mode: all` adds one per extra copy. If the
      documents are not under `dropped` and not in the DLQ
-     ([§5.6](#56-dlq-filling-or-dlq-blocked)), they were not consumed yet, or the
+     ([DLQ filling, or DLQ blocked (§5.6)](#56-dlq-filling-or-dlq-blocked)), they were not consumed
+     yet, or the
      records were never produced. Apart from a drop route, every document of a
      committed record is in Elasticsearch or in the DLQ
      ([ADR-0006](decisions/0006-at-least-once-with-id-idempotence.md)).
@@ -823,8 +838,8 @@ Current behaviour that this runbook works around; each is a follow-up, not a fea
   `Describe` but not `Read` on it. Preflight's group check cannot tell the two apart
   before the group exists (ADR-0038); the source retries the join every 10s.
 - **Rotated TLS files are not reloaded.** Certificate and keystore files are bound
-  by path, so a content change with an unchanged path, password and type is `unchanged` to
-  the reload; restart the pods ([§4.3](#43-rotating-a-secret)).
+  by path, so a content change with an unchanged path, password, and type is `unchanged` to
+  the reload; restart the pods ([Rotating a secret (§4.3)](#43-rotating-a-secret)).
 - **A pause reason's cluster and identity are only in logs.**
   `kafkafim_pipeline_pause_reason` gives the kind (`es_breaker`, `es_auth`,
   `dlq_blocked`); the health endpoint says `paused` without a reason, and its details
@@ -832,6 +847,6 @@ Current behaviour that this runbook works around; each is a follow-up, not a fea
 - **The `validate` profile does not check secrets or connectivity**
   ([DESIGN §5.6](DESIGN.md#56-validation-and-hot-reload), [HELM.md](HELM.md)): it
   accepts a secret that is not mounted and only lists its name, opens no trust or
-  keystore file and runs no preflight. A misnamed secret, a missing topic, a missing
-  ACL or a wrong credential is still found only by a new pod's startup or a running
+  keystore file, and runs no preflight. A misnamed secret, a missing topic, a missing
+  ACL, or a wrong credential is still found only by a new pod's startup or a running
   pod's reload.

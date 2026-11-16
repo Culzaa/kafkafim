@@ -43,7 +43,7 @@
 ```
 
 `verify` runs Google Java Style checks (Spotless + Checkstyle), unit tests,
-Testcontainers integration tests and ArchUnit rules. CI runs the same checks, split into
+Testcontainers integration tests, and ArchUnit rules. CI runs the same checks, split into
 "Build and test" (`-DskipITs`) and a parallel "Integration tests" job, plus the
 Dockerfile build and Helm checks. All must pass before merge. A docs-only change
 needs only `./mvnw -DskipTests verify`; CI skips the Java and image jobs for it.
@@ -61,7 +61,7 @@ If you don't have them installed, use `nix shell nixpkgs#shellcheck nixpkgs#shfm
 `brew install shellcheck shfmt`.
 
 Markdown (`*.md`) follows the [Google Markdown Style Guide](https://google.github.io/styleguide/docguide/style.html)
-(ADR-0046), checked by markdownlint-cli2; the rules and their exceptions (tables, code blocks and
+(ADR-0046), checked by markdownlint-cli2; the rules and their exceptions (tables, code blocks, and
 headings are exempt from the 100-column limit) are in `.markdownlint-cli2.jsonc`. CI's "Markdown
 style" job runs the pinned version on every tracked `*.md`:
 
@@ -80,7 +80,7 @@ The linter checks Markdown syntax, not wording. Documentation follows the
 reviewers (including the reviewer agent) check every change to a `*.md` file against this list:
 
 - Address the reader as "you" and use the imperative for instructions ("Run `helm upgrade`"),
-  not "we", "the user" or "one".
+  not "we", "the user", or "one".
 - Use the active voice and the present tense: "The supervisor restarts the pipeline", not "The
   pipeline will be restarted".
 - Write headings in sentence case ("Rotate a secret", not "Rotate A Secret").
@@ -88,9 +88,10 @@ reviewers (including the reviewer agent) check every change to a `*.md` file aga
   "here" or "this page".
 - Use a numbered list for ordered steps and a bulleted list for everything else. Start each step
   with a verb, and keep one action per step.
-- Cut filler such as "simply", "just", "easily", "please" and "obviously".
-- Put commands, file names, keys and values in code font, and keep them exact.
-- A pure wording change must not alter a command, value, number or behaviour. Behaviour changes
+- Cut filler such as "simply", "just", "easily", "please", and "obviously".
+- Use the Oxford comma in lists of three or more.
+- Put commands, file names, keys, and values in code font, and keep them exact.
+- A pure wording change must not alter a command, value, number, or behaviour. Behaviour changes
   update the docs in the same pull request.
 
 The `*IntegrationTest` classes run in three parallel Failsafe JVMs (each class starts
