@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.jspecify.annotations.Nullable;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.validation.annotation.Validated;
@@ -67,8 +68,8 @@ public record KafkafimProperties(
     this(allowInlineSecrets, kafka, elasticsearch, pipelines, null);
   }
 
-  private static Pipeline resolve(
-      String name, Pipeline pipeline, Kafka kafka, Elasticsearch elasticsearch) {
+  private static @Nullable Pipeline resolve(
+      String name, @Nullable Pipeline pipeline, Kafka kafka, Elasticsearch elasticsearch) {
     if (pipeline == null) {
       return null;
     }
@@ -105,7 +106,8 @@ public record KafkafimProperties(
     return identity == null ? route : route.withIdentity(identity);
   }
 
-  private static String usableDefault(String defaultIdentity, Map<String, ?> identities) {
+  private static @Nullable String usableDefault(
+      @Nullable String defaultIdentity, Map<String, ?> identities) {
     return defaultIdentity != null && identities.containsKey(defaultIdentity)
         ? defaultIdentity
         : null;
