@@ -3,11 +3,13 @@
 Status: accepted · Date: 2026-11-07
 
 ## Context
+
 Config is edited daily by one team, deployed to 2–3 clusters, must be IaC, must
 reload without restarts, and must not carry secrets inline. No CRDs or operators in
 production.
 
 ## Decision
+
 - All settings live under `kafkafim.*`, bound to typed `@ConfigurationProperties`
   records, checked with Bean Validation plus a cross-reference validator.
 - Helm renders `application-kafkafim.yaml` into one `ConfigMap` per group (shared
@@ -44,10 +46,12 @@ production.
   repository's CI smoke-tests the image with a liveness probe instead.
 
 ## Alternatives
+
 - Own YAML format + JSON Schema + CLI validator: a second config system next to
   Spring's; rejected with the CLI (ADR-0018).
 - Spring Cloud Kubernetes config reload: needs API RBAC and the Spring Cloud BOM for
   what a file watcher does.
 
 ## Consequences
+
 The Spring property model is the public API; a future UI edits the same values.

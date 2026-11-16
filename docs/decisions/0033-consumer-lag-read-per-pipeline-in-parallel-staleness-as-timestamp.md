@@ -1,8 +1,11 @@
 # ADR-0033: Consumer lag is read per pipeline in parallel under a 5s deadline; stale lag shows as a timestamp
 
-Status: superseded by [ADR-0034](0034-consumer-lag-is-monitored-outside-kafkafim.md) · Date: 2026-11-10 · Refines [ADR-0029](0029-batch-spans-recorded-at-batch-end-failed-batches-always-sampled.md)
+Status: superseded by [ADR-0034](0034-consumer-lag-is-monitored-outside-kafkafim.md) · Date:
+2026-11-10 · Refines
+[ADR-0029](0029-batch-spans-recorded-at-batch-end-failed-batches-always-sampled.md)
 
 ## Context
+
 ADR-0029 has `telemetry` own the series and the supervisor feed it; `kafkafim_consumer_lag`
 was refreshed every 10s by one poller thread that read every pipeline in turn, each read
 bounded by 5s per broker request (two requests). Two problems:
@@ -15,6 +18,7 @@ bounded by 5s per broker request (two requests). Two problems:
   for a cluster nobody can reach.
 
 ## Decision
+
 - **One read per pipeline, in parallel.** Every 10s the poller starts one read per
   pipeline on its own virtual thread and does not wait. A pipeline whose previous read
   still runs is skipped for that round, so a hanging cluster never piles up reads.
@@ -28,6 +32,7 @@ bounded by 5s per broker request (two requests). Two problems:
   its series.
 
 ## Consequences
+
 - A cluster that does not answer delays only its own pipelines' lag.
 - Stale lag is visible: `time() - kafkafim_consumer_lag_timestamp_seconds` is its age;
   an alert or panel can use that. The shipped alert rules and dashboards do not yet.
@@ -40,6 +45,7 @@ bounded by 5s per broker request (two requests). Two problems:
   guards on `> 0` (or a `for:` longer than that).
 
 ## Alternatives
+
 - **Remove the lag series while stale (gauge absent).** Stale shows as a gap, but a
   `lag > X` alert then resolves during an outage, dashboards lose the last value, and
   series known from the configuration no longer always exist (DESIGN §10).

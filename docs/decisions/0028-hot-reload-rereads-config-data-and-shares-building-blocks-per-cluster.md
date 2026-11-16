@@ -3,6 +3,7 @@
 Status: accepted · Date: 2026-11-08 · Refines [ADR-0012](0012-spring-configuration-helm-configtree-hot-reload.md)
 
 ## Context
+
 ADR-0012 decided hot reload with Spring's `Binder`, a directory watcher and
 `POST /actuator/reload`, but not where the new tree comes from, nor how the
 building blocks of the running pipelines (Kafka consumer factories, DLQ producers,
@@ -14,6 +15,7 @@ every file change, since Spring Boot reads config files and `configtree` directo
 once.
 
 ## Decision
+
 - **Source of a reload**: a new environment gets every non-config-data property
   source of the running one in order (command line, system properties, environment
   variables, defaults), then Spring Boot's `ConfigDataEnvironmentPostProcessor` runs
@@ -38,6 +40,7 @@ once.
   `debounce`), read at startup.
 
 ## Alternatives
+
 - **Re-read only `application-kafkafim.yaml` and a new `ConfigTreePropertySource`
   ourselves**: duplicates Boot's location, profile and import rules, and drifts from
   them.
@@ -49,6 +52,7 @@ once.
   changes the `dlq` and `sink.es` building blocks; left as a follow-up.
 
 ## Consequences
+
 - During and after a reload, an old and a new instance can coexist until the old
   one's pipelines restart: two producers or clients for the same
   `(cluster, identity)`, and a cluster's breaker split per instance.

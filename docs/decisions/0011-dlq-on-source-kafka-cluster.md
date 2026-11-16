@@ -1,8 +1,10 @@
 # ADR-0011: DLQ topic on the source Kafka cluster; original bytes preserved; poison messages bounded
 
-Status: accepted; the replay pipeline's `kafkafim_consumer_lag` as the backlog number is superseded by [ADR-0034](0034-consumer-lag-is-monitored-outside-kafkafim.md) · Date: 2026-11-07
+Status: accepted; the replay pipeline's `kafkafim_consumer_lag` as the backlog number is superseded
+by [ADR-0034](0034-consumer-lag-is-monitored-outside-kafkafim.md) · Date: 2026-11-07
 
 ## Decision
+
 Every document that cannot be indexed goes to a DLQ topic on the **same Kafka
 cluster as the source** (default `<first topic>.kafkafim-dlq`). The record value is
 the original bytes, untouched; the error and provenance travel in headers
@@ -11,6 +13,7 @@ the original bytes, untouched; the error and provenance travel in headers
 `kafkafim.attempts`, `kafkafim.first-failure-ts`, `kafkafim.doc-index`).
 
 Classification:
+
 - Non-retryable item errors (400 family: mapping, parsing, illegal argument) → DLQ now.
 - Retryable **item** errors inside a successful bulk response (e.g.
   `es_rejected_execution_exception`) → retry; after `max-attempts` or `max-elapsed`
@@ -26,6 +29,7 @@ original (or repaired) routes. Inspection uses standard Kafka tooling; purge is
 retention. Dedicated DLQ tooling is post-MVP (ADR-0020).
 
 ## Consequences
+
 No extra network paths for DLQs. The DLQ producer runs under the identity named by
 `dlq.identity` (default: the pipeline's consumer identity), so reader and writer
 service accounts can be separated; the writer identity needs `Write`/`Describe` on

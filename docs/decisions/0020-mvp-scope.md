@@ -3,6 +3,7 @@
 Status: accepted · Date: 2026-11-07
 
 ## Decision
+
 The MVP ships a shipper, not a pipeline engine:
 
 - **In**: JSON (and JSON array) records, `_id`/version/timestamp extraction by JSON
@@ -13,10 +14,12 @@ The MVP ships a shipper, not a pipeline engine:
   tooling, `update`/`delete`, UI, non-JSON, schema registry.
 
 ## Rationale
+
 Almost every existing pipeline is pass-through; enrichment already happens in the
 producers or can move to ES ingest pipelines. Every excluded item is additive later
 and none changes the data path.
 
 ## Consequences
+
 Pipelines that today use Logstash filters are migrated by first moving the filter to
 an ES ingest pipeline and naming it on the route.

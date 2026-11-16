@@ -3,6 +3,7 @@
 Status: accepted · Date: 2026-11-07 · Refines [ADR-0016](0016-resilience4j-for-breaker-and-retry.md)
 
 ## Context
+
 ADR-0016 chose `resilience4j-circuitbreaker` and `resilience4j-retry` for the per-cluster
 breaker and the per-item retry. Building the sink showed that the retry cases do not fit
 `Retry`'s model of decorating one call and repeating it:
@@ -17,6 +18,7 @@ breaker and the per-item retry. Building the sink showed that the retry cases do
 - auth failures are retried but count toward neither the breaker nor the poison bound.
 
 ## Decision
+
 The bulk sender (`sink/es/BulkSink`) runs its own loop over the `ErrorClassifier` verdicts.
 Resilience4j still provides:
 
@@ -28,6 +30,7 @@ Resilience4j still provides:
 `resilience4j-retry` is not used by the sink.
 
 ## Consequences
+
 The retry behaviour lives in one class next to the classification table, and every branch
 is unit-tested with a scripted transport. `resilience4j-retry` stays a declared dependency
 until someone needs it or removes it (a `deps` change, outside the sink).

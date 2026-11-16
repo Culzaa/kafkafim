@@ -1,8 +1,11 @@
 # ADR-0037: Routes can drop documents
 
-Status: accepted · Date: 2026-11-11 · Refines [ADR-0009](0009-declarative-routing-no-expression-language.md) and [ADR-0006](0006-at-least-once-with-id-idempotence.md)
+Status: accepted · Date: 2026-11-11 · Refines
+[ADR-0009](0009-declarative-routing-no-expression-language.md) and
+[ADR-0006](0006-at-least-once-with-id-idempotence.md)
 
 ## Context
+
 Until now every decoded document was either indexed or dead-lettered (ADR-0006,
 DESIGN §1: "DLQ topic for every event that cannot be indexed"). Teams migrating from
 Logstash also filter: debug-level logs, synthetic test traffic, event types that one
@@ -23,6 +26,7 @@ drop route matched would still reach the DLQ as `missing_id`, `decode` or
 to discard.
 
 ## Decision
+
 - **`drop: true` on a route** takes the place of `cluster`, `identity`, `index` and
   `pipeline`. Validation rejects mixing `drop` with any of them. `name`, `when` and
   `default` work as on any route. `default: true` with `drop: true` is allowed and
@@ -57,6 +61,7 @@ to discard.
   and kafkafim stays light.
 
 ## Alternatives
+
 - **Checks first (option A)**: simpler, but it dead-letters documents the operator
   asked to discard. Rejected in #63.
 - **In `all` mode, drop only removes itself**: then a drop route would do nothing
@@ -67,6 +72,7 @@ to discard.
   need its own ADR.
 
 ## Consequences
+
 Documents can now leave kafkafim without reaching Elasticsearch or the DLQ, but only
 through a configured drop route, and each one is counted. `outcome=dropped` is what
 tells a dropped document from a lost one (RUNBOOK). Preflight and the auth checks skip

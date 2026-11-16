@@ -3,6 +3,7 @@
 Status: accepted · Date: 2026-11-08 · Refines [ADR-0013](0013-observability-otel-via-spring-boot.md)
 
 ## Context
+
 ADR-0013 asks for one `es.bulk` span per bulk request under a `pipeline.batch` span,
 `traceparent` Kafka headers as span links, 1% head sampling of batches and errors
 always. Two things do not fit a plain implementation:
@@ -18,6 +19,7 @@ always. Two things do not fit a plain implementation:
   (`SupervisorListener`), since nothing may depend on `supervisor`.
 
 ## Decision
+
 - **Spans after the fact.** The sink reports each sealed batch once it is done (every
   action has an outcome or went back to the batcher for an item retry): sealing time,
   every request with its start, end, status, error, retries and item errors, and the
@@ -44,6 +46,7 @@ always. Two things do not fit a plain implementation:
   their listeners and getters. ADR-0003's picture is unchanged.
 
 ## Consequences
+
 - Spans appear when a batch ends. A batch that retries for as long as Elasticsearch
   is down produces its span only afterwards; the metrics (`kafkafim_retries_total`,
   `kafkafim_bulk_requests_total{status}`, `kafkafim_breaker_state`) cover the outage.
@@ -60,6 +63,7 @@ always. Two things do not fit a plain implementation:
   suppliers.
 
 ## Alternatives
+
 - **Live spans in the sink** (the sink depends on Micrometer Tracing): the outcome is
   unknown at span start, so "errors always" would need 100% sampling and a tail
   sampler, and the sink would still need the records' headers.

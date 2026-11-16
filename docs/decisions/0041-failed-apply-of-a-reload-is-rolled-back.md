@@ -1,8 +1,11 @@
 # ADR-0041: A reload that fails while it is applied is rolled back
 
-Status: accepted · Date: 2026-11-13 · Refines [ADR-0028](0028-hot-reload-rereads-config-data-and-shares-building-blocks-per-cluster.md) and [ADR-0035](0035-dlq-writer-evicted-when-its-pipeline-leaves-the-instance.md)
+Status: accepted · Date: 2026-11-13 · Refines
+[ADR-0028](0028-hot-reload-rereads-config-data-and-shares-building-blocks-per-cluster.md) and
+[ADR-0035](0035-dlq-writer-evicted-when-its-pipeline-leaves-the-instance.md)
 
 ## Context
+
 A valid tree can still fail while the supervisor applies it: `PipelineResources.acquire`
 throws when a client or producer cannot be built, and `PipelineRuntime.reconfigure`
 throws when something started the pipeline after its drain. Until now `apply` stopped
@@ -16,6 +19,7 @@ failure ran the new tree while `properties()` reported the old one, and the pipe
 stopped for the reload stayed stopped until a later reload succeeded.
 
 ## Decision
+
 - **Acquire first, change afterwards.** After the drains, `apply` acquires the contexts
   of every added and restarted pipeline, then reconfigures the restarted ones, and only
   then releases what the running tree used (previous contexts, removed pipelines). A
@@ -43,6 +47,7 @@ stopped for the reload stayed stopped until a later reload succeeded.
 - Nothing is started again when a shutdown began during the drains.
 
 ## Alternatives
+
 - **Only release what was acquired, and leave the pipelines stopped**: fixes the leak,
   but the pod keeps a tree in effect that it does not run, until someone changes the
   files again (the watcher does not retry the same content).
@@ -52,6 +57,7 @@ stopped for the reload stayed stopped until a later reload succeeded.
   one cause only, and `acquire` can still throw.
 
 ## Consequences
+
 - After a failed apply the pod runs the tree it ran before, on the same clients,
   producers, breakers and DLQ writers. The restarted pipelines went through one drain
   and one start (a new preflight, a consumer group rebalance); nothing is lost, as with

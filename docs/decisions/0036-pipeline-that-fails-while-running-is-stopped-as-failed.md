@@ -3,6 +3,7 @@
 Status: accepted · Date: 2026-11-11 · Refines [ADR-0032](0032-accepted-reload-retries-failed-preflight-pipelines.md)
 
 ## Context
+
 A pipeline can stop making progress after a successful start, in two ways the supervisor
 did not notice:
 
@@ -19,6 +20,7 @@ readiness counts it as started, and no alert fires. Recovery needed a pod restar
 the runbook listed this as a known gap (#19).
 
 ## Decision
+
 - **A new state, `failed`**: "was running, then failed". It is not `failed_preflight`,
   because preflight passed, and the cause is not a missing resource: an alert or a
   runbook entry for `failed_preflight` would send operators to the wrong checklist.
@@ -49,6 +51,7 @@ the runbook listed this as a known gap (#19).
   follows as for every state.
 
 ## Alternatives
+
 - **Reuse `failed_preflight`**: existing alerts and dashboards would cover it at once, but
   the label would be wrong, and so would the runbook it points to.
 - **Restart the source automatically, with backoff**: recovers from a one-off error with no
@@ -64,6 +67,7 @@ the runbook listed this as a known gap (#19).
   forever.
 
 ## Consequences
+
 - A pipeline that stops consuming after start shows as `failed`, takes the pod out of
   readiness when it was the pod's last started pipeline, and frees its partitions for the
   other pods of the group.
