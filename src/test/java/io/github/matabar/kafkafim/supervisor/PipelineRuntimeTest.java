@@ -63,6 +63,21 @@ class PipelineRuntimeTest {
         open);
   }
 
+  @Test
+  void sourceConcurrencyOfThePipelineOverridesTheCpuDefaultOnly() {
+    var unset = TestConfigs.bind(yaml(A)).pipelines().get("a");
+    var set =
+        TestConfigs.bind(yaml(A.replace("topics: [a]", "topics: [a], concurrency: 5")))
+            .pipelines()
+            .get("a");
+
+    assertThat(runtime.sourceOptions(unset).desiredConcurrency())
+        .isEqualTo(Runtime.getRuntime().availableProcessors());
+    assertThat(runtime.sourceOptions(set).desiredConcurrency()).isEqualTo(5);
+    assertThat(runtime.sourceOptions(set).drainTimeout())
+        .isEqualTo(runtime.sourceOptions(unset).drainTimeout());
+  }
+
   /**
    * The race {@link PipelineRuntime#pauseIfOwner} closes: an old DLQ writer's {@code blocked} event
    * passes the ownership check, the reload reconfigures the pipeline (dropping {@code dlq-blocked}

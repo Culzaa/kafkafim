@@ -97,6 +97,19 @@ class ConfigDiffTest {
   }
 
   @Test
+  void changedSourceConcurrencyRestartsItsPipelineAlone() {
+    ConfigDiff diff =
+        ConfigDiff.between(
+            base(),
+            bind(
+                tree("", "", PIPELINES.replaceFirst("source: \\{ ", "source: { concurrency: 2, ")),
+                SECRETS));
+    assertThat(diff.restarted()).containsOnlyKeys("a");
+    assertThat(diff.restarted().get("a")).containsExactly("pipeline definition changed");
+    assertThat(diff.unchanged()).containsExactly("b", "c");
+  }
+
+  @Test
   void addedOrChangedDropRouteRestartsOnlyItsPipeline() {
     String drop =
         "routes:\n    - { when: [ { field: /level, equals: debug } ], drop: true }\n    - ";

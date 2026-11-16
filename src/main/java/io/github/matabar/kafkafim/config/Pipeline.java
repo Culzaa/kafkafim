@@ -68,6 +68,8 @@ public record Pipeline(
    * @param maxInFlightBytes memory bound per pipeline, fetching pauses above it; default 64MB
    * @param commitInterval offset commit cadence; default 1s
    * @param maxRecordBytes largest accepted record value; default 8MB
+   * @param concurrency consumers per pod for this pipeline; optional, unset means one per available
+   *     processor. Capped at the topics' partition count when the pipeline starts; at least 1
    */
   public record Source(
       @NotBlank String cluster,
@@ -78,9 +80,11 @@ public record Pipeline(
       @Positive Integer maxPollRecords,
       DataSize maxInFlightBytes,
       Duration commitInterval,
-      DataSize maxRecordBytes) {
+      DataSize maxRecordBytes,
+      Integer concurrency) {
 
-    static final Source EMPTY = new Source(null, null, null, null, null, null, null, null, null);
+    static final Source EMPTY =
+        new Source(null, null, null, null, null, null, null, null, null, null);
 
     /** Applies the documented defaults except the group id, which needs the pipeline name. */
     public Source {
@@ -102,7 +106,8 @@ public record Pipeline(
           maxPollRecords,
           maxInFlightBytes,
           commitInterval,
-          maxRecordBytes);
+          maxRecordBytes,
+          concurrency);
     }
   }
 

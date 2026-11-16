@@ -188,7 +188,7 @@ class DlqWriterAclIntegrationTest {
     Pipeline pipeline =
         new Pipeline(
             new Pipeline.Source(
-                "local", List.of(sourceTopic), null, null, null, null, null, null, null),
+                "local", List.of(sourceTopic), null, null, null, null, null, null, null, null),
             null,
             null,
             null,

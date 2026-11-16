@@ -285,6 +285,16 @@ final class PipelineRuntime {
     }
   }
 
+  /**
+   * The source options of a pipeline: the shared timings, with the pipeline's own {@code
+   * source.concurrency} when it sets one (otherwise the default, one consumer per processor).
+   */
+  SourceOptions sourceOptions(Pipeline pipeline) {
+    Integer concurrency = pipeline.source().concurrency();
+    SourceOptions shared = context.sourceOptions();
+    return concurrency == null ? shared : shared.withDesiredConcurrency(concurrency);
+  }
+
   /** The running source, for tests and telemetry. */
   @Nullable KafkaPipelineSource source() {
     synchronized (lock) {
@@ -516,7 +526,7 @@ final class PipelineRuntime {
                     actionSinks.values(),
                     pipelineMeters,
                     cause -> sourceFailed(self[0], cause)),
-                context.sourceOptions());
+                sourceOptions(config));
         self[0] = created;
       } catch (IllegalArgumentException | KafkaException e) {
         closeSinks(opened, Duration.ZERO);

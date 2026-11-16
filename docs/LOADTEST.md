@@ -165,7 +165,8 @@ points to confirm on production-like hardware.
 - **Throughput.** Plan for the sink (Elasticsearch) to be the limit. Per instance, this
   setup sustained 25,000 to 47,000 documents/s of 1 KiB documents into a two-CPU Elasticsearch
   node. Spreading the same load over more pipelines does not raise the total.
-- **Partitions.** An instance runs `min(concurrency, partitions)` consumers per pipeline.
+- **Partitions.** An instance runs `min(concurrency, partitions)` consumers per pipeline, where `concurrency`
+  is the pipeline's `source.concurrency` or, unset, the CPU count of the pod.
   A second replica adds capacity and takes part of the load only while the topic has more
   partitions than all replicas' consumers together.
 - **Outage.** The breaker pauses fetching within seconds of an outage, so memory does not

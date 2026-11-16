@@ -81,7 +81,7 @@ class DlqWriterTest {
   static Pipeline pipeline(String topic, String sourceIdentity, String dlqIdentity) {
     return new Pipeline(
         new Pipeline.Source(
-            "local", List.of(topic), null, sourceIdentity, null, null, null, null, null),
+            "local", List.of(topic), null, sourceIdentity, null, null, null, null, null, null),
         null,
         null,
         null,

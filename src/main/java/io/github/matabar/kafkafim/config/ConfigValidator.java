@@ -348,6 +348,11 @@ public final class ConfigValidator {
     if (isBlank(source.groupId())) {
       error(path + ".source.group-id", "must not be blank");
     }
+    if (source.concurrency() != null && source.concurrency() < 1) {
+      error(
+          path + ".source.concurrency",
+          "must be at least 1 (was " + source.concurrency() + "); leave it unset for one per CPU");
+    }
     checkPositive(path + ".source.max-in-flight-bytes", source.maxInFlightBytes());
     checkPositive(path + ".source.commit-interval", source.commitInterval());
     checkPositive(path + ".source.max-record-bytes", source.maxRecordBytes());

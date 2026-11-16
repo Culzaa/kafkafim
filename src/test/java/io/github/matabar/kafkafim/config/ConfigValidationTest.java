@@ -1494,6 +1494,37 @@ class ConfigValidationTest {
     }
 
     @Test
+    void rejectsSourceConcurrencyBelowOne() {
+      assertThat(ConfigTestSupport.errors(MINIMAL, P + ".source.concurrency=0"))
+          .contains(
+              P
+                  + ".source.concurrency: must be at least 1 (was 0); leave it unset for one per"
+                  + " CPU");
+      assertThat(ConfigTestSupport.errors(MINIMAL, P + ".source.concurrency=-3"))
+          .anyMatch(e -> e.startsWith(P + ".source.concurrency: must be at least 1 (was -3)"));
+    }
+
+    @Test
+    void acceptsAnUnsetOrPositiveSourceConcurrency() {
+      assertThat(ConfigTestSupport.bind(MINIMAL).pipelines().get("p").source().concurrency())
+          .isNull();
+      assertThat(
+              ConfigTestSupport.bind(MINIMAL, P + ".source.concurrency=1")
+                  .pipelines()
+                  .get("p")
+                  .source()
+                  .concurrency())
+          .isEqualTo(1);
+      assertThat(
+              ConfigTestSupport.bind(MINIMAL, P + ".source.concurrency=64")
+                  .pipelines()
+                  .get("p")
+                  .source()
+                  .concurrency())
+          .isEqualTo(64);
+    }
+
+    @Test
     void rejectsNonPositiveDurations() {
       List<String> errors =
           ConfigTestSupport.errors(
