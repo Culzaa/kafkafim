@@ -117,8 +117,13 @@ rebalancing spreads partitions across replicas. This gives:
 - **Dedicated capacity for big topics**: a group with a single pipeline and
   `replicas ≤ partitions`.
 - **Workers ≤ partitions by construction**: a replica only processes the partitions
-  it is assigned. Container concurrency is capped at the partition count at startup
-  (read from topic metadata), so misconfiguration cannot exceed it.
+  it is assigned. Container concurrency (consumers per pod) is `source.concurrency` when
+  the pipeline sets it, otherwise the pod's available processors (a 500m CPU limit rounds
+  to 1, 1500m to 2). Either way it is capped at the partition count at startup (read from
+  topic metadata), so misconfiguration cannot exceed it; a wish above the cap is logged.
+  Set it explicitly when the consumer count should not follow the pod's CPU limit: a
+  resize would otherwise change the partitions per consumer. It is per pod: three pods of
+  `concurrency: 8` against 20 partitions give 24 consumers, 4 of them idle.
 
 Chart defaults: `replicas ≥ 2` for every group, `PodDisruptionBudget minAvailable: 1`,
 preferred anti-affinity across nodes and zones, `maxSurge: 1, maxUnavailable: 0`.
@@ -559,6 +564,7 @@ kafkafim:
         identity: orders-reader               # consumer identity; default: cluster.default-identity
         offset-reset: latest
         max-poll-records: 500
+        concurrency: 4                        # consumers per pod, >= 1; default: the pod's CPU count; capped at the partition count
         max-in-flight-bytes: 64MB             # memory bound per pipeline; fetching pauses above it
         commit-interval: 1s
         max-record-bytes: 8MB                 # value is a JSON object or an array of objects
@@ -999,7 +1005,8 @@ Defaults not shown inline in 5.1/5.2: Kafka `security-protocol: PLAINTEXT`; ES
 `bulk` 5000 docs / 5MB / 200ms / 4 in flight, `compression: true`, `client`
 `connect-timeout: 5s` / `response-timeout: 60s` (both must be positive); `source`
 `offset-reset: latest`, `max-poll-records: 500`, `max-in-flight-bytes: 64MB`,
-`commit-interval: 1s`, `max-record-bytes: 8MB`; `dlq` `max-attempts: 10`,
+`commit-interval: 1s`, `max-record-bytes: 8MB`, `concurrency` unset (one consumer per
+available processor, at most one per partition; set, it must be at least 1); `dlq` `max-attempts: 10`,
 `max-elapsed: 10m`; `route-mode: first`; `latency.max-age` unset (the cluster's
 `bulk.max-age` applies).
 
@@ -1091,8 +1098,8 @@ are reported together:
 - Scaling beyond partitions is wasted; repartitioning is a Kafka-side action.
 - Per-cluster knobs: `bulk.max-docs/max-bytes/max-age/in-flight`,
   `client.connect-timeout/response-timeout`; per pipeline
-  `source.max-poll-records`, `source.max-in-flight-bytes` (memory bound), both shown
-  in section 5.2.
+  `source.max-poll-records`, `source.max-in-flight-bytes` (memory bound),
+  `source.concurrency` (consumers per pod), all shown in section 5.2.
 
 ## 7. Backpressure and failure handling
 

@@ -35,6 +35,9 @@ config:                              # rendered verbatim into application-kafkaf
     kafka:         { clusters: { ... } }          # shared by all groups
     elasticsearch: { clusters: { ... } }          # shared by all groups
     pipelines:     { orders: { ... }, audit: { ... }, iam: { ... } }
+    # A pipeline's `source.concurrency` (consumers per pod, default: the pod's CPU count,
+    # capped at the topic's partitions) is plain pipeline config like any other key (DESIGN §5.2):
+    #   orders: { source: { cluster: prod-a, topics: [orders.v2], concurrency: 4 }, ... }
 
 secrets:                             # existing Secrets → files → Spring configtree
   - name: kafka-prod-a-trust

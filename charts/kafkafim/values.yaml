@@ -34,7 +34,8 @@ image:
 # index (DESIGN §5.3, ADR-0037); they are counted as kafkafim_docs_total{outcome="dropped"}:
 #   pipelines:
 #     app-logs:
-#       source: { cluster: prod-a, topics: [app.logs] }
+#       source: { cluster: prod-a, topics: [app.logs], concurrency: 4 }   # concurrency is optional:
+#                                    # consumers per pod, >= 1; unset = the pod's CPU count; capped at the partitions
 #       routes:
 #         - name: debug
 #           when: [ { field: /level, equals: debug } ]
