@@ -1,4 +1,4 @@
-# yamllint config for deploy/grafana (CI job "Grafana format"). Google has no YAML
+# yamllint config for the repo YAML (CI job "YAML format"). Google has no YAML
 # style guide; this keeps to the common subset: 2-space indent, no trailing spaces, LF.
 extends: default
 rules:
@@ -8,9 +8,10 @@ rules:
     check-keys: false
   comments:
     min-spaces-from-content: 1
+  comments-indentation: disable  # application.yaml aligns continuation comments under a trailing one
   indentation:
     spaces: 2
     indent-sequences: consistent
   braces:
     min-spaces-inside: 0
-    max-spaces-inside: 1       # `{ a: b }` flow maps in the rule tests
+    max-spaces-inside: 1       # `{ a: b }` flow maps in the rule and chart tests

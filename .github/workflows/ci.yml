@@ -384,6 +384,22 @@ jobs:
           [ ${#scripts[@]} -gt 0 ] || { echo "no tracked *.sh files" >&2; exit 1; }
           shellcheck -x "${scripts[@]}"
           shfmt -d "${scripts[@]}"   # indent from .editorconfig ([*.sh]: 2 spaces)
+      - name: Install actionlint
+        shell: bash
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/shell-tools"
+          mkdir -p "$bin"
+          curl -fsSL -o "$bin/actionlint.tar.gz" "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "$ACTIONLINT_SHA256  $bin/actionlint.tar.gz" | sha256sum -c -
+          tar -xzf "$bin/actionlint.tar.gz" -C "$bin" actionlint
+      - name: actionlint (shellcheck on inline run blocks)
+        # Inline `run:` shell is YAML to the *.sh checks above; actionlint runs the shellcheck
+        # installed above on every workflow `run:` block (#278).
+        run: '"$RUNNER_TEMP/shell-tools/actionlint" -color'
 
   # --- Markdown style (ADR-0046, #266; Google Markdown Style Guide): markdownlint-cli2 on every
   # *.md. Rules and their exceptions are in .markdownlint-cli2.jsonc. Self-contained: no `needs`,
@@ -397,7 +413,7 @@ jobs:
       - uses: DavidAnson/markdownlint-cli2-action@v25.0.0
 
   # ---- Grafana files format (#268) ----
-  # Dashboards must be canonical JSON, the YAML must pass yamllint. Not a required check;
+  # Dashboards must be canonical JSON (the YAML is checked by "YAML format"). Not a required check;
   # runs only when deploy/grafana or this workflow changed. The step names below are the
   # job's whole interface, so it merges cleanly beside other format jobs.
   grafana-format:
@@ -415,7 +431,7 @@ jobs:
         # `jq -S --indent 2 .`; fix a file with `jq -S --indent 2 . f.json > t && mv t f.json`.
         run: |
           shopt -s nullglob
-          files=($(find deploy/grafana -name '*.json' | sort))
+          mapfile -t files < <(find deploy/grafana -name '*.json' | sort)
           [ ${#files[@]} -gt 0 ] || { echo "no deploy/grafana JSON found" >&2; exit 1; }
           jq --version
           bad=0
@@ -426,8 +442,25 @@ jobs:
             fi
           done
           exit $bad
-      - name: YAML passes yamllint
-        # Google has no YAML guide; deploy/grafana/.yamllint.yaml is the small config.
+
+  # --- YAML format and XML whitespace (#280, #281; ADR-0046): Google has no YAML guide, so .yamllint.yaml is the standard.
+  # Self-contained like "Shell style". charts/*/templates are Helm templates, not YAML.
+  yaml:
+    name: YAML format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: yamllint
         run: |
           pip install --disable-pip-version-check yamllint==1.37.1
-          yamllint -s -c deploy/grafana/.yamllint.yaml deploy/grafana
+          yamllint -s -c .yamllint.yaml \
+            charts/kafkafim/Chart.yaml charts/kafkafim/values.yaml charts/kafkafim/ci \
+            charts/kafkafim/tests deploy/grafana .github compose.yaml loadtest/compose.yaml \
+            src/main/resources
+      - name: XML has no tabs
+        # .editorconfig: XML indents with 2 spaces; pom.xml is the one declared tab exception (#280).
+        run: |
+          if git grep -nP '\t' -- '*.xml' ':!pom.xml'; then
+            echo "::error::tab indentation in XML; use 2 spaces (.editorconfig)"
+            exit 1
+          fi

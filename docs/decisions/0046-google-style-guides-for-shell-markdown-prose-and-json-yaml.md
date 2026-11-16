@@ -47,3 +47,7 @@ A badly formatted or unquoted script fails "Shell style". The check is not yet i
 protection's required list; adding it is Matan's call. The three existing scripts were reformatted
 once and a few shellcheck findings were fixed with no behaviour change. "Markdown style" (#266)
 is likewise not yet a required check.
+
+Addendum (#278): inline `run:` shell in `.github/workflows/*` is in scope too. `actionlint`
+(pinned) runs the same shellcheck on it in "Shell style"; layout rules (`[[ ]]`, one command per
+line) are not machine-checked there.
