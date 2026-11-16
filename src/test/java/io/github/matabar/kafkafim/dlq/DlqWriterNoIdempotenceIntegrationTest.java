@@ -40,8 +40,9 @@ import org.testcontainers.kafka.KafkaContainer;
  * {@link DlqWriter} with {@code enable.idempotence=false} from the cluster {@code properties}
  * against a real broker: the writer's guarantees (completion only after the acknowledgement, no
  * loss across a broker outage, at-least-once; no order is promised, DESIGN §9) hold without the
- * idempotent producer, because they rest on {@code acks=all} and kafkafim's retry loop (DESIGN §7,
- * §9).
+ * idempotent producer, because they rest on {@code acks=all} and retries: kafka-clients' own, and
+ * kafkafim's loop once those expire. The outage here is shorter than {@code delivery.timeout.ms},
+ * so it exercises the former (DESIGN §7, §9).
  */
 @Testcontainers
 class DlqWriterNoIdempotenceIntegrationTest {

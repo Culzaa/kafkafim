@@ -1218,7 +1218,7 @@ interrupt (a stop during preflight) is not remembered, since no broker answered 
 once seen is only checked again after a send timeout, so a DLQ topic
 deleted while kafkafim runs can still be re-created by the producer's metadata refresh on
 such a broker; brokers should keep auto-creation off, and the writer identity never has
-`Create` (ADR-0021). A resend after `delivery.timeout.ms` can duplicate a DLQ record and resends are
+`Create` (ADR-0021). A resend after `delivery.timeout.ms` (or, without an idempotent producer, a kafka-clients retry) can duplicate a DLQ record and resends are
 not ordered; both are harmless, since replay is idempotent by `_id`.
 
 **Replay is configuration.** After fixing a mapping, add a pipeline whose source is
