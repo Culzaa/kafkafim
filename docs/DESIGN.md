@@ -367,7 +367,7 @@ identities the pipeline references:
 - the source identity may read the consumer group (`DescribeGroups` with its
   authorized operations; ADR-0038);
 - for each route's ES cluster, the identity authenticates (one lightweight
-  authenticated request); index templates, ingest pipelines and roles are assumed
+  authenticated request); index templates, ingest pipelines, and roles are assumed
   present and any gap surfaces as a classified bulk error at runtime.
 
 A failed check keeps the pipeline stopped, records
@@ -736,7 +736,7 @@ default (possible only in `all`) sends the document to the DLQ with
 **Drop routes** (ADR-0037). A route with `drop: true` discards the documents it selects:
 they are neither indexed nor dead-lettered. `drop: true` takes the place of `cluster`,
 `identity`, `index`, and `pipeline`, and validation rejects a drop route that sets any of
-them; `name`, `when` and `default` work as on any route.
+them; `name`, `when`, and `default` work as on any route.
 
 ```yaml
 routes:
@@ -790,7 +790,7 @@ document to the DLQ with `error.type=unresolved_index` and the cause in
 
 This covers: static indices, daily/monthly indices from event time, per-region or
 per-tenant clusters, topic-to-index merging, and fan-out. It deliberately cannot do
-arithmetic, string manipulation or nested logic.
+arithmetic, string manipulation, or nested logic.
 
 ### 5.4 Helm rendering
 
@@ -861,7 +861,7 @@ mounted `kafka.prod-a.reader.password` file is a literal). It
 reports the origin but never the value; likewise the bound configuration records print
 every secret (passwords, API keys, keystore and key passwords, secret passthrough
 `properties` values) as `******` in `toString()`, while usernames stay readable. A
-literal in YAML, an environment variable or a system property is rejected, also when
+literal in YAML, an environment variable, or a system property is rejected, also when
 reached through a placeholder. A secret file whose own content contains `${` is an error
 (ADR-0045): the binder would substitute it from any property source, which would bypass
 this check and also mangle a real secret with that text. A credential
@@ -1299,7 +1299,7 @@ Exact label sets (`telemetry/TelemetryNames`, `telemetry/PipelineMeters`):
 | `kafkafim_pipeline_pause_reason` (1/0) | `reason=es_breaker\|es_auth\|dlq_blocked` | the supervisor's pause reasons by kind, read on scrape: 1 while the pipeline is `paused` for a reason of that kind (more than one can be 1), else 0. The cluster and identity a reason names are only in the logs |
 | `kafkafim_dlq_records_total` | `error_type` | every DLQ record the broker acknowledged |
 | `kafkafim_breaker_state` | only `es_cluster`: 0 closed, 1 half-open, 2 open | the breakers the pipelines send through (the worst one while a reload leaves two generations alive) |
-| `kafkafim_pipeline_state` | only `pipeline`, `state=starting\|running\|paused\|failed_preflight\|failed\|stopped` | 1 for the current state, 0 for the others; `paused` means a supervisor reason: breaker open, identity rejected or DLQ blocked (`kafkafim_pipeline_pause_reason` says which), not the byte-budget backpressure |
+| `kafkafim_pipeline_state` | only `pipeline`, `state=starting\|running\|paused\|failed_preflight\|failed\|stopped` | 1 for the current state, 0 for the others; `paused` means a supervisor reason: breaker open, identity rejected, or DLQ blocked (`kafkafim_pipeline_pause_reason` says which), not the byte-budget backpressure |
 | `kafkafim_config_reload_total{result=success\|failure}`, `kafkafim_config_generation` | none | §5.6 (1 at startup, +1 per applied reload) |
 
 Label discipline: `route` is the route's `name`, or its zero-based position, never the
