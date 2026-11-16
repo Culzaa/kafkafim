@@ -175,8 +175,8 @@ class PipelineSupervisorApplyRollbackTest {
   /**
    * A listener that throws an Error on every restart of the rollback neither replaces the original
    * failure nor stops the rollback: both drained pipelines are back and stoppable. A regression
-   * guard for the rollback as a whole (it also holds through rollBack's own catch around the
-   * restarts); the starter-thread fix of #241 is guarded by the next test.
+   * guard for the rollback as a whole; the starter-thread fix of #241 is guarded by the test after
+   * it.
    */
   @Test
   void listenerErrorsDuringTheRollbackDoNotLoseTheOriginalOrSkipTheRest() {
@@ -231,6 +231,7 @@ class PipelineSupervisorApplyRollbackTest {
         .isInstanceOf(IllegalStateException.class)
         .hasMessage("no client today")
         .hasSuppressedException(inRollback);
+    assertThat(supervisor.properties()).isSameAs(running);
   }
 
   /** An Error starting one drained pipeline again does not stop the others from restarting. */
