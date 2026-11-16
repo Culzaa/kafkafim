@@ -1,7 +1,7 @@
 # Local Kubernetes demo
 
 One `helm install` brings up everything on a local Kubernetes cluster: a Kafka broker,
-Elasticsearch, Grafana LGTM (dashboards, metrics, traces, logs) and kafkafim, installed
+Elasticsearch, Grafana LGTM (dashboards, metrics, traces, logs), and kafkafim, installed
 by the real chart ([charts/kafkafim](../../charts/kafkafim)). Secrets take the
 production path: Kubernetes `Secret`s mounted as files and read through
 `configtree:/etc/kafkafim/secrets/` ([HELM.md](../../docs/HELM.md#secrets-and-configtree-naming)).

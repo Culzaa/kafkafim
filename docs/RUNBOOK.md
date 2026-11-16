@@ -739,7 +739,7 @@ usually starts on new pods, unless the cause in the ERROR line also applies at s
   |---|---|---|
   | `DLQ topic '<t>' (...): broker did not answer` in `<problems>` | Kafka unreachable for the DLQ identity | [Kafka unreachable (§5.3)](#53-kafka-unreachable) |
   | `source could not start, retrying: <KafkaException>` (its own WARN line, after preflight passed) | Kafka unreachable for the source | [Kafka unreachable (§5.3)](#53-kafka-unreachable) |
-  | `Elasticsearch identity '<id>' on cluster '<es>' not reachable: <exception>` | No connection to the ES cluster within the preflight's short timeouts: DNS, network policy, or firewall, ES down | The cluster and the network path from the pod's namespace to its `uris` |
+  | `Elasticsearch identity '<id>' on cluster '<es>' not reachable: <exception>` | No connection to the ES cluster within the preflight's short timeouts: DNS, network policy or firewall, or ES down | The cluster and the network path from the pod's namespace to its `uris` |
   | `Elasticsearch identity ... not reachable: HTTP 5xx from _security/_authenticate` | ES or a proxy in front of it answers 5xx | The ES cluster's own monitoring |
 
   Preflight sends one `GET /_security/_authenticate` per Elasticsearch cluster and
