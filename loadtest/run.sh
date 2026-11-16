@@ -88,6 +88,7 @@ prod() {
   fi
   java -cp "$LIB/*" Produce.java "$BOOT" "$1" "$2" "$3" "$4" "$DOC_BYTES" 2>&1 | grep -v '^SLF4J\|^WARNING'
 }
+
 #######################################
 # Prints the number of documents in the lt-* indices.
 # Globals:
@@ -186,6 +187,7 @@ start_app() {
   err "kafkafim $1 did not become ready"
   return 1
 }
+
 #######################################
 # Stops an instance this run started: SIGTERM (graceful), SIGKILL after 20 s.
 # Globals:
@@ -206,6 +208,7 @@ stop_app() {
   fi
   rm -f "$RUN/app-$1.pid"
 }
+
 #######################################
 # Prints the sum of all matching series of an instance (0 when absent).
 # Arguments:
@@ -255,6 +258,7 @@ prefill() {
   produce_all 0
   wait_produce
 }
+
 #######################################
 # Produces DOCS documents per pipeline at RATE, in parallel, in the background.
 # Globals:
@@ -263,6 +267,7 @@ prefill() {
 steady() {
   produce_all "$RATE"
 }
+
 #######################################
 # Starts one background producer per pipeline.
 # Globals:
@@ -277,6 +282,7 @@ produce_all() {
     PRODS+=("$!")
   done
 }
+
 #######################################
 # Waits for the producers (not a bare `wait`: that would also wait for the sampler).
 # Globals:
@@ -308,6 +314,7 @@ wait_total() {
   done
   return 1
 }
+
 #######################################
 # Writes the final metrics snapshot and prints the summary.
 # Globals:
@@ -327,7 +334,7 @@ finish() {
 #   SAMPLER, DC (read)
 #######################################
 cleanup() {
-  kill "${SAMPLER:-0}" 2>/dev/null || true
+  [[ -z "$SAMPLER" ]] || kill "$SAMPLER" 2>/dev/null || true
   stop_app a
   stop_app b
   $DC start elasticsearch >/dev/null 2>&1 || true
