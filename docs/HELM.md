@@ -51,7 +51,7 @@ groups:
   orders:
     pipelines: [orders]
     replicas: 6
-    resources: { requests: { cpu: "1", memory: 1536Mi }, limits: { memory: 2Gi } }
+    resources: { requests: { cpu: "1", memory: 2Gi }, limits: { memory: 2Gi } }
     autoscaling: { enabled: true, minReplicas: 2, maxReplicas: 12, targetCPUUtilizationPercentage: 70 }
     nodeSelector: {}
     tolerations: []
@@ -406,7 +406,7 @@ this rule, which comes from the load test ([LOADTEST](LOADTEST.md), "Memory unde
 
 - **Heap** needs roughly 3 times the sum of `max-in-flight-bytes` over the pipelines in the
   group (a floor for about 1 KiB documents; the [RUNBOOK](RUNBOOK.md) has the fuller rule).
-- **Container limit** is about heap / 0.75 plus 250 to 300 MiB of headroom for metaspace,
+- **Container limit** (a conservative rule) is about heap / 0.75 plus 250 to 300 MiB of headroom for metaspace,
   threads and direct buffers. Exceeding it is an OOMKill, not a Java `OutOfMemoryError`.
 - Worked example: four pipelines at the default 64 MB need a heap of about 768 MB, so a limit
   of about 1.3 GiB and more with larger documents. They did not fit the former 1Gi default
