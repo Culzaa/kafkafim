@@ -1,5 +1,6 @@
 package io.github.matabar.kafkafim.route;
 
+import org.jspecify.annotations.Nullable;
 import tools.jackson.core.JsonPointer;
 
 /** Fail-fast checks shared by the spec records and the compile step. */
@@ -17,7 +18,7 @@ final class Specs {
    * Compiles an RFC 6901 field pointer, with the same acceptance as the configuration check: it
    * starts with {@code /} and every {@code ~} is followed by {@code 0} or {@code 1}.
    */
-  static JsonPointer pointer(String pointer) {
+  static JsonPointer pointer(@Nullable String pointer) {
     require(pointer != null && pointer.startsWith("/"), "'" + pointer + "' is not a JSON pointer");
     for (int i = pointer.indexOf('~'); i >= 0; i = pointer.indexOf('~', i + 1)) {
       require(

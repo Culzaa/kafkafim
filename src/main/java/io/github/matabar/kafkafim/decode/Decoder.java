@@ -102,8 +102,8 @@ public final class Decoder {
 
   private final DecodeSpec spec;
   private final JsonPointer idPointer;
-  private final JsonPointer versionPointer;
-  private final JsonPointer timestampPointer;
+  private final @Nullable JsonPointer versionPointer;
+  private final @Nullable JsonPointer timestampPointer;
   private final TimestampFormat timestampFormat;
 
   private Decoder(DecodeSpec spec) {
@@ -160,7 +160,7 @@ public final class Decoder {
    * @param ingestTime the record's broker or producer timestamp, used when no timestamp field is
    *     configured and as the {@code on-bad-timestamp: ingest-time} fallback
    */
-  public DecodeResult decode(byte[] value, Instant ingestTime) {
+  public DecodeResult decode(byte @Nullable [] value, Instant ingestTime) {
     Objects.requireNonNull(ingestTime, "ingestTime");
     if (value == null) {
       return recordFailure("record value is null (tombstone)");

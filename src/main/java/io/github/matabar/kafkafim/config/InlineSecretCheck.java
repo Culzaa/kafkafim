@@ -368,13 +368,13 @@ final class InlineSecretCheck {
         || lower.endsWith("user.info");
   }
 
-  private static void secret(List<Candidate> names, String name, Object boundValue) {
+  private static void secret(List<Candidate> names, String name, @Nullable Object boundValue) {
     if (boundValue != null) {
       names.add(new Candidate(name, true));
     }
   }
 
-  private static void username(List<Candidate> names, String name, Object boundValue) {
+  private static void username(List<Candidate> names, String name, @Nullable Object boundValue) {
     if (boundValue != null) {
       names.add(new Candidate(name, false));
     }

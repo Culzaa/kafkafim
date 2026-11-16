@@ -33,7 +33,7 @@ final class TimestampPatternSyntax {
   private TimestampPatternSyntax() {}
 
   /** Problems that make every document's timestamp fail; empty when the pattern can work. */
-  static List<String> errors(String pattern) {
+  static List<String> errors(@Nullable String pattern) {
     List<String> errors = new ArrayList<>();
     if (pattern == null || pattern.isBlank()) {
       errors.add("'pattern:' needs a DateTimeFormatter pattern");
@@ -76,7 +76,7 @@ final class TimestampPatternSyntax {
   }
 
   /** Warnings for a pattern that {@link #errors} accepts. */
-  static List<String> warnings(String pattern) {
+  static List<String> warnings(@Nullable String pattern) {
     List<String> warnings = new ArrayList<>();
     DateTimeFormatter formatter;
     try {

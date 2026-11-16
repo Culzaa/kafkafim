@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -56,7 +57,8 @@ public final class Router<T> {
    * @throws IllegalArgumentException if {@code specs} is empty, has more than one default route, or
    *     a condition or index pattern does not compile
    */
-  public static <T> Router<T> compile(RouteMode mode, List<RouteSpec<T>> specs) {
+  public static <T> Router<T> compile(
+      @Nullable RouteMode mode, @Nullable List<RouteSpec<T>> specs) {
     Specs.require(mode != null, "route mode is required");
     Specs.require(specs != null && !specs.isEmpty(), "at least one route is required");
     List<Route<T>> routes = new ArrayList<>(specs.size());

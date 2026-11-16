@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Pattern;
+import org.jspecify.annotations.Nullable;
 import tools.jackson.core.JsonPointer;
 import tools.jackson.databind.JsonNode;
 
@@ -18,7 +19,7 @@ interface Condition {
    *
    * @throws IllegalArgumentException for an invalid pointer or regex
    */
-  static Condition compile(ConditionSpec spec) {
+  static Condition compile(@Nullable ConditionSpec spec) {
     Specs.require(spec != null, "condition must not be null");
     return switch (spec) {
       case ConditionSpec.FieldEquals(String field, String value) -> {

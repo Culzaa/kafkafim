@@ -63,7 +63,7 @@ public final class IndexPattern {
    *     an invalid JSON pointer or field name, a date pattern {@link DateTimeFormatter} rejects, or
    *     no references and a name Elasticsearch would reject
    */
-  public static IndexPattern compile(String pattern) {
+  public static IndexPattern compile(@Nullable String pattern) {
     Specs.require(pattern != null && !pattern.isBlank(), "index pattern is empty");
     List<Part> parts = new ArrayList<>();
     int position = 0;
@@ -143,7 +143,7 @@ public final class IndexPattern {
   }
 
   /** Appends a scalar's text; returns why the node is unusable, or {@code null}. */
-  private static @Nullable String appendScalar(JsonNode node, StringBuilder name) {
+  private static @Nullable String appendScalar(@Nullable JsonNode node, StringBuilder name) {
     if (node == null || node.isMissingNode()) {
       return "missing";
     }
