@@ -17,14 +17,16 @@ import org.slf4j.LoggerFactory;
  * DlqProducers#writer(String)}; thread-safe.
  *
  * <p><b>Contract.</b> {@link #send} never blocks and returns a future that completes
- * <em>successfully only after the broker acknowledged the DLQ record</em> ({@code acks=all},
- * idempotent producer). The caller completes the source record (or one part of it, ADR-0025) in
- * that completion and only there. A failed attempt is never reported as an exceptional completion:
- * it is retried with backoff (100ms doubling to 30s) until it succeeds, and reported to the {@link
- * DlqListener} with its {@link DlqFailure.Kind kind}. The future completes exceptionally only with
- * {@link DlqClosedException}, when the writers are closed (or this writer is {@linkplain
- * DlqProducers#evict evicted}) before the record was acknowledged; the caller must then leave the
- * offset uncommitted, so the record is re-delivered.
+ * <em>successfully only after the broker acknowledged the DLQ record</em> ({@code acks=all}). That
+ * guarantee, with the retry loop below, is what keeps a record from being lost; it does not depend
+ * on the producer being idempotent, which the cluster {@code properties} may turn off. The caller
+ * completes the source record (or one part of it, ADR-0025) in that completion and only there. A
+ * failed attempt is never reported as an exceptional completion: it is retried with backoff (100ms
+ * doubling to 30s) until it succeeds, and reported to the {@link DlqListener} with its {@link
+ * DlqFailure.Kind kind}. The future completes exceptionally only with {@link DlqClosedException},
+ * when the writers are closed (or this writer is {@linkplain DlqProducers#evict evicted}) before
+ * the record was acknowledged; the caller must then leave the offset uncommitted, so the record is
+ * re-delivered.
  *
  * <p><b>Blocked state</b> (DESIGN §7, "DLQ produce fails"): from the first failure of a send until
  * every send that failed has been acknowledged, the writer is {@linkplain #isBlocked() blocked} and
@@ -33,10 +35,10 @@ import org.slf4j.LoggerFactory;
  * and alerts. Records kept for retry are already counted in the source's {@code
  * max-in-flight-bytes}, so memory stays bounded.
  *
- * <p><b>Duplicates and order.</b> A resend after kafka-clients' own {@code delivery.timeout.ms} can
- * duplicate a record whose acknowledgement was lost, and resends are not ordered with later sends.
- * Both are harmless: DLQ records are independent, and a replay is idempotent by {@code _id}
- * (ADR-0006).
+ * <p><b>Duplicates and order.</b> A resend after kafka-clients' own {@code delivery.timeout.ms},
+ * and without an idempotent producer a kafka-clients retry too, can duplicate a record whose
+ * acknowledgement was lost, and resends are not ordered with later sends. Both are harmless: DLQ
+ * records are independent, and a replay is idempotent by {@code _id} (ADR-0006).
  */
 public final class DlqWriter {
 
