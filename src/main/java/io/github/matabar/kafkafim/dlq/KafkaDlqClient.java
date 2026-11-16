@@ -55,7 +55,7 @@ import org.slf4j.LoggerFactory;
  */
 final class KafkaDlqClient implements DlqClient {
 
-  private static final Logger log = LoggerFactory.getLogger(KafkaDlqClient.class);
+  private static final Logger LOG = LoggerFactory.getLogger(KafkaDlqClient.class);
 
   /** How much longer than its timeout {@link #close} waits for the producer to finish closing. */
   static final Duration CLOSE_GRACE = Duration.ofSeconds(2);
@@ -86,7 +86,7 @@ final class KafkaDlqClient implements DlqClient {
       Map<String, Object> producerSettings,
       Function<Map<String, Object>, Producer<byte[], byte[]>> producers,
       Duration closeGrace) {
-    log.info("Creating DLQ producer with settings {}", ProducerSettings.redacted(producerSettings));
+    LOG.info("Creating DLQ producer with settings {}", ProducerSettings.redacted(producerSettings));
     this.producerSettings = producerSettings;
     this.producers = producers;
     this.generation = new Generation(producers.apply(producerSettings));
@@ -200,7 +200,7 @@ final class KafkaDlqClient implements DlqClient {
       // Before the close, so that the batches it aborts are reported by this failure.
       failed.replacedBecause = failure;
     }
-    log.warn(
+    LOG.warn(
         "DLQ producer {} may be in a fatal state ({}); replacing it",
         producerSettings.get("client.id"),
         DlqFailure.unwrap(failure).getClass().getSimpleName());
@@ -209,7 +209,7 @@ final class KafkaDlqClient implements DlqClient {
       // timeout.
       failed.producer.close(Duration.ZERO);
     } catch (RuntimeException e) {
-      log.warn("Closing the failed DLQ producer failed", e);
+      LOG.warn("Closing the failed DLQ producer failed", e);
     } finally {
       synchronized (producerLock) {
         replacing = false;
@@ -220,7 +220,7 @@ final class KafkaDlqClient implements DlqClient {
     try {
       currentGeneration();
     } catch (RuntimeException e) {
-      log.warn("Recreating the DLQ producer failed; the next send tries again", e);
+      LOG.warn("Recreating the DLQ producer failed; the next send tries again", e);
     }
   }
 
@@ -314,14 +314,14 @@ final class KafkaDlqClient implements DlqClient {
       }
       throw new IllegalStateException(e.getCause());
     } catch (TimeoutException e) {
-      log.warn(
+      LOG.warn(
           "DLQ producer {} did not finish closing within {} ms (a broker that does not answer?);"
               + " it finishes on its own, at the latest after request.timeout.ms",
           producerSettings.get("client.id"),
           timeout.plus(closeGrace).toMillis());
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      log.warn(
+      LOG.warn(
           "Interrupted while closing DLQ producer {}; it finishes closing on its own",
           producerSettings.get("client.id"));
     }

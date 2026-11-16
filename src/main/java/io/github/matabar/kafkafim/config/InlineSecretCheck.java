@@ -8,6 +8,7 @@ import java.util.TreeMap;
 import java.util.function.BiConsumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.jspecify.annotations.Nullable;
 import org.springframework.boot.context.properties.source.ConfigurationProperty;
 import org.springframework.boot.context.properties.source.ConfigurationPropertyName;
 import org.springframework.boot.context.properties.source.ConfigurationPropertySource;
@@ -261,7 +262,7 @@ final class InlineSecretCheck {
         + " secret cannot contain that text";
   }
 
-  private static Matcher placeholder(Object raw) {
+  private static @Nullable Matcher placeholder(Object raw) {
     if (!(raw instanceof CharSequence text)) {
       return null;
     }
@@ -273,7 +274,7 @@ final class InlineSecretCheck {
     return origin == null ? "origin unknown" : origin.toString();
   }
 
-  private static ConfigurationProperty find(
+  private static @Nullable ConfigurationProperty find(
       Iterable<ConfigurationPropertySource> sources, String path) {
     // Passthrough keys contain dots and may have been written as `properties[sasl.jaas.config]`.
     List<ConfigurationPropertyName> names = new ArrayList<>();

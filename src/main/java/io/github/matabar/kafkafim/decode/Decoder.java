@@ -12,6 +12,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.regex.Pattern;
+import org.jspecify.annotations.Nullable;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.JsonParser;
 import tools.jackson.core.JsonPointer;
@@ -321,7 +322,7 @@ public final class Decoder {
    * UTF-16/32 and parse it with byte offsets the source slices cannot use. JSON text never contains
    * a raw NUL, and {@code 0xFE}/{@code 0xFF} never occur in UTF-8.
    */
-  private static String notUtf8(byte[] value, int base) {
+  private static @Nullable String notUtf8(byte[] value, int base) {
     if (hasBom(value, base)) {
       return "record value starts with more than one byte order mark";
     }
@@ -338,7 +339,7 @@ public final class Decoder {
   }
 
   /** Why a present, non-null id node is unusable, or {@code null}. */
-  private static String idError(JsonNode idNode) {
+  private static @Nullable String idError(JsonNode idNode) {
     if (idNode.isString()) {
       String id = idNode.stringValue();
       if (id.isEmpty()) {

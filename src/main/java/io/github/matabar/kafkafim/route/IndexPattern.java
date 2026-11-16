@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import org.jspecify.annotations.Nullable;
 import tools.jackson.core.JsonPointer;
 import tools.jackson.databind.JsonNode;
 
@@ -39,7 +40,7 @@ public final class IndexPattern {
   private final int sizeHint;
 
   /** Pre-resolved result for a pattern without references, else {@code null}. */
-  private final IndexResolution constant;
+  private final @Nullable IndexResolution constant;
 
   private IndexPattern(String pattern, List<Part> parts) {
     this.pattern = pattern;
@@ -142,7 +143,7 @@ public final class IndexPattern {
   }
 
   /** Appends a scalar's text; returns why the node is unusable, or {@code null}. */
-  private static String appendScalar(JsonNode node, StringBuilder name) {
+  private static @Nullable String appendScalar(JsonNode node, StringBuilder name) {
     if (node == null || node.isMissingNode()) {
       return "missing";
     }
@@ -202,7 +203,8 @@ public final class IndexPattern {
   private record Literal(String text) implements Part {}
 
   /** Exactly one of {@code pointer} and {@code name} is set. */
-  private record FieldRef(String reference, JsonPointer pointer, String name) implements Part {
+  private record FieldRef(String reference, @Nullable JsonPointer pointer, @Nullable String name)
+      implements Part {
     JsonNode lookup(JsonNode document) {
       return pointer != null ? document.at(pointer) : document.get(name);
     }

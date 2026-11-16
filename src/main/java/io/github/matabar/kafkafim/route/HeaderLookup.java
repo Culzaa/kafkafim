@@ -2,6 +2,7 @@ package io.github.matabar.kafkafim.route;
 
 import java.util.Map;
 import java.util.Objects;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Read access to a record's Kafka headers, so that {@code route} does not depend on kafka-clients.
@@ -22,7 +23,7 @@ public interface HeaderLookup {
    * @param name header name, compared exactly
    * @return the raw header value, or {@code null}
    */
-  byte[] lastValue(String name);
+  byte @Nullable [] lastValue(String name);
 
   /**
    * A lookup over a map of header names to values.
