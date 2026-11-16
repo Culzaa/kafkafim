@@ -543,11 +543,24 @@ passthrough restricted to keys a producer knows (consumer-only keys such as
 `fetch.min.bytes` are dropped; keys neither client knows, such as plugin settings, pass),
 then kafkafim's own settings. It owns, and rejects in the passthrough,
 `bootstrap.servers`, `security.protocol`, `client.id`, `acks` (always `all`),
-`enable.idempotence` (always `true`), `retries` (`MAX_VALUE`),
-`max.in.flight.requests.per.connection` (5, the idempotent bound), `delivery.timeout.ms`
+`retries` (`MAX_VALUE`), `max.in.flight.requests.per.connection` (5, the idempotent
+bound; 1 when idempotence is off), `delivery.timeout.ms`
 (120s; kafkafim resends after it), the key and value serializers (byte arrays),
 `transactional.id` (never set) and `interceptor.classes` (an interceptor could change DLQ
-records), plus the same derived security keys as the consumer. A
+records), plus the same derived security keys as the consumer.
+
+`enable.idempotence` is the one exception: it defaults to `true` and the passthrough may
+set it to `true` or `false` (any other value is rejected). An idempotent producer requests
+a producer ID (`InitProducerId`) before its first send, which some brokers authorize only
+with the cluster-level `IdempotentWrite` ACL, not the `Write` ACL on the DLQ topic; set it
+to `false` for an identity that cannot get that ACL. Without idempotence
+`max.in.flight.requests.per.connection` is 1 so retries keep their order, and `acks=all`
+and `retries` are unchanged. A retry after a lost acknowledgement may then write a
+duplicate DLQ record, which is harmless because replay is idempotent by `_id`
+(ADR-0006), but matters to anyone reading the DLQ topic directly. Without idempotence
+kafka-clients creates no transaction manager, so the producer fatal error state that
+`DlqFailure.isFatalForProducer` guards against cannot arise; replacing the producer on
+`ClusterAuthorizationException` stays harmless. No other key is unlocked. A
 DLQ record of an oversize source record can exceed `max.request.size`; raise it through
 `properties` and the DLQ topic's `max.message.bytes` together.
 

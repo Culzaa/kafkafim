@@ -12,6 +12,7 @@ import io.github.matabar.kafkafim.config.KafkaCluster.Trust;
 import java.util.List;
 import java.util.Map;
 import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.junit.jupiter.api.Test;
@@ -121,6 +122,79 @@ class ProducerSettingsTest {
         .doesNotContainKeys("fetch.min.bytes", "isolation.level");
   }
 
+  @Test
+  void idempotenceDefaultsToTrueWithFiveInFlight() {
+    Map<String, Object> settings =
+        ProducerSettings.forIdentity("prod-a", cluster(null, null, Map.of()), null, null);
+
+    assertThat(settings)
+        .containsEntry("enable.idempotence", true)
+        .containsEntry("max.in.flight.requests.per.connection", 5);
+  }
+
+  @Test
+  void idempotenceTrueIsAccepted() {
+    Map<String, Object> settings =
+        ProducerSettings.forIdentity(
+            "prod-a", cluster(null, null, Map.of("enable.idempotence", "true")), null, null);
+
+    assertThat(settings)
+        .containsEntry("enable.idempotence", true)
+        .containsEntry("max.in.flight.requests.per.connection", 5);
+  }
+
+  @Test
+  void idempotenceFalseIsAcceptedAndKeepsRetriesOrdered() {
+    Map<String, Object> settings =
+        ProducerSettings.forIdentity(
+            "prod-a", cluster(null, null, Map.of("enable.idempotence", "false")), null, null);
+
+    assertThat(settings)
+        .containsEntry("enable.idempotence", false)
+        .containsEntry("max.in.flight.requests.per.connection", 1)
+        .containsEntry("acks", "all")
+        .containsEntry("retries", Integer.MAX_VALUE);
+    ProducerConfig parsed = new ProducerConfig(settings);
+    assertThat(parsed.getBoolean("enable.idempotence")).isFalse();
+    assertThat(parsed.getString("acks")).isEqualTo("-1");
+  }
+
+  @Test
+  void withoutIdempotenceTheProducerHasNoTransactionManagerToTurnFatal() {
+    Map<String, Object> settings =
+        ProducerSettings.forIdentity(
+            "prod-a", cluster(null, null, Map.of("enable.idempotence", "false")), null, null);
+    settings.put("bootstrap.servers", "127.0.0.1:1");
+
+    try (KafkaProducer<byte[], byte[]> producer = new KafkaProducer<>(settings)) {
+      // kafka-clients creates a TransactionManager only for an idempotent or transactional
+      // producer; that class is the only source of the fatal error state DlqFailure guards.
+      Object transactionManager = readField(producer, "transactionManager");
+      assertThat(transactionManager).isNull();
+    }
+  }
+
+  private static Object readField(Object target, String name) {
+    try {
+      java.lang.reflect.Field field = target.getClass().getDeclaredField(name);
+      field.setAccessible(true);
+      return field.get(target);
+    } catch (ReflectiveOperationException e) {
+      throw new AssertionError(e);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"yes", "TRUE", "1", ""})
+  void invalidIdempotenceValueIsRejected(String value) {
+    KafkaCluster cluster = cluster(null, null, Map.of("enable.idempotence", value));
+
+    assertThatThrownBy(() -> ProducerSettings.forIdentity("prod-a", cluster, null, null))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("enable.idempotence")
+        .hasMessageContaining("prod-a");
+  }
+
   @ParameterizedTest
   @ValueSource(
       strings = {
@@ -128,7 +202,6 @@ class ProducerSettingsTest {
         "security.protocol",
         "client.id",
         "acks",
-        "enable.idempotence",
         "retries",
         "max.in.flight.requests.per.connection",
         "delivery.timeout.ms",

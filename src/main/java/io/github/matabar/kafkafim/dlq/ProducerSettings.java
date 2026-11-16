@@ -25,6 +25,15 @@ import org.jspecify.annotations.Nullable;
  * {@code sasl}/{@code ssl} blocks when those blocks are present. Such a passthrough is rejected
  * with {@link IllegalArgumentException} naming only the keys, never the values.
  *
+ * <p>{@code enable.idempotence} is the one durability-related key the passthrough may set, to
+ * {@code true} (the default) or {@code false}; anything else is rejected. An idempotent producer
+ * asks for a producer id ({@code InitProducerId}) before its first send, which some brokers
+ * authorize only with the cluster-level {@code IdempotentWrite} ACL, not the {@code Write} ACL on
+ * the DLQ topic. Without idempotence {@code max.in.flight.requests.per.connection} becomes 1 so
+ * retries keep their order, and {@code acks=all} and {@code retries} stay. A retry after a lost
+ * acknowledgement may then write a duplicate DLQ record; that is harmless, since replay is
+ * idempotent by {@code _id} (ADR-0006). No other key is unlocked.
+ *
  * <p>The security keys come from {@link KafkaClientSecurity}, which the consumers share.
  */
 public final class ProducerSettings {
@@ -35,14 +44,17 @@ public final class ProducerSettings {
   /** Fixed: kafka-clients' retries of one send stop after this; kafkafim then resends. */
   static final int DELIVERY_TIMEOUT_MS = 120_000;
 
-  /** Fixed: the idempotent producer's upper bound, so its internal retries keep the order. */
+  /** The idempotent producer's upper bound, so its internal retries keep the order. */
   static final int MAX_IN_FLIGHT = 5;
 
+  /** Used when idempotence is switched off: a single in-flight request keeps retries in order. */
+  static final int MAX_IN_FLIGHT_WITHOUT_IDEMPOTENCE = 1;
+
   /**
-   * Keys the passthrough can never set: durability, idempotence and serialization of DLQ records
-   * depend on them, or kafkafim sets them per {@code (cluster, identity)}. {@code transactional.id}
-   * is owned so that it stays unset: a transactional producer would need fencing kafkafim does not
-   * do; {@code interceptor.classes} likewise, since an interceptor could change DLQ records.
+   * Keys the passthrough can never set: durability and serialization of DLQ records depend on them,
+   * or kafkafim sets them per {@code (cluster, identity)}. {@code transactional.id} is owned so
+   * that it stays unset: a transactional producer would need fencing kafkafim does not do; {@code
+   * interceptor.classes} likewise, since an interceptor could change DLQ records.
    */
   public static final Set<String> OWNED_KEYS =
       Set.of(
@@ -50,7 +62,6 @@ public final class ProducerSettings {
           CommonClientConfigs.SECURITY_PROTOCOL_CONFIG,
           ProducerConfig.CLIENT_ID_CONFIG,
           ProducerConfig.ACKS_CONFIG,
-          ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG,
           ProducerConfig.RETRIES_CONFIG,
           ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION,
           ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG,
@@ -104,7 +115,8 @@ public final class ProducerSettings {
    *     valid on a cluster that does not require SASL, which the config validator guarantees)
    * @param identity the identity, or {@code null}
    * @return mutable settings map
-   * @throws IllegalArgumentException if the passthrough sets a key kafkafim owns
+   * @throws IllegalArgumentException if the passthrough sets a key kafkafim owns, or {@code
+   *     enable.idempotence} to anything but {@code true} or {@code false}
    */
   public static Map<String, Object> forIdentity(
       String clusterName,
@@ -117,9 +129,12 @@ public final class ProducerSettings {
     owned.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, cluster.securityProtocol().name());
     owned.put(ProducerConfig.CLIENT_ID_CONFIG, clientId(clusterName, identityName));
     owned.put(ProducerConfig.ACKS_CONFIG, ACKS);
-    owned.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+    boolean idempotent = idempotence(clusterName, cluster);
+    owned.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, idempotent);
     owned.put(ProducerConfig.RETRIES_CONFIG, Integer.MAX_VALUE);
-    owned.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, MAX_IN_FLIGHT);
+    owned.put(
+        ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION,
+        idempotent ? MAX_IN_FLIGHT : MAX_IN_FLIGHT_WITHOUT_IDEMPOTENCE);
     owned.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, DELIVERY_TIMEOUT_MS);
     owned.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class);
     owned.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class);
@@ -127,6 +142,9 @@ public final class ProducerSettings {
 
     Set<String> rejected = new TreeSet<>();
     for (String key : cluster.properties().keySet()) {
+      if (key.equals(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG)) {
+        continue; // validated above; the owned map carries the resulting value
+      }
       if (OWNED_KEYS.contains(key) || owned.containsKey(key)) {
         rejected.add(key);
       }
@@ -180,6 +198,23 @@ public final class ProducerSettings {
    */
   public static Map<String, Object> redacted(Map<String, ?> settings) {
     return KafkaClientSecurity.redacted(settings);
+  }
+
+  /** The passthrough's {@code enable.idempotence}: {@code true} when unset. */
+  private static boolean idempotence(String clusterName, KafkaCluster cluster) {
+    String value = cluster.properties().get(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG);
+    if (value == null || value.equals("true")) {
+      return true;
+    }
+    if (value.equals("false")) {
+      return false;
+    }
+    throw new IllegalArgumentException(
+        "Kafka cluster '"
+            + clusterName
+            + "' property "
+            + ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG
+            + " must be true or false");
   }
 
   /** Producer keys, plus keys neither client knows (plugins); consumer-only keys are dropped. */
