@@ -377,7 +377,10 @@ public final class BulkSink<H> implements AutoCloseable {
       send(batch.entries, batch.bytes, requests);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt(); // stopped; the actions get no outcome
-    } catch (RuntimeException e) {
+    } catch (RuntimeException | Error e) {
+      if (e instanceof VirtualMachineError fatal) {
+        throw fatal; // OutOfMemoryError and kin: no safe bookkeeping; the permit is released below
+      }
       if (!stopped) {
         // A bug, not an Elasticsearch answer. Retry the actions rather than leave them pending.
         LOG.error("Bulk sink {}: unexpected failure, retrying the batch", key, e);
@@ -784,7 +787,10 @@ public final class BulkSink<H> implements AutoCloseable {
     setAuthRetrying(entry, false);
     try {
       callback.onOutcome(entry.action, outcome);
-    } catch (RuntimeException e) {
+    } catch (RuntimeException | Error e) {
+      // An Error from the callback must not skip the bookkeeping below: awaitIdle would hang.
+      // Unlike sendNext, a VirtualMachineError is logged too: the bookkeeping is local and cheap,
+      // and the caller owns the callback, so the process-level handling is theirs.
       LOG.error("Bulk sink {}: outcome callback failed", key, e);
     }
     lock.lock();
