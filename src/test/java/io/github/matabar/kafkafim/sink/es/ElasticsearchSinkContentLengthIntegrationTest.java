@@ -16,7 +16,6 @@ import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -68,7 +67,7 @@ class ElasticsearchSinkContentLengthIntegrationTest {
   /** Records every answered request and counts request-level retries. */
   static final class Responses implements SinkListener {
     final List<Answered> answered = new CopyOnWriteArrayList<>();
-    final AtomicInteger requestRetries = new AtomicInteger();
+    final List<Integer> requestRetryStatuses = new CopyOnWriteArrayList<>();
 
     @Override
     public void onBulkResponse(SinkKey key, int status, int docs, long bytes, Duration latency) {
@@ -78,7 +77,7 @@ class ElasticsearchSinkContentLengthIntegrationTest {
     @Override
     public void onRequestRetry(
         SinkKey key, int status, @Nullable Throwable error, int attempt, Duration delay) {
-      requestRetries.incrementAndGet();
+      requestRetryStatuses.add(status);
     }
   }
 
@@ -108,6 +107,16 @@ class ElasticsearchSinkContentLengthIntegrationTest {
     if (sinks != null) {
       sinks.close();
     }
+  }
+
+  /**
+   * Elasticsearch closes the connection right after the 413, so a client still uploading a large
+   * body can get a write error ("Broken pipe") instead of the response: a race the sink answers by
+   * retrying, and the retry is answered with 413. That is fine; what must never happen is a retry
+   * after an HTTP status, which would mean a 413 was treated as retryable (issue #169, #263).
+   */
+  void assertNoRetryAfterHttpStatus() {
+    assertThat(responses.requestRetryStatuses).allSatisfy(status -> assertThat(status).isZero());
   }
 
   /** A sink whose batches seal at 8MB, eight times what the node accepts. */
@@ -175,7 +184,7 @@ class ElasticsearchSinkContentLengthIntegrationTest {
         });
     assertThat(responses.answered)
         .allSatisfy(a -> assertThat(a.status()).isEqualTo(a.bytes() > LIMIT ? 413 : 200));
-    assertThat(responses.requestRetries).hasValue(0);
+    assertNoRetryAfterHttpStatus();
     assertThat(count()).isEqualTo(160);
   }
 
@@ -199,7 +208,7 @@ class ElasticsearchSinkContentLengthIntegrationTest {
               assertThat(dlq.errorType()).isEqualTo(SinkErrorType.TOO_LARGE);
               assertThat(dlq.status()).isEqualTo(413);
             });
-    assertThat(responses.requestRetries).hasValue(0);
+    assertNoRetryAfterHttpStatus();
     assertThat(count()).isEqualTo(2);
   }
 }
