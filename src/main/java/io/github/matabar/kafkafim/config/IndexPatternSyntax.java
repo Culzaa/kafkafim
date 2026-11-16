@@ -7,6 +7,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Parse-check of Logstash-style index patterns (DESIGN §5.3): literal text, {@code %{field}} (a
@@ -99,7 +100,7 @@ final class IndexPatternSyntax {
    * formatted with {@link Locale#ROOT}. Returns {@code null} when it cannot be known at bind time
    * (a leading {@code %{field}}) or the date pattern is invalid, which {@link #errors} reports.
    */
-  private static String leadingOutput(String pattern) {
+  private static @Nullable String leadingOutput(String pattern) {
     if (!pattern.startsWith("%{")) {
       return pattern;
     }

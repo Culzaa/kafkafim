@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -151,7 +152,7 @@ final class OffsetTracker {
   }
 
   /** The state of {@code tp} if it belongs to {@code consumer}. */
-  private PartitionOffsets ownedBy(Object consumer, TopicPartition tp) {
+  private @Nullable PartitionOffsets ownedBy(Object consumer, TopicPartition tp) {
     PartitionOffsets state = partitions.get(tp);
     return state != null && state.consumer() == consumer ? state : null;
   }

@@ -12,6 +12,7 @@ import java.time.temporal.TemporalQueries;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Check of {@code document.timestamp-format: pattern:<p>} (DESIGN §5.2). It builds the same
@@ -120,7 +121,7 @@ final class TimestampPatternSyntax {
   }
 
   /** The sample formatted and parsed back, or {@code null} when either step fails. */
-  private static TemporalAccessor roundTrip(DateTimeFormatter formatter) {
+  private static @Nullable TemporalAccessor roundTrip(DateTimeFormatter formatter) {
     try {
       return formatter.parse(formatter.format(SAMPLE));
     } catch (DateTimeException e) {

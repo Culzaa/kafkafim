@@ -1,5 +1,7 @@
 package io.github.matabar.kafkafim.route;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * Elasticsearch's index-name rules, applied to a resolved (already lower-cased) name. The forbidden
  * characters and leading characters are the same set the configuration check applies to literal
@@ -16,7 +18,7 @@ final class IndexNames {
   private IndexNames() {}
 
   /** Which rule {@code name} breaks, or {@code null} if Elasticsearch accepts it. */
-  static String problem(String name) {
+  static @Nullable String problem(String name) {
     if (name.isEmpty()) {
       return "must not be empty";
     }
