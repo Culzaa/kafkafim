@@ -414,7 +414,11 @@ class KafkaPipelineSourceIntegrationTest {
     int delivered = recorder.records.size();
     Thread.sleep(1_500);
     assertThat(recorder.records).hasSize(delivered);
-    assertThat(groupMembers(groupOf(topic))).as("the first consumer left the group").isZero();
+    // close() has returned, but the broker's view of the leave is not ordered with it (#256, #259).
+    await()
+        .atMost(TIMEOUT)
+        .alias("the first consumer left the group")
+        .until(() -> groupMembers(groupOf(topic)) == 0);
     assertThat(recorder.failures).as("the thrown exception is the report").isEmpty();
 
     // The same source starts again once consumers can be created, and reads everything.
