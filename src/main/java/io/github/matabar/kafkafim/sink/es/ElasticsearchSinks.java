@@ -144,8 +144,12 @@ public final class ElasticsearchSinks implements AutoCloseable {
         .onStateTransition(event -> {
           CircuitBreaker.StateTransition transition = event.getStateTransition();
           LOG.warn("Elasticsearch cluster '{}' circuit breaker: {}", cluster, transition);
-          listener.onBreakerStateChange(
-              cluster, transition.getFromState(), transition.getToState());
+          try {
+            listener.onBreakerStateChange(
+                cluster, transition.getFromState(), transition.getToState());
+          } catch (RuntimeException | Error e) {
+            LOG.warn("Sink listener failed", e);
+          }
         });
   }
 

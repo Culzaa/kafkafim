@@ -4,23 +4,68 @@ import static io.github.matabar.kafkafim.sink.es.SinkHarness.doc;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.github.matabar.kafkafim.config.ElasticsearchCluster;
 import io.github.matabar.kafkafim.config.Pipeline.OnVersionConflict;
 import io.github.matabar.kafkafim.sink.es.SinkHarness.Events;
 import io.github.matabar.kafkafim.sink.es.SinkHarness.Outcomes;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 /** The per-cluster {@code client} block reaches the clients and the breaker (ADR-0031). */
 class ElasticsearchSinksTest {
 
   static ElasticsearchCluster cluster(String uri, ElasticsearchCluster.@Nullable Client client) {
     return new ElasticsearchCluster(List.of(uri), null, Map.of(), null, null, false, client);
+  }
+
+  @Test
+  void breakerListenerErrorIsContained() {
+    AtomicInteger calls = new AtomicInteger();
+    SinkListener failing =
+        new SinkListener() {
+          @Override
+          public void onBreakerStateChange(
+              String cluster, CircuitBreaker.State from, CircuitBreaker.State to) {
+            calls.incrementAndGet();
+            throw new LinkageError("listener bug");
+          }
+        };
+    // The breaker library swallows a throwing consumer itself, so the proof that the sink's own
+    // guard ran is its log line.
+    Logger logger = (Logger) LoggerFactory.getLogger(ElasticsearchSinks.class);
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    logger.addAppender(appender);
+    try (ElasticsearchSinks sinks =
+        new ElasticsearchSinks(
+            Map.of("c", cluster("http://es-a:9200", null)),
+            ClientSettings.DEFAULT,
+            BreakerSettings.DEFAULT,
+            failing)) {
+      CircuitBreaker breaker = sinks.breaker("c");
+
+      breaker.transitionToOpenState();
+
+      assertThat(calls).hasValue(1);
+      assertThat(breaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+      assertThat(appender.list)
+          .anyMatch(e ->
+              e.getFormattedMessage().equals("Sink listener failed")
+                  && e.getThrowableProxy() != null);
+    } finally {
+      logger.detachAppender(appender);
+    }
   }
 
   @Test
