@@ -211,6 +211,55 @@ class PipelineSupervisorApplyRollbackTest {
     assertThat(supervisor.state("b")).isEqualTo(PipelineState.STOPPED);
   }
 
+  /** The rollback itself fails: the original is kept, the Error rides along as suppressed. */
+  @Test
+  void errorFailingTheWholeRollbackIsSuppressedUnderTheOriginal() {
+    start(deadBroker(A + B));
+    final KafkafimProperties running = supervisor.properties();
+    KafkafimProperties next = deadBrokerNewPassword(C + A + B);
+    ConfigDiff diff = ConfigDiff.between(running, next);
+    failAcquire(next, 3);
+    LinkageError inRollback = new LinkageError("inside the rollback");
+    supervisor.rollbackProbe =
+        phase -> {
+          if (phase.equals("begin")) {
+            throw inRollback;
+          }
+        };
+
+    assertThatThrownBy(() -> supervisor.apply(next, diff))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("no client today")
+        .hasSuppressedException(inRollback);
+  }
+
+  /** An Error starting one drained pipeline again does not stop the others from restarting. */
+  @Test
+  void errorRestartingOnePipelineStillRestartsTheOthers() {
+    start(deadBroker(A + B));
+    final KafkafimProperties running = supervisor.properties();
+    final PipelineRuntime.Context a = context("a");
+    KafkafimProperties next = deadBrokerNewPassword(C + A + B);
+    ConfigDiff diff = ConfigDiff.between(running, next);
+    failAcquire(next, 3);
+    supervisor.rollbackProbe =
+        phase -> {
+          if (phase.equals("restart:a")) {
+            throw new LinkageError("inside the rollback");
+          }
+        };
+
+    assertThatThrownBy(() -> supervisor.apply(next, diff))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("no client today")
+        .hasNoSuppressedExceptions();
+
+    assertThat(supervisor.properties()).isSameAs(running);
+    assertThat(context("a")).isSameAs(a);
+    assertThat(supervisor.state("a")).isEqualTo(PipelineState.STOPPED); // not restarted
+    assertThat(supervisor.state("b")).isEqualTo(PipelineState.STARTING);
+  }
+
   /**
    * A topology listener runs after the new configuration took effect: its Error must not undo it.
    */
