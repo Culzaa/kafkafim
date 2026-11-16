@@ -48,6 +48,18 @@ Testcontainers integration tests and ArchUnit rules. CI runs the same, split int
 Dockerfile build and Helm checks; all must pass before merge. A docs-only change
 needs only `./mvnw -DskipTests verify`; CI skips the Java and image jobs for it.
 
+Shell scripts follow the [Google Shell Style Guide](https://google.github.io/styleguide/shellguide.html)
+(ADR-0046). If you touch a `*.sh` file, run `shellcheck` and `shfmt` (2-space indent, read from
+`.editorconfig`); CI's "Shell style" job runs the same pinned versions on every tracked script:
+
+```bash
+shfmt -w $(git ls-files '*.sh')            # rewrite in place
+shellcheck -x $(git ls-files '*.sh') && shfmt -d $(git ls-files '*.sh')   # what CI checks
+```
+
+Without them installed: `nix shell nixpkgs#shellcheck nixpkgs#shfmt -c sh -c '...'`, or
+`brew install shellcheck shfmt`.
+
 The `*IntegrationTest` classes run in three parallel Failsafe JVMs (each class starts
 its own containers, so up to three sets run at once). On a smaller machine, or
 to read one class's log on its own, run fewer forks:
