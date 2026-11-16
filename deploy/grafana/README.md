@@ -6,8 +6,8 @@ with the repo". Every query uses the metric names and labels of `/actuator/prome
 
 | File | What |
 |---|---|
-| [`dashboards/kafkafim-overview.json`](dashboards/kafkafim-overview.json) | Per pipeline: state and pause reasons, end-to-end latency, records/bytes/documents, dropped documents per route, DLQ, in-flight bytes and heap, assigned partitions, Kafka connectivity, config generation and reloads |
-| [`dashboards/kafkafim-elasticsearch.json`](dashboards/kafkafim-elasticsearch.json) | Per Elasticsearch cluster: breaker state, bulk requests by status, 429 ratio, bulk latency, docs and bytes per request, flush reasons, retries, item errors, auth failures |
+| [`dashboards/kafkafim-overview.json`](dashboards/kafkafim-overview.json) | Per pipeline: state and pause reasons, end-to-end latency, records/bytes/documents, dropped documents per route, DLQ, in-flight bytes and heap, assigned partitions, Kafka connectivity, config generation, and reloads |
+| [`dashboards/kafkafim-elasticsearch.json`](dashboards/kafkafim-elasticsearch.json) | Per Elasticsearch cluster: breaker state, bulk requests by status, 429 ratio, bulk latency, docs and bytes per request, flush reasons, retries, item errors, and auth failures |
 | [`alerts/kafkafim-alerts.yaml`](alerts/kafkafim-alerts.yaml) | Prometheus alerting rules (below) |
 | [`alerts/kafkafim-alerts.test.yaml`](alerts/kafkafim-alerts.test.yaml) | `promtool test rules` unit tests for every alert |
 | [`provisioning/kafkafim-dashboards.yaml`](provisioning/kafkafim-dashboards.yaml) | Grafana dashboard provider used by the compose demo and the local Kubernetes demo |
@@ -49,7 +49,7 @@ The canonical form is `jq -S --indent 2 .`: 2-space indent, keys sorted, no comm
 trailing commas, a final newline. It follows the spirit of the Google JSON Style Guide
 where Grafana's schema allows; Grafana fixes its own field names, so the guide's naming
 rules do not apply. Sorting keys only reorders them, so the import is unaffected (same
-`uid`, panels and targets). CI (job "Grafana format") fails on a dashboard that does not
+`uid`, panels, and targets). CI (job "Grafana format") fails on a dashboard that does not
 parse or differs from that output. The YAML under this directory must pass `yamllint`
 with [`.yamllint.yaml`](../../.yamllint.yaml); Google has no YAML guide, so that config is the
 standard.
@@ -61,18 +61,18 @@ to the real one (Prometheus default 1m, the OTLP export step is 15s).
 
 | Alert | Fires when | Severity | Runbook |
 |---|---|---|---|
-| `KafkafimPipelineFailedPreflight` | a pipeline is `failed_preflight` on any pod for 1m | critical | [§5.5](../../docs/RUNBOOK.md#55-failed_preflight-pipelines) |
-| `KafkafimPipelineFailed` | a pipeline is `failed` (stopped after failing while running) on a pod for 1m, per pod | critical | [§5.13](../../docs/RUNBOOK.md#513-failed-pipelines) |
-| `KafkafimPipelinePaused` | a pipeline is `paused` (breaker, identity, DLQ blocked) for 5m | warning | [§3.1](../../docs/RUNBOOK.md#31-pipeline-state) |
-| `KafkafimPipelineStuckStarting` | a pipeline is still `starting` (preflight retrying a transient failure) after 10m | warning | [§5.12](../../docs/RUNBOOK.md#512-pipeline-stuck-in-starting) |
-| `KafkafimE2eLatencyHigh` | end-to-end p99 over 5m above **10s** for 10m (tune) | warning | [§5.8](../../docs/RUNBOOK.md#58-consumer-lag-growing) |
-| `KafkafimDlqRecords` | DLQ rate > 0 for 10m, per `error_type` | warning | [§5.6](../../docs/RUNBOOK.md#56-dlq-filling-or-dlq-blocked) |
-| `KafkafimNoAssignedPartitions` | a pod runs a pipeline but owns none of its partitions for 10m | info | [§5.7](../../docs/RUNBOOK.md#57-pipeline-shows-running-but-consumes-nothing) |
-| `KafkafimKafkaDisconnected` | `kafkafim_kafka_connected` is 0 for a running or paused pipeline for 2m | critical | [§5.3](../../docs/RUNBOOK.md#53-kafka-unreachable) |
-| `KafkafimBreakerOpen` | `kafkafim_breaker_state` is 2 (open) for 1m | critical | [§5.1](../../docs/RUNBOOK.md#51-elasticsearch-outage-circuit-breaker-open) |
-| `KafkafimBulkRejectRatioHigh` | more than **1%** of bulk requests to a cluster answered 429 for 5m (tune) | warning | [§5.8](../../docs/RUNBOOK.md#58-consumer-lag-growing) |
-| `KafkafimEsAuthFailures` | any 401/403 in the last 5m (the first one too) | critical | [§5.2](../../docs/RUNBOOK.md#52-elasticsearch-authentication-failure-pipeline-paused) |
-| `KafkafimConfigReloadFailed` | a reload was rejected in the last 10m | warning | [§5.11](../../docs/RUNBOOK.md#511-reload-failure-alert) |
+| `KafkafimPipelineFailedPreflight` | a pipeline is `failed_preflight` on any pod for 1m | critical | [`failed_preflight` pipelines (§5.5)](../../docs/RUNBOOK.md#55-failed_preflight-pipelines) |
+| `KafkafimPipelineFailed` | a pipeline is `failed` (stopped after failing while running) on a pod for 1m, per pod | critical | [`failed` pipelines (§5.13)](../../docs/RUNBOOK.md#513-failed-pipelines) |
+| `KafkafimPipelinePaused` | a pipeline is `paused` (breaker, identity, DLQ blocked) for 5m | warning | [Pipeline state (§3.1)](../../docs/RUNBOOK.md#31-pipeline-state) |
+| `KafkafimPipelineStuckStarting` | a pipeline is still `starting` (preflight retrying a transient failure) after 10m | warning | [Pipeline stuck in `starting` (§5.12)](../../docs/RUNBOOK.md#512-pipeline-stuck-in-starting) |
+| `KafkafimE2eLatencyHigh` | end-to-end p99 over 5m above **10s** for 10m (tune) | warning | [Consumer lag growing (§5.8)](../../docs/RUNBOOK.md#58-consumer-lag-growing) |
+| `KafkafimDlqRecords` | DLQ rate > 0 for 10m, per `error_type` | warning | [DLQ filling, or DLQ blocked (§5.6)](../../docs/RUNBOOK.md#56-dlq-filling-or-dlq-blocked) |
+| `KafkafimNoAssignedPartitions` | a pod runs a pipeline but owns none of its partitions for 10m | info | [Pipeline shows `running` but consumes nothing (§5.7)](../../docs/RUNBOOK.md#57-pipeline-shows-running-but-consumes-nothing) |
+| `KafkafimKafkaDisconnected` | `kafkafim_kafka_connected` is 0 for a running or paused pipeline for 2m | critical | [Kafka unreachable (§5.3)](../../docs/RUNBOOK.md#53-kafka-unreachable) |
+| `KafkafimBreakerOpen` | `kafkafim_breaker_state` is 2 (open) for 1m | critical | [Elasticsearch outage, circuit breaker open (§5.1)](../../docs/RUNBOOK.md#51-elasticsearch-outage-circuit-breaker-open) |
+| `KafkafimBulkRejectRatioHigh` | more than **1%** of bulk requests to a cluster answered 429 for 5m (tune) | warning | [Consumer lag growing (§5.8)](../../docs/RUNBOOK.md#58-consumer-lag-growing) |
+| `KafkafimEsAuthFailures` | any 401/403 in the last 5m (the first one too) | critical | [Elasticsearch authentication failure (pipeline paused) (§5.2)](../../docs/RUNBOOK.md#52-elasticsearch-authentication-failure-pipeline-paused) |
+| `KafkafimConfigReloadFailed` | a reload was rejected in the last 10m | warning | [Reload failure alert (§5.11)](../../docs/RUNBOOK.md#511-reload-failure-alert) |
 
 Notes:
 

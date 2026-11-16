@@ -2,10 +2,10 @@
 
 Deploys [kafkafim](https://github.com/matabar/kafkafim) (Kafka → Elasticsearch
 ingest). One release per Kubernetes cluster; each entry under `groups` becomes a
-`Deployment`, `ConfigMap`, `PodDisruptionBudget`, `Service` and optional CPU
+`Deployment`, `ConfigMap`, `PodDisruptionBudget`, `Service`, and optional CPU
 `HorizontalPodAutoscaler`. The chart creates no `Secret` and needs no CRDs.
 
-The design, the values shape and every validation rule are documented in
+The design, the values shape, and every validation rule are documented in
 [docs/HELM.md](https://github.com/matabar/kafkafim/blob/main/docs/HELM.md); `values.yaml` is
 commented field by field.
 

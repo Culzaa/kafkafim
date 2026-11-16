@@ -4,7 +4,7 @@ One chart, **one release per Kubernetes cluster**. A release carries every group
 that cluster runs. The chart lives in this repository and is published as an OCI
 artifact (see [DELIVERY.md](DELIVERY.md)); the per-cluster `values-<cluster>.yaml`
 files live in the team's private infrastructure repository, since they name real
-clusters, topics and Secret names. That repository's CI, inside the air gap, applies
+clusters, topics, and Secret names. That repository's CI, inside the air gap, applies
 each release with plain `helm upgrade --install` (no Argo CD or Flux); the command is
 in [DELIVERY.md](DELIVERY.md#importing-into-the-air-gapped-environment).
 
@@ -60,7 +60,7 @@ groups:
     replicas: 2
 
 otel:
-  endpoint: http://apm-server.observability:8200   # OTLP/HTTP for metrics, traces and logs; a Collector later is just a new URL
+  endpoint: http://apm-server.observability:8200   # OTLP/HTTP for metrics, traces, and logs; a Collector later only needs a new URL
   headers: {}                                       # non-secret, e.g. { x-tenant: kafkafim }
   secretHeaders: {}                                 # e.g. { Authorization: { secretName: apm-server-token, key: authorization } }
 
@@ -99,7 +99,7 @@ For each `groups.<g>`:
   image's `application.yaml` makes it the OTLP `service.instance.id`, DESIGN §10),
   `JAVA_TOOL_OPTIONS`.
 - **No checksum annotation** on the pod template for the ConfigMap: pipeline edits
-  hot-reload. Image, env, resources or mount changes roll the pods.
+  hot-reload. Image, env, resources, or mount changes roll the pods.
 - Probes: startup `/actuator/health/liveness` (failureThreshold 30 × 2s), liveness
   `/actuator/health/liveness` (`livenessState`, `supervisor`), readiness
   `/actuator/health/readiness` (`readinessState`, `pipelines`, `kafka`; never
@@ -124,8 +124,8 @@ For each `groups.<g>`:
 - Names: a group's resources are `<fullname>-<group>`; with the conventional release
   name `kafkafim` that is `kafkafim-<group>`. The ServiceAccount (and the opt-in
   `NetworkPolicy` / `ServiceMonitor`) are named `<fullname>` and select every group.
-- Group defaults: top-level `resources`, `nodeSelector`, `tolerations`, `affinity` and
-  `pdb` apply to every group that does not set its own (a group's value replaces the
+- Group defaults: top-level `resources`, `nodeSelector`, `tolerations`, `affinity`,
+  and `pdb` apply to every group that does not set its own (a group's value replaces the
   default, it is not merged); `podAnnotations` are merged, the group's winning.
   `replicas` defaults to 2. In a `pdb`, `maxUnavailable` wins over `minAvailable`
   when both are set (so overriding the default `minAvailable: 1` needs no `null`).
@@ -142,9 +142,9 @@ For each `groups.<g>`:
   (what the pods need to reach, for a cluster that default-denies egress:
   [Egress the pods need](#egress-the-pods-need)). An empty
   `allowFrom` list means any source, as in Kubernetes.
-- Metrics, traces and logs are all exported to `otel.endpoint` (DESIGN §10); stdout
+- Metrics, traces, and logs are all exported to `otel.endpoint` (DESIGN §10); stdout
   keeps the logs as readable text for `kubectl logs`. OTLP export headers reach the
-  metrics, the trace and the log exporter:
+  metrics, the trace, and the log exporter:
   - `otel.headers` (non-secret) render as `OTEL_EXPORTER_OTLP_HEADERS=k=v,…`, with `%`
     and `,` in values percent-encoded. Spring Boot 4.1 maps that variable itself to
     `management.otlp.metrics.export.headers.*`,
@@ -155,7 +155,7 @@ For each `groups.<g>`:
     render one projected volume `otel-secret-headers`, one file per header named after
     it, mounted read-only at
     `/etc/kafkafim/secrets/management/otlp/metrics/export/headers/`,
-    `/etc/kafkafim/secrets/management/opentelemetry/tracing/export/otlp/headers/` and
+    `/etc/kafkafim/secrets/management/opentelemetry/tracing/export/otlp/headers/`, and
     `/etc/kafkafim/secrets/management/opentelemetry/logging/export/otlp/headers/`. The
     configtree import turns each file into an entry of the exporter's headers map. Only
     the Secret name and key appear in the rendered manifests.
@@ -189,7 +189,7 @@ For each `groups.<g>`:
   reserved for `otel.secretHeaders`.
 - No OTLP header is in both `otel.headers` and `otel.secretHeaders`, and
   `otel.secretHeaders` does not name one header twice (header names compare
-  case-insensitively). Header names are letters, digits and `-` (schema).
+  case-insensitively). Header names are letters, digits, and `-` (schema).
 - `extraEnv` does not redefine a variable the chart sets (the `SPRING_*` triple,
   `OTEL_EXPORTER_OTLP_ENDPOINT`, `POD_NAME`, `JAVA_TOOL_OPTIONS`,
   and `OTEL_EXPORTER_OTLP_HEADERS` / `_METRICS_HEADERS` / `_TRACES_HEADERS` /
@@ -204,11 +204,11 @@ For each `groups.<g>`:
 group names are DNS labels); the cross-field rules above are `fail` calls in
 `templates/_helpers.tpl`, each with its own unit test.
 
-`config.kafkafim` accepts exactly `kafka`, `elasticsearch` and `pipelines`; the
+`config.kafkafim` accepts exactly `kafka`, `elasticsearch`, and `pipelines`; the
 schema rejects any other key instead of silently dropping it. That includes
 `allow-inline-secrets`, which is for local development outside Kubernetes only. Inside
 a pipeline the schema checks only the routes: a route with `drop: true` must not set
-`cluster`, `identity`, `index` or `pipeline` (ADR-0037), and any other route needs
+`cluster`, `identity`, `index`, or `pipeline` (ADR-0037), and any other route needs
 `cluster` and `index`. The application validates the rest at startup. The
 application refuses `kafkafim.allow-inline-secrets=true` on Kubernetes however it is set (for
 example through
@@ -235,7 +235,7 @@ docker run --rm -v "$PWD/rendered/default:/etc/kafkafim/config:ro" registry.inte
 
 Exit code 0 means the configuration is valid, and an INFO line from
 `...config.KafkafimConfiguration` holds a summary: the pipelines with their clusters,
-identities, topics and indices, and the secret names the configuration expects under
+identities, topics, and indices, and the secret names the configuration expects under
 `/etc/kafkafim/secrets/`. The image logs plain text
 ([DESIGN §10](DESIGN.md#logs)), so the summary reads as printed, over several
 lines. Exit code 1 means it is invalid, and the log lists every violation as
@@ -296,7 +296,7 @@ otel:
       key: authorization
 ```
 
-The OTLP metrics, trace and log export requests then carry the header. The value is
+The OTLP metrics, trace, and log export requests then carry the header. The value is
 read once at startup: after rotating the Secret, restart the pods
 (`kubectl rollout restart deployment -l app.kubernetes.io/instance=<release>`). Do not
 put a token in `otel.headers`, which renders into the Deployment, and prefer
@@ -320,7 +320,7 @@ against the real application.
 The chart's `NetworkPolicy` is ingress-only and the chart ships no egress policy
 (decided on [#83](https://github.com/matabar/kafkafim/issues/83)). Egress rules need
 IP ranges: a `NetworkPolicy` cannot match the host names in `bootstrap-servers`,
-`uris` or `otel.endpoint`, and only the infrastructure repository knows the ranges
+`uris`, or `otel.endpoint`, and only the infrastructure repository knows the ranges
 behind them. A cluster with default-deny egress therefore needs its own policy in that
 repository. The policy must allow, for every kafkafim pod:
 
@@ -389,11 +389,12 @@ spec:
 - Once it selects the pods, every destination it does not list is denied. On a pod
   that starts under the policy, a missing Kafka or Elasticsearch rule shows up as a
   pipeline that stays `starting` ([RUNBOOK §5.3](RUNBOOK.md#53-kafka-unreachable),
-  [§5.12](RUNBOOK.md#512-pipeline-stuck-in-starting)). On a pod that was already
+  [Pipeline stuck in `starting` (§5.12)](RUNBOOK.md#512-pipeline-stuck-in-starting)). On a pod that
+  was already
   running, Kafka loss leaves the pipeline `running` with `kafkafim_kafka_connected == 0`
   and Elasticsearch loss pauses it
-  ([§5.1](RUNBOOK.md#51-elasticsearch-outage-circuit-breaker-open)). A missing OTLP
-  rule only stops telemetry; the pipelines keep running.
+  ([Elasticsearch outage, circuit breaker open (§5.1)](RUNBOOK.md#51-elasticsearch-outage-circuit-breaker-open)).
+  A missing OTLP rule only stops telemetry; the pipelines keep running.
 - A destination that runs in the same Kubernetes cluster (an in-cluster APM Server,
   or everything in a local demo) is selected with `namespaceSelector` / `podSelector`
   instead of `ipBlock`; `ipBlock` is meant for addresses outside the cluster.
@@ -409,7 +410,7 @@ this rule, which comes from the load test ([LOADTEST](LOADTEST.md), "Memory unde
   group (a floor for about 1 KiB documents; the [RUNBOOK](RUNBOOK.md) has the fuller rule).
 - **Container limit** (a conservative rule) is about heap / 0.75 plus 250 to 300 MiB of headroom for
   metaspace,
-  threads and direct buffers. Exceeding it is an OOMKill, not a Java `OutOfMemoryError`.
+  threads, and direct buffers. Exceeding it is an OOMKill, not a Java `OutOfMemoryError`.
 - Worked example: four pipelines at the default 64 MB need a heap of about 768 MB, so a limit
   of about 1.3 GiB and more with larger documents. They did not fit the former 1Gi default
   (peak resident memory 1,045 MiB, so an OOMKill was to be expected), which is why the

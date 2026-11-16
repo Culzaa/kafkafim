@@ -2,7 +2,7 @@
 
 Status: draft v0.4 (2026-11-07), MVP scope. Decisions are recorded one per file in
 [decisions/](decisions/README.md); the stack is in [TECH_STACK.md](TECH_STACK.md);
-CI/CD, registries and the air-gap procedure in [DELIVERY.md](DELIVERY.md); the Helm
+CI/CD, registries, and the air-gap procedure in [DELIVERY.md](DELIVERY.md); the Helm
 chart in [HELM.md](HELM.md).
 
 Replaces ~200 Logstash pipelines that ship JSON from 4 Kafka clusters (~100 topics)
@@ -28,7 +28,7 @@ into ~20 Elasticsearch 8.x clusters.
   documents that reach neither Elasticsearch nor the DLQ are those a `drop: true` route
   selects, and each one is counted (§5.3, ADR-0037).
 - Named identities per cluster, for Kafka and Elasticsearch alike: each consumer
-  group, DLQ producer and route references an identity (SASL, API key, basic or
+  group, DLQ producer and route references an identity (SASL, API key, basic, or
   mTLS) by name, so Kafka ACLs and ES roles can be scoped per pipeline and
   reader/writer roles can be separated.
 - Configuration is **Spring Boot configuration** (`kafkafim.*` properties bound to
@@ -42,7 +42,7 @@ into ~20 Elasticsearch 8.x clusters.
   local Kubernetes cluster (kind or Docker Desktop, one `helm install` of the demo chart
   in `deploy/local/`, ADR-0042); the production Helm chart deploys only kafkafim.
 - kafkafim **never provisions resources**. Topics, consumer groups, credentials,
-  indices, index templates, ingest pipelines, users and roles are created by the
+  indices, index templates, ingest pipelines, users, and roles are created by the
   team's external provisioning systems before a pipeline is deployed. kafkafim
   verifies what it needs at startup and fails fast with a clear error.
 
@@ -70,7 +70,7 @@ into ~20 Elasticsearch 8.x clusters.
 | Keep Logstash | The stated pain: scale, config sprawl, DLQ handling, disk queues, threads ≠ partitions, weak observability. |
 | Kafka Connect + ES sink | One Connect cluster per Kafka cluster (4), config via REST not git, routing limited to SMTs, JMX not OTel, scaling by `tasks.max` not per-topic pods. |
 | Vector | Strong on YAML + hot reload, but ES sink has no per-event DLQ for bulk item rejections (logged and dropped), no fan-out control, no per-partition worker bound. |
-| Build (this doc) | Every requirement maps to a design decision we control. Cost: we own a Kafka consumer loop and an ES bulk client, both on mature JVM libraries. |
+| Build (this doc) | Every requirement maps to a design decision the project controls. Cost: kafkafim owns a Kafka consumer loop and an ES bulk client, both on mature JVM libraries. |
 
 ## 3. Terminology
 
@@ -78,7 +78,7 @@ into ~20 Elasticsearch 8.x clusters.
   `kafkafim.elasticsearch.clusters.*`).
 - **Identity**: a named credential set defined under a cluster. Kafka: SASL and/or
   client certificate, referenced from a pipeline's consumer and DLQ producer.
-  Elasticsearch: API key, basic auth or client certificate, referenced from a route.
+  Elasticsearch: API key, basic auth, or client certificate, referenced from a route.
 - **Pipeline**: one consumer group reading one or more topics from one Kafka
   cluster under one identity, routing each document to one or more (ES cluster,
   index) targets.
@@ -104,7 +104,7 @@ into ~20 Elasticsearch 8.x clusters.
                  └────────────────────────────────────────────────────────────────────────────┘
 ```
 
-One Spring Boot application, one mode: start, bind and validate `kafkafim.*`, start a
+One Spring Boot application, one mode: start, bind, and validate `kafkafim.*`, start a
 consumer container per pipeline, watch the config for changes.
 
 ### 4.1 Deployment model: groups
@@ -172,7 +172,7 @@ decoded; undecodable; tombstone). Each parsed object is routed before its id, ve
 timestamp problems apply: decoding extracts them and keeps any error with the document,
 and the error becomes a part only for a document that routing sends to Elasticsearch,
 that is, every document a drop route did not select, including one no route selected (it
-reports its id, version or timestamp error rather than `no_route`). It stays one part per
+reports its id, version, or timestamp error rather than `no_route`). It stays one part per
 document, with `route="none"` (§10), however many copies `route-mode: all` would have
 made. The timestamp is still parsed before any `%{+...}` pattern is resolved. A part
 completes on `indexed` or `stale`, when the broker acknowledged its DLQ record (a sink
@@ -223,7 +223,7 @@ then the only ones that count. A pipeline that is stopping cannot be started unt
 - **Auth state**: the stream is failing from a request-level 401/403 until a request
   (any, even one sent earlier) is next answered with a bulk response or a
   single-document 413, and while any
-  action waits to retry after an item-level 401/403; a 429, 5xx, transport error or other
+  action waits to retry after an item-level 401/403; a 429, 5xx, transport error, or other
   unexpected status leaves the state as it was. The listener hears one `onAuthFailure`
   per answered request that carries a 401/403 (request or items; never one per item, and
   again on every rejected retry, so `kafkafim_auth_failures_total` counts responses
@@ -269,7 +269,7 @@ then the only ones that count. A pipeline that is stopping cannot be started unt
   id; duplicates on retry, startup warning).
   A JSON string (1 to 512 UTF-8 bytes, ES's `_id` limit) is used as is; a JSON integer
   of any size becomes its decimal digits (canonical, since JSON has no leading zeros or
-  `+`; `-0` is `0`). A number with a fraction or exponent, a boolean, an object or an
+  `+`; `-0` is `0`). A number with a fraction or exponent, a boolean, an object, or an
   array is `missing_id` in both modes: `auto` covers only an absent or `null` id.
 - Optional external versioning: `document.version-field`, `version_type: external`.
   The version is a JSON integer or a string of ASCII digits in `[0, 2^63-1]`; anything
@@ -308,12 +308,12 @@ element, `kafkafim.doc-index`.
   re-serialised tree, so number spelling and key order survive. One leading UTF-8 BOM
   is skipped. A slice containing a line feed between tokens is copied once with the
   whitespace outside strings removed, because the bulk body is NDJSON.
-- **Limits.** `max-record-bytes` bounds every string, number and token count before
-  parsing. Nesting is capped at 500, number literals at 1000 digits and keys at
+- **Limits.** `max-record-bytes` bounds every string, number, and token count before
+  parsing. Nesting is capped at 500, number literals at 1000 digits, and keys at
   50,000 UTF-8 bytes.
 - **Memory.** `max-in-flight-bytes` counts only the raw key + value bytes of delivered,
   incomplete records. Decoding and delivery cost more heap than that, in two ways:
-  - *Decode peak (transient).* A record is decoded, routed and turned into bulk
+  - *Decode peak (transient).* A record is decoded, routed, and turned into bulk
     actions on its consumer thread, one record at a time; its parsed trees are garbage
     once that returns. They can take far more heap than the value: an 8 MiB array of
     empty objects retains about 237 MB while decoding (~85 bytes per element, ~28× the
@@ -367,7 +367,7 @@ identities the pipeline references:
 - the source identity may read the consumer group (`DescribeGroups` with its
   authorized operations; ADR-0038);
 - for each route's ES cluster, the identity authenticates (one lightweight
-  authenticated request); index templates, ingest pipelines and roles are assumed
+  authenticated request); index templates, ingest pipelines, and roles are assumed
   present and any gap surfaces as a classified bulk error at runtime.
 
 A failed check keeps the pipeline stopped, records
@@ -410,7 +410,7 @@ default, for the group and topic check, up to 15s per Elasticsearch identity); a
 request in flight
 is cancelled, and its client is closed on a thread of its own, because the client's
 graceful close can take 5s. Elasticsearch answers 405 on that path when security is disabled; any
-status other than 401, 403 and 5xx passes.
+status other than 401, 403, and 5xx passes.
 
 The group check exists because a denied join is otherwise invisible: the listener
 container retries it every 10s and never stops, so the pipeline would show `running`.
@@ -689,7 +689,7 @@ not used in production and not exercised in the MVP tests.
   low-cardinality label on connection and auth metrics. Credentials never appear in
   labels or logs.
 - Reload: changing an identity restarts every pipeline that references it (as
-  consumer, DLQ producer or route) and nothing else.
+  consumer, DLQ producer, or route) and nothing else.
 
 ### 5.3 Routing rules (no expression language)
 
@@ -712,7 +712,7 @@ A route matches when **all** of its `when` conditions hold. Condition types:
   equal; a double compares by its shortest decimal form, so `0.1` equals `0.1`; NaN
   and infinities equal nothing); a JSON boolean equals `true`/`false` exactly. A
   string never equals a number (`"1"` in the document does not match `equals: 1.0`);
-  objects, arrays, `null` and a missing field match nothing.
+  objects, arrays, `null`, and a missing field match nothing.
 - `prefix`/`matches` apply to string fields only; any other type does not match. A
   value long enough to overflow `java.util.regex`'s stack (constructs like `(a|b)*`
   recurse per repetition) counts as no match instead of failing the record. That is
@@ -735,8 +735,8 @@ default (possible only in `all`) sends the document to the DLQ with
 
 **Drop routes** (ADR-0037). A route with `drop: true` discards the documents it selects:
 they are neither indexed nor dead-lettered. `drop: true` takes the place of `cluster`,
-`identity`, `index` and `pipeline`, and validation rejects a drop route that sets any of
-them; `name`, `when` and `default` work as on any route.
+`identity`, `index`, and `pipeline`, and validation rejects a drop route that sets any of
+them; `name`, `when`, and `default` work as on any route.
 
 ```yaml
 routes:
@@ -756,7 +756,7 @@ routes:
 - `default: true, drop: true` turns the routes into an allowlist: whatever no other
   route selected is dropped. A pipeline whose routes all drop is valid but logs a
   startup warning.
-- A dropped document skips the id, version and timestamp checks (§4.2), so a drop
+- A dropped document skips the id, version, and timestamp checks (§4.2), so a drop
   route can discard documents that would otherwise be `missing_id` or
   `bad_timestamp`. Decode failures (invalid JSON, a scalar, a non-object element, an
   oversize record, a tombstone) are not documents a route can see, and still go to the
@@ -782,7 +782,7 @@ or ingest time if unset, formatted in UTC with `Locale.ROOT`). A reference runs 
 `%{` to the next `}`; everything else is literal, with no escapes. A string field
 contributes its text, a number or boolean Jackson's text form (`42`, `1.5`,
 `1.0e20`, `true`). Resolved index names are lower-cased with `Locale.ROOT`. A
-pattern whose field is missing, `null`, an object or an array, or whose result
+pattern whose field is missing, `null`, an object, or an array, or whose result
 Elasticsearch would reject (forbidden character, leading `-`/`_`/`+`, `.`/`..`,
 empty, an unpaired UTF-16 surrogate, more than 255 UTF-8 bytes), routes the
 document to the DLQ with `error.type=unresolved_index` and the cause in
@@ -790,7 +790,7 @@ document to the DLQ with `error.type=unresolved_index` and the cause in
 
 This covers: static indices, daily/monthly indices from event time, per-region or
 per-tenant clusters, topic-to-index merging, and fan-out. It deliberately cannot do
-arithmetic, string manipulation or nested logic.
+arithmetic, string manipulation, or nested logic.
 
 ### 5.4 Helm rendering
 
@@ -861,7 +861,7 @@ mounted `kafka.prod-a.reader.password` file is a literal). It
 reports the origin but never the value; likewise the bound configuration records print
 every secret (passwords, API keys, keystore and key passwords, secret passthrough
 `properties` values) as `******` in `toString()`, while usernames stay readable. A
-literal in YAML, an environment variable or a system property is rejected, also when
+literal in YAML, an environment variable, or a system property is rejected, also when
 reached through a placeholder. A secret file whose own content contains `${` is an error
 (ADR-0045): the binder would substitute it from any property source, which would bypass
 this check and also mangle a real secret with that text. A credential
@@ -872,7 +872,7 @@ missing secret file would otherwise become the password. A value with a placehol
 other text (for example a `sasl.jaas.config` string containing `password="${...}"`)
 counts as a literal, so such a value is mounted whole as one secret file. Secret provisioning stays
 outside the chart
-(`existingSecret` names): plain Secrets, Sealed Secrets, External Secrets or a Vault
+(`existingSecret` names): plain Secrets, Sealed Secrets, External Secrets, or a Vault
 agent all work. A changed secret file is picked up by the same reload path. No Bean
 Validation constraint sits on a secret component (a reflection test enforces it): Boot's
 bind-failure report prints the raw `Value:` of a failed constraint, so secret rules live
@@ -891,18 +891,18 @@ in `ConfigValidator`, whose messages never include values.
   binds and validates, logs a summary, and exits 0; an invalid tree fails startup
   with every violation and exits 1. It connects nowhere and listens on no port: the
   pipeline supervisor and kafkafim's telemetry beans are not created, there is no web
-  server, and metric, trace and log export are off (`application-validate.yaml`). The
+  server, and metric, trace, and log export are off (`application-validate.yaml`). The
   checks are those of a normal start with one exception: a credential placeholder
   that nothing defines is accepted, because where the profile runs the Secrets are
   usually not mounted. Literal secrets are still rejected (§5.5). The summary is one
   INFO event, printed over several lines: the totals, each pipeline (Kafka cluster, identity,
   topics, group, DLQ
-  topic, routes with their Elasticsearch cluster, identity and index) and the secret
+  topic, routes with their Elasticsearch cluster, identity, and index) and the secret
   names the tree expects from mounted files, each marked `(not mounted)` when it is
   missing. It never prints a secret value. So a misnamed secret passes validation and
   is found when the pod starts; compare the list with the chart's `secrets[]`. Trust
   and keystore files are not opened, and preflight (§4.6) does not run. A tree that
-  defines no Kafka cluster, no Elasticsearch cluster and no pipeline fails under the
+  defines no Kafka cluster, no Elasticsearch cluster, and no pipeline fails under the
   profile (`No kafkafim configuration found`, exit 1): there it means the rendered file
   was not found (a wrong mount path, the `kafkafim` profile not active), and a normal
   start only warns about it. Clusters without pipelines, a deliberately empty group,
@@ -956,7 +956,7 @@ in `ConfigValidator`, whose messages never include values.
     (clients per `(cluster, identity)`, one breaker) and one set of DLQ producers and
     consumer factories per *cluster definition*. A restarted pipeline gets the current
     instance of each cluster it uses, so a pipeline restarted for its own change keeps
-    its clients, producer and DLQ writer as long as they are still the current ones (an
+    its clients, producer, and DLQ writer as long as they are still the current ones (an
     earlier reload that added a pipeline on its Kafka cluster made new DLQ producers
     current, and the restart then moves it to them); a changed cluster or identity makes a new
     instance current; a pipeline that is new to the current DLQ producers, or whose
@@ -984,7 +984,7 @@ in `ConfigValidator`, whose messages never include values.
     pipeline was started again before it got its new context. The reload is
     then rolled back as a whole: the building blocks acquired for the new tree are
     released, the ones the running tree uses stay the current ones, and the pipelines
-    drained for the reload (those that were running, paused or starting, including the
+    drained for the reload (those that were running, paused, or starting, including the
     ones the new tree removes) start again on the running tree. The generation stays,
     `kafkafim_config_reload_total{result=failure}` counts it, and one ERROR line carries
     the cause.
@@ -1014,7 +1014,7 @@ in `ConfigValidator`, whose messages never include values.
     `kafkafim.*` need a restart.
   - **Retry of failed pipelines** (ADR-0032, ADR-0036): every accepted reload (`applied` or
     `unchanged`, watcher or endpoint) starts once more each pipeline it leaves unchanged
-    that is in `failed_preflight` or `failed`, so after fixing a missing topic, ACL or credential a
+    that is in `failed_preflight` or `failed`, so after fixing a missing topic, ACL, or credential a
     no-op `POST /actuator/reload` recovers it without a restart. They are listed under
     `retried` (not `unchanged`); `result`, `generation` and
     `kafkafim_config_reload_total` are unaffected, and the reload's INFO line names
@@ -1037,7 +1037,7 @@ available processor, at most one per partition; set, it must be at least 1); `dl
 Every rule below is checked on every bind (`config/ConfigValidator`), and all violations
 are reported together:
 
-- **Names** of clusters, identities and pipelines are lower-case kebab-case
+- **Names** of clusters, identities, and pipelines are lower-case kebab-case
   (`[a-z0-9-]`, no leading/trailing `-`): they appear in group ids, metric labels and
   configtree paths (`kafka/<cluster>.<identity>/password`).
 - **References**: every `cluster` and `identity` (including `default-identity`) names an
@@ -1068,8 +1068,8 @@ are reported together:
   but, when set, not blank: `pipeline: ""`, whitespace, or a bare `pipeline:` (which binds
   as an empty string) would make Elasticsearch reject the whole bulk request; omit the key
   instead. A route needs `cluster` and `index` unless it has `drop: true`, which takes
-  none of `cluster`, `identity`, `index` or `pipeline` (§5.3).
-- **Conditions**: exactly one subject (`field`, `header` or `topic`). A `field` takes
+  none of `cluster`, `identity`, `index`, or `pipeline` (§5.3).
+- **Conditions**: exactly one subject (`field`, `header`, or `topic`). A `field` takes
   exactly one of `equals`, `in` (non-empty), `exists`, `prefix`, `matches` (the regex
   must compile); a `header` takes `equals`; a `topic` takes nothing and must be one of
   the pipeline's source topics. Every `field` and document pointer is an RFC 6901 JSON
@@ -1078,7 +1078,7 @@ are reported together:
   `%{+<DateTimeFormatter>}` must be terminated and parse; literal parts, and what each
   date pattern produces (so `%{+yyyy/MM}` or `%{+HH:mm}` fail), must not contain
   characters Elasticsearch rejects (`\ / * ? " < > | , # :` and space); a name must not
-  start with `-`, `_` or `+`, nor be `.` or `..`. A name starting with `.` (a literal, or
+  start with `-`, `_`, or `+`, nor be `.` or `..`. A name starting with `.` (a literal, or
   a leading `%{+...}` whose output does) is a warning: Elasticsearch reserves those for
   hidden and system indices and deprecates creating them; a leading `%{field}` cannot be
   known at bind time and is not checked. Date patterns are checked, and resolved, with
@@ -1096,7 +1096,7 @@ are reported together:
   versions only on `index` ("create operations only support internal versioning", §4.4).
 - **Warnings** (bind, log at `WARN`): no pipelines, `id-missing: auto`, an http route
   without identity, an index name starting with `.`, week-based year, a timestamp
-  `pattern:` without an offset or zone, using `k` or failing its self-check,
+  `pattern:` without an offset or zone, using `k`, or failing its self-check,
   `allow-inline-secrets=true`, a pipeline whose routes all have `drop: true`, a drop
   route without `when` in `route-mode: all` (it cancels every other route), an
   Elasticsearch cluster whose `bulk.max-bytes` would take longer than its
@@ -1139,7 +1139,7 @@ are reported together:
 | Item 409 `version_conflict_engine_exception` | With an external version: `stale` (success) under `on-version-conflict: ignore`, DLQ `version_conflict` under `dlq`. For `op: create` without a version: an earlier attempt landed, so success. Otherwise `es_error`. |
 | Retryable **item** error (item 429 `es_rejected_execution_exception`, item 5xx, item 404 `index_not_found_exception`, any other unexpected item status) exceeding `max-attempts`/`max-elapsed` | The item goes back into the batcher after a backoff and travels in a later bulk; once it has failed `max-attempts` times, or `max-elapsed` after its first retryable failure, DLQ with `error.type=es_retries_exhausted`, partition continues. This is the poison-message bound. A missing index is a provisioning gap (ADR-0021) or a race with whoever creates the index, so it gets the bounded retry rather than an immediate DLQ or an unbounded stall. Request-level failures (connection errors, 5xx, request-level 429, breaker open, 401/403, unexpected statuses) are retried indefinitely and never count toward the bound; an ES outage produces lag, never DLQ records. |
 | Bulk request rejected with 413 | The request is split in halves and each half retried (recursively); a single-document bulk that still gets 413 sends that document to the DLQ with `error.type=too_large`. |
-| Undecodable record, non-object element, unusable version, missing `_id`, bad timestamp, no matching route, unresolved index pattern | DLQ with the matching `error.type` (`decode`, `missing_id`, `bad_timestamp`, `no_route`, `unresolved_index`). A document a drop route selected skips the version, `_id` and timestamp checks and is never dead-lettered for them (§5.3); undecodable records and non-object elements still are. |
+| Undecodable record, non-object element, unusable version, missing `_id`, bad timestamp, no matching route, unresolved index pattern | DLQ with the matching `error.type` (`decode`, `missing_id`, `bad_timestamp`, `no_route`, `unresolved_index`). A document a drop route selected skips the version, `_id`, and timestamp checks and is never dead-lettered for them (§5.3); undecodable records and non-object elements still are. |
 | Missing topic, DLQ topic, or failed authentication at pipeline start | Pipeline stays stopped (`failed_preflight`) until the next accepted reload or a restart (§5.6), clear log naming resource and identity, alert. Other pipelines unaffected. kafkafim never creates the resource. |
 | Record handler throws, or a consumer of the listener container stops on its own (an error the container does not retry, an `Error` from the listener) | The pipeline goes to `failed` and is stopped gracefully: the source drains, commits what completed and leaves the group, so the group's other pods take its partitions; records still incomplete are re-delivered. When the container stopped itself, the source still waits (within its 10s container stop) for the other consumers to finish revoking before the sinks close. It stays stopped until the next accepted reload or a restart (§4.6, §5.6, ADR-0036); one ERROR line names the cause. Other pipelines unaffected. |
 | DLQ produce fails | Block the partition and alert. Losing data is worse than lag. The send is retried forever (100ms doubling to 30s, ±25% jitter) and never completes the source offset until the broker acknowledged it (`acks=all`), so the committed offset stays put. That, with the retry loop, is the guarantee against loss; it does not rest on idempotence (`enable.idempotence` may be turned off, §5.1), which only avoids duplicate DLQ records. The writer is *blocked* from its first failure until every failed send was acknowledged; the supervisor pauses the pipeline on `onBlocked` and resumes on `onUnblocked`. A missing DLQ topic, failed authentication or authorization, an invalid topic or a record larger than the producer or topic allows is a **configuration** failure (logged at `ERROR`, alert); anything else is **transient**. Both kinds are retried; neither drops the record. With idempotence off the producer has no fatal error state, so only the replacement below on `ClusterAuthorizationException` or an authentication error can still happen, and it is harmless. A producer error that kafka-clients can make fatal even for an idempotent producer (cluster authorization, authentication, unsupported version, a fenced producer or an invalid producer ID mapping) replaces the shared producer, so fixing the cause unblocks the next attempt without a restart. A missing `Write` ACL is usually not fatal, though: in kafka-clients 4.2 a `CLUSTER_AUTHORIZATION_FAILED` answer to `InitProducerId` is *abortable*: the producer fails the pending batches, goes back to uninitialized and retries `InitProducerId` on its own. The producer becomes fatal only when the error reaches its error state through a failed batch (a produce response carrying it). kafkafim replaces the producer on `ClusterAuthorizationException` either way: replacing it is cheap and covers the fatal path. On the abortable path kafka-clients still logs `Aborting producer batches due to fatal error` at `ERROR`, and kafkafim logs that the producer *may be* in a fatal state and replaces it; both mean only that the pending sends failed and will be retried. A send that fails only because of the replacement (closing the producer aborts its batch, or it reached the producer after the close began) is reported by the failure that triggered the replacement, so a missing ACL never shows up as a transient `Producer is closed forcefully`. Each send attempt is reported once, although kafka-clients can both throw from `send` and later fail the batch it had already appended. |
@@ -1169,7 +1169,7 @@ last-writer-wins use `document.version-field` (external versions).
 ## 8. No transformations
 
 Documents are indexed byte-for-byte as decoded (a JSON array record is split into
-its elements). Field extraction for `_id`, version, timestamp and routing is
+its elements). Field extraction for `_id`, version, timestamp, and routing is
 read-only. Reshaping and enrichment happen in the producer or in an ES ingest
 pipeline named on the route. This keeps kafkafim CPU-light, which is what lets a
 small pod drain a big backlog, and keeps the MVP honest.
@@ -1223,7 +1223,7 @@ uncommitted. Before the first record to a topic the writer describes it
 (`Describe`, already required): the producer always lets the broker auto-create a topic
 it sends to, so producing blind would create a missing DLQ topic on a broker with
 `auto.create.topics.enable=true` (ADR-0021) and would otherwise only surface as a metadata
-timeout. A missing, forbidden or unreachable topic is remembered for one second on the shared
+timeout. A missing, forbidden, or unreachable topic is remembered for one second on the shared
 producer, so that many blocked sends do not describe it once each; a check cut short by an
 interrupt (a stop during preflight) is not remembered, since no broker answered it. A topic
 once seen is only checked again after a send timeout, so a DLQ topic
@@ -1259,8 +1259,8 @@ unresolved-backlog number.
 
 Spring Boot's OpenTelemetry starter: Micrometer → OTLP (APM Server) plus
 `/actuator/prometheus`; Micrometer Tracing with the OTel bridge → OTLP; Logback →
-OTLP. Metrics, traces and logs always travel together, to
-`${OTEL_EXPORTER_OTLP_ENDPOINT}/v1/metrics`, `/v1/traces` and `/v1/logs`. APM Server
+OTLP. Metrics, traces, and logs always travel together, to
+`${OTEL_EXPORTER_OTLP_ENDPOINT}/v1/metrics`, `/v1/traces`, and `/v1/logs`. APM Server
 (or later an OpenTelemetry Collector) pre-exists in production; switching between
 them is only the `OTEL_EXPORTER_OTLP_ENDPOINT` value in the chart. Export headers reach
 the three exporters: non-secret ones through `OTEL_EXPORTER_OTLP_HEADERS` (mapped by
@@ -1268,7 +1268,7 @@ Spring Boot), secret ones (the APM Server token) as `configtree` files the chart
 at the exporters' `headers` property paths (`otel.secretHeaders`, [HELM.md](HELM.md)).
 Header secrets are read at startup; rotating one needs a pod restart.
 
-The three OTLP resources carry `service.name=kafkafim`, `service.namespace=kafkafim` and
+The three OTLP resources carry `service.name=kafkafim`, `service.namespace=kafkafim`, and
 `service.instance.id` = the pod name (`POD_NAME`, which the chart sets from the downward
 API; `HOSTNAME` in a plain container, `localhost` without either), so series and spans
 stay per pod; Prometheus-compatible OTLP backends derive `job` (`kafkafim/kafkafim`) and
@@ -1299,7 +1299,7 @@ Exact label sets (`telemetry/TelemetryNames`, `telemetry/PipelineMeters`):
 | `kafkafim_pipeline_pause_reason` (1/0) | `reason=es_breaker\|es_auth\|dlq_blocked` | the supervisor's pause reasons by kind, read on scrape: 1 while the pipeline is `paused` for a reason of that kind (more than one can be 1), else 0. The cluster and identity a reason names are only in the logs |
 | `kafkafim_dlq_records_total` | `error_type` | every DLQ record the broker acknowledged |
 | `kafkafim_breaker_state` | only `es_cluster`: 0 closed, 1 half-open, 2 open | the breakers the pipelines send through (the worst one while a reload leaves two generations alive) |
-| `kafkafim_pipeline_state` | only `pipeline`, `state=starting\|running\|paused\|failed_preflight\|failed\|stopped` | 1 for the current state, 0 for the others; `paused` means a supervisor reason: breaker open, identity rejected or DLQ blocked (`kafkafim_pipeline_pause_reason` says which), not the byte-budget backpressure |
+| `kafkafim_pipeline_state` | only `pipeline`, `state=starting\|running\|paused\|failed_preflight\|failed\|stopped` | 1 for the current state, 0 for the others; `paused` means a supervisor reason: breaker open, identity rejected, or DLQ blocked (`kafkafim_pipeline_pause_reason` says which), not the byte-budget backpressure |
 | `kafkafim_config_reload_total{result=success\|failure}`, `kafkafim_config_generation` | none | §5.6 (1 at startup, +1 per applied reload) |
 
 Label discipline: `route` is the route's `name`, or its zero-based position, never the
@@ -1318,7 +1318,7 @@ identities) gets fresh series, and an unchanged one keeps its counters across a 
 Consumer lag is not a kafkafim metric (ADR-0034): the Kafka team's consumer-lag
 monitoring already shows and alerts on it per consumer group (`source.group-id`), and
 reading it here would cost one extra consumer per pipeline and two broker requests per
-pipeline every 10s. kafkafim's own "are we keeping up" signals are
+pipeline every 10s. kafkafim's own "is it keeping up" signals are
 `kafkafim_e2e_latency_seconds` and the throughput counters, read next to
 `kafkafim_pipeline_state` and `kafkafim_breaker_state`.
 
@@ -1354,7 +1354,7 @@ Every log event goes to two places (ADR-0044):
   (`logback-spring.xml`) feeds the logger provider Spring Boot auto-configures; records
   are batched off the logging thread and sent to `/v1/logs`. A record carries the
   severity, the logger name (its instrumentation scope), `thread.name`, MDC entries and
-  key-value pairs as attributes, an exception's type, message and stack trace, the trace
+  key-value pairs as attributes, an exception's type, message, and stack trace, the trace
   and span id of the span in scope, and the resource attributes above. Lines logged
   before the OpenTelemetry SDK exists (Spring Boot's startup lines, configuration
   warnings) are kept, up to 1000, and replayed. Export never blocks a pipeline: a full
@@ -1363,14 +1363,14 @@ Every log event goes to two places (ADR-0044):
   `management.otlp.metrics.export.enabled` and `management.tracing.export.otlp.enabled`
   do for the other two.
 - **stdout**, readable text for a person (`kubectl logs`, a local run): Spring Boot's
-  console line with time, level, thread, trace and span id, logger and message. It is
+  console line with time, level, thread, trace and span id, logger, and message. It is
   never JSON and nothing parses it. It is also the only place for what OTLP cannot
   carry: a pod that fails before the SDK exists (invalid configuration), the last lines
   of a shutdown, and everything while the endpoint is unreachable.
 
 Pipeline lines name their pipeline in the message (`Pipeline '<name>': …`). One WARN
 line per bulk response with failed items, naming the first 5 by
-position, status and error type (not Elasticsearch's reason, which quotes field values
+position, status, and error type (not Elasticsearch's reason, which quotes field values
 of the document; it travels in the DLQ record), written before that response's outcomes;
 one WARN line per request-level retry (429, 5xx, 401/403, unexpected status) with the
 status and Elasticsearch's error types, plus the security `reason` for 401/403, or, for
@@ -1400,7 +1400,7 @@ logged by default.
 
 - `dashboards/kafkafim-overview.json`: per pipeline: state, throughput, dropped
   documents per drop route, e2e latency, DLQ rate, in-flight bytes and heap, assigned
-  partitions, Kafka connectivity, config generation and reloads.
+  partitions, Kafka connectivity, config generation, and reloads.
 - `dashboards/kafkafim-elasticsearch.json`: per ES cluster: breaker, bulk requests by
   status and the 429 ratio, bulk latency, docs and bytes per request, flush reasons,
   retries, item errors, auth failures.
@@ -1408,7 +1408,7 @@ logged by default.
   DLQ rate > 0 for 10m, bulk reject (429) ratio > 1%, e2e p99 above
   target (10s by default), breaker open, auth failures > 0, reload failed, pod with 0
   assigned partitions for a pipeline it runs; plus `failed_preflight`, `failed`, `paused` for
-  5m, `starting` for 10m and Kafka disconnected for a running pipeline.
+  5m, `starting` for 10m, and Kafka disconnected for a running pipeline.
 
 The compose demo provisions both dashboards into its Grafana LGTM.
 
@@ -1416,7 +1416,7 @@ The compose demo provisions both dashboards into its Grafana LGTM.
 
 - Secrets only via mounted `Secret`s imported as `configtree`; inline secret values
   fail validation outside local development. This includes the OTLP export token
-  (`otel.secretHeaders`, §10), for metrics, traces and logs alike.
+  (`otel.secretHeaders`, §10), for metrics, traces, and logs alike.
 - TLS everywhere, custom CA per cluster. Named identities (Kafka: SASL/mTLS;
   Elasticsearch: API key, basic, mTLS) referenced per consumer group, DLQ producer
   and route, so Kafka ACLs and ES roles can be scoped per pipeline and per role.
@@ -1436,7 +1436,7 @@ Summary; see [TECH_STACK.md](TECH_STACK.md) and the ADRs.
   batch listener, cooperative-sticky, pause/resume; kafkafim's own out-of-order offset
   tracker (ADR-0025).
 - **Elasticsearch low-level REST client** (ADR-0005): HTTP only, version-agnostic
-  across the 8.x fleet; we build `_bulk` bodies and parse per-item results.
+  across the 8.x fleet; kafkafim builds `_bulk` bodies and parses per-item results.
 - **Resilience4j** core for the breaker and backoff intervals (ADR-0016, ADR-0026).
   **Jackson 3** for JSON.
 - Tests: JUnit 5 + Testcontainers (Kafka, Elasticsearch, Grafana LGTM); chaos cases

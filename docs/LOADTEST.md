@@ -6,7 +6,7 @@ method and commands. This page records what was measured, on what, and what it m
 
 Every number below was produced by `loadtest/run.sh` on one laptop. They are **a floor for
 one pipeline on one small Elasticsearch node, not a production capacity plan**: the load
-generator, Kafka, Elasticsearch and kafkafim all shared the machine, Elasticsearch had two
+generator, Kafka, Elasticsearch, and kafkafim all shared the machine, Elasticsearch had two
 CPUs and a 1 GiB heap, and documents were small and uniform. Re-run the harness on
 production-like hardware before sizing a real cluster.
 
@@ -95,7 +95,7 @@ What this shows:
   budgets of all pipelines in the instance. Completed: 3× (768 MiB for 256 MB), 4× (1 GiB for
   256 MB), 8× (512 MiB for 64 MB). Failed: 2× (512 MiB for 256 MB). One point at 4× with a
   single pipeline completed with the heap almost full.
-- Resident memory was the heap plus about 250 to 300 MiB (JVM, threads, Netty and Kafka
+- Resident memory was the heap plus about 250 to 300 MiB (JVM, threads, Netty, and Kafka
   buffers).
 - In a container the JVM exits on `OutOfMemoryError` (`-XX:+ExitOnOutOfMemoryError` in the
   image and the chart) and Kubernetes restarts the pod. The harness runs the jar without that
@@ -153,7 +153,7 @@ These guidelines follow from the runs above, for small (about 1 KiB) documents. 
 as starting points and confirm them on production-like hardware.
 
 - **Heap against budgets.** This is an empirical minimum for 1 KiB documents; the
-  [RUNBOOK](RUNBOOK.md) gives the fuller rule (budget plus overshoot, per-copy, DLQ, decode and
+  [RUNBOOK](RUNBOOK.md) gives the fuller rule (budget plus overshoot, per-copy, DLQ, decode, and
   bulk-body terms), which takes precedence. Size the heap at no less than three times the sum of
   `max-in-flight-bytes` over all pipelines of an instance, and more when documents are larger
   than 1 KiB or when records approach `max-record-bytes` (the decode peak in DESIGN §4.5 comes
