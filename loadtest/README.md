@@ -4,7 +4,7 @@ A repeatable load test for kafkafim: throughput and latency per pipeline, memory
 `max-in-flight-bytes`, behaviour during an Elasticsearch outage and during a rebalance.
 Results and sizing guidance are in [docs/LOADTEST.md](../docs/LOADTEST.md).
 
-Not part of `./mvnw verify`, CI or the release. It needs Docker and a built jar, and it is
+Not part of `./mvnw verify`, CI, or the release. It needs Docker and a built jar, and it is
 meant to be run by hand on a machine you can leave alone while it runs.
 
 ## What it starts
@@ -51,6 +51,6 @@ generated configuration. `loadtest/summary.sh <run-dir>` prints the summary agai
 
 ## Reading the numbers
 
-A single machine runs the load generator, Kafka, Elasticsearch and kafkafim, so absolute
+A single machine runs the load generator, Kafka, Elasticsearch, and kafkafim, so absolute
 numbers are a floor for what the pipeline can do, not a capacity plan. Compare runs on the
 same machine, and record its CPU and memory next to the numbers.

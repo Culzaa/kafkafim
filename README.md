@@ -14,13 +14,13 @@ Status: design and scaffolding. Nothing ships yet.
 - [Design](docs/DESIGN.md): goals, architecture, configuration model, failure
   handling, observability, migration, roadmap.
 - [Decision records](docs/decisions/README.md): one ADR per decision.
-- [Tech stack](docs/TECH_STACK.md): every library, its version and the reason.
+- [Tech stack](docs/TECH_STACK.md): every library, its version, and the reason.
 - [Delivery](docs/DELIVERY.md): CI, releases, registries, importing into the
   air-gapped environment.
 - [Helm chart](docs/HELM.md): one release per Kubernetes cluster, groups, secrets.
-- [Runbook](docs/RUNBOOK.md): deploy, observe and recover kafkafim in production;
+- [Runbook](docs/RUNBOOK.md): deploy, observe, and recover kafkafim in production;
   incidents as symptom → check → action.
-- [Load test](docs/LOADTEST.md): measured throughput, latency, memory, outage and rebalance
+- [Load test](docs/LOADTEST.md): measured throughput, latency, memory, outage, and rebalance
   behaviour, and the sizing that follows; the harness is in [loadtest/](loadtest/README.md).
 
 ## Develop
@@ -29,7 +29,7 @@ You need Docker (for the local stack and tests) and a JDK 27 on `PATH`. You don'
 local Maven install.
 
 ```bash
-./mvnw spring-boot:run      # starts Kafka, kafka-init, Elasticsearch and Grafana via compose.yaml
+./mvnw spring-boot:run      # starts Kafka, kafka-init, Elasticsearch, and Grafana via compose.yaml
 ```
 
 The one-shot `kafka-init` service creates the topics the `local`
@@ -51,7 +51,7 @@ The native broker image ships no Kafka CLI scripts, so the `kafka-init` service 
 `apache/kafka` image for topic and producer commands.
 
 To run the real Helm chart instead, use a local kind or Docker Desktop cluster with
-in-cluster Kafka, Elasticsearch and Grafana LGTM (one `helm install`) and secrets mounted
+in-cluster Kafka, Elasticsearch, and Grafana LGTM (one `helm install`) and secrets mounted
 as files like production. For details, see the [local demo guide](deploy/local/README.md):
 
 ```bash
