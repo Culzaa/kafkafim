@@ -134,8 +134,12 @@ Branch protection on `main` (a classic branch protection rule, in force since
 
 The rule requires no approving review; reviews are a process rule (CONTRIBUTING.md).
 
-Dependabot runs weekly, with grouped updates, for Maven, GitHub Actions, and the Docker
-base image.
+Dependabot runs weekly, with grouped updates, for Maven, GitHub Actions, the Docker
+base image, and the images in `compose.yaml` and `loadtest/compose.yaml` (one group). The
+same images appear in `deploy/local/kafkafim-demo/values.yaml` and as `DockerImageName.parse`
+constants in `src/test`, which Dependabot cannot read; a compose bump PR must update those by
+hand, and the "YAML format" job's "Container image versions agree" step fails until every
+place names one tag per image.
 Dependabot ignores `io.opentelemetry.proto:opentelemetry-proto`. No BOM manages it, and
 `pom.xml` declares it at the version `micrometer-registry-otlp` depends on. A
 `maven-enforcer-plugin` `dependencyConvergence` rule fails `validate` when the two
