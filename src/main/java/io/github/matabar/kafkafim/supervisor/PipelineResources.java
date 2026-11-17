@@ -13,6 +13,7 @@ import io.github.matabar.kafkafim.sink.es.ClientSettings;
 import io.github.matabar.kafkafim.sink.es.ElasticsearchSinks;
 import io.github.matabar.kafkafim.source.kafka.ConsumerFactories;
 import io.github.matabar.kafkafim.source.kafka.SourceOptions;
+import io.github.matabar.kafkafim.telemetry.KafkaClientMeters;
 import io.opentelemetry.instrumentation.kafkaclients.v2_6.KafkaTelemetry;
 import java.time.Clock;
 import java.time.Duration;
@@ -123,6 +124,7 @@ final class PipelineResources implements SmartLifecycle, AutoCloseable {
   private final Function<KafkafimProperties, Preflight.AuthCheck> authChecks;
   private final Settings settings;
   private final @Nullable KafkaTelemetry kafkaTelemetry;
+  private final @Nullable KafkaClientMeters kafkaMeters;
 
   private final Map<String, KafkaHandle> currentKafka = new HashMap<>(); // guarded by this
   private final Map<String, EsHandle> currentEs = new HashMap<>(); // guarded by this
@@ -148,10 +150,24 @@ final class PipelineResources implements SmartLifecycle, AutoCloseable {
       Function<KafkafimProperties, Preflight.AuthCheck> authChecks,
       Settings settings,
       @Nullable KafkaTelemetry kafkaTelemetry) {
+    this(relay, authChecks, settings, kafkaTelemetry, null);
+  }
+
+  /**
+   * As above; {@code kafkaMeters} also binds the Kafka client metrics of the consumers and the DLQ
+   * producers, {@code null} for none.
+   */
+  PipelineResources(
+      ListenerRelay relay,
+      Function<KafkafimProperties, Preflight.AuthCheck> authChecks,
+      Settings settings,
+      @Nullable KafkaTelemetry kafkaTelemetry,
+      @Nullable KafkaClientMeters kafkaMeters) {
     this.relay = relay;
     this.authChecks = authChecks;
     this.settings = settings;
     this.kafkaTelemetry = kafkaTelemetry;
+    this.kafkaMeters = kafkaMeters;
   }
 
   /**
@@ -510,13 +526,14 @@ final class PipelineResources implements SmartLifecycle, AutoCloseable {
       super(cluster);
       this.definition = definition;
       this.properties = properties;
-      this.consumerFactories = new ConsumerFactories(properties, kafkaTelemetry);
+      this.consumerFactories = new ConsumerFactories(properties, kafkaTelemetry, kafkaMeters);
       AtomicReference<Object> owner = new AtomicReference<>();
       DlqListener dlqListener = relay.dlqListener(owner::get);
       this.dlq =
           kafkaTelemetry == null
               ? new DlqProducers(properties, dlqListener, settings.dlqOptions())
-              : new DlqProducers(properties, dlqListener, settings.dlqOptions(), kafkaTelemetry);
+              : new DlqProducers(
+                  properties, dlqListener, settings.dlqOptions(), kafkaTelemetry, kafkaMeters);
       owner.set(dlq);
     }
 
