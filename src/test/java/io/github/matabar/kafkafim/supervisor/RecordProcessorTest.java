@@ -963,6 +963,23 @@ class RecordProcessorTest {
     }
 
     @Test
+    void exactReparseFailureNamesTheRoute() {
+      processor = transforming(ROUTES);
+      // The routing parse reads 1e99999999999 as a double; the exact parse cannot hold its scale.
+      // "broken" never gets that far: its index needs /kind, which this document lacks.
+      processor.process(List.of(record("{\"id\":\"a\",\"region\":\"eu\",\"n\":1e99999999999}")));
+
+      assertThat(dlq)
+          .filteredOn(sent -> sent.request().errorType().equals("transform"))
+          .singleElement()
+          .satisfies(sent ->
+              assertThat(sent.request().reason())
+                  .isEqualTo(
+                      "route stamped: the document could not be parsed again for its"
+                          + " transform"));
+    }
+
+    @Test
     void arrayElementsFailAndPassOnTheirOwn() {
       processor = transforming(ROUTES);
       processor.process(List.of(record("[" + DOC + "," + DOC.replace("\"a\"", "\"b\"") + "]")));

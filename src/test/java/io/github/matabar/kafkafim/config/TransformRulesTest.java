@@ -105,6 +105,35 @@ class TransformRulesTest {
     }
   }
 
+  private static String nested(int levels) {
+    return "[".repeat(levels) + "]".repeat(levels);
+  }
+
+  @Test
+  void jsonNestingMustFitUnderTheLimitAtItsTarget() {
+    // 499 levels under a one-token field is 500 deep: allowed.
+    assertThat(check(step("write", "/a", null, null, nested(499)))).isEmpty();
+    // 500 levels fits only at the root, which a field never is.
+    assertThat(check(step("write", "/a", null, null, nested(500))))
+        .singleElement()
+        .asString()
+        .startsWith("p.routes[0].transform[0].json: nests 500 deep")
+        .contains("deeper than 500");
+    // A deeper pointer leaves less room.
+    assertThat(check(step("write", "/a/b/c", null, null, nested(497)))).isEmpty();
+    assertThat(check(step("write", "/a/b/c", null, null, nested(498)))).hasSize(1);
+    // Beyond the parser's own limit.
+    assertThat(check(step("write", "/a", null, null, nested(501))))
+        .singleElement()
+        .asString()
+        .isEqualTo("p.routes[0].transform[0].json: nests deeper than 500");
+    String deep = "/a".repeat(500);
+    assertThat(check(step("write", deep, null, null, "5"))).isEmpty();
+    assertThat(check(step("write", deep, null, null, "[]"))).hasSize(1);
+    // A scalar adds no level; escaped slashes are one token.
+    assertThat(check(step("write", "/a~1b", null, null, nested(499)))).isEmpty();
+  }
+
   @Test
   void jsonErrorsDoNotEchoTheText() {
     assertThat(check(step("write", "/a", null, null, "{\"secret\": nope}")).toString())
