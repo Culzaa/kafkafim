@@ -48,6 +48,10 @@
 		<maven-checkstyle-plugin.version>3.6.0</maven-checkstyle-plugin.version>
 		<!-- Parallel Failsafe JVMs for the *IntegrationTest classes; override with -Dit.forkCount=N -->
 		<it.forkCount>3</it.forkCount>
+		<!-- Coverage (docs/DELIVERY.md, "Coverage floor") -->
+		<jacoco.version>0.8.16</jacoco.version>
+		<!-- true skips only the floor check (CI's partial jobs); jacoco.skip would also stop data collection -->
+		<jacoco.check.skip>false</jacoco.check.skip>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -300,6 +304,88 @@
 							<goal>integration-test</goal>
 							<goal>verify</goal>
 						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
+				<!-- Unit (Surefire) and integration (Failsafe) tests write separate exec files; verify merges
+				     them, writes the report to target/site/jacoco/ and enforces the floor on the merged data.
+				     CI's two partial jobs pass -Djacoco.check.skip=true and the "Coverage" job checks the
+				     merged data of both. -->
+				<groupId>org.jacoco</groupId>
+				<artifactId>jacoco-maven-plugin</artifactId>
+				<version>${jacoco.version}</version>
+				<executions>
+					<execution>
+						<id>prepare-agent</id>
+						<goals>
+							<goal>prepare-agent</goal>
+						</goals>
+					</execution>
+					<execution>
+						<id>prepare-agent-integration</id>
+						<goals>
+							<goal>prepare-agent-integration</goal>
+						</goals>
+					</execution>
+					<execution>
+						<id>merge</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>merge</goal>
+						</goals>
+						<configuration>
+							<fileSets>
+								<fileSet>
+									<directory>${project.build.directory}</directory>
+									<includes>
+										<include>jacoco.exec</include>
+										<include>jacoco-it.exec</include>
+									</includes>
+								</fileSet>
+							</fileSets>
+							<destFile>${project.build.directory}/jacoco-merged.exec</destFile>
+						</configuration>
+					</execution>
+					<execution>
+						<id>report</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>report</goal>
+						</goals>
+						<configuration>
+							<dataFile>${project.build.directory}/jacoco-merged.exec</dataFile>
+						</configuration>
+					</execution>
+					<execution>
+						<id>check</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>check</goal>
+						</goals>
+						<configuration>
+							<skip>${jacoco.check.skip}</skip>
+							<dataFile>${project.build.directory}/jacoco-merged.exec</dataFile>
+							<rules>
+								<rule>
+									<element>BUNDLE</element>
+									<limits>
+										<!-- Merged unit + integration coverage measured 2026-11-17: line 94.5 %,
+										     branch 87.3 %. Floors sit just below; raise them when coverage rises. -->
+										<limit>
+											<counter>LINE</counter>
+											<value>COVEREDRATIO</value>
+											<minimum>0.94</minimum>
+										</limit>
+										<limit>
+											<counter>BRANCH</counter>
+											<value>COVEREDRATIO</value>
+											<minimum>0.87</minimum>
+										</limit>
+									</limits>
+								</rule>
+							</rules>
+						</configuration>
 					</execution>
 				</executions>
 			</plugin>
