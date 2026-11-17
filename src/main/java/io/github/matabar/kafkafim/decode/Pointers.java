@@ -36,4 +36,33 @@ final class Pointers {
     }
     return copy;
   }
+
+  /**
+   * A copy of {@code node} with {@code value} written at {@code keys[depth..]}; never mutates
+   * {@code node}. An existing member is replaced in place, a new one goes last, and missing parent
+   * objects are created.
+   *
+   * @throws TransformException with {@code parentMessage} if a parent exists but is not an object
+   */
+  static ObjectNode write(
+      ObjectNode node, String[] keys, int depth, JsonNode value, String parentMessage)
+      throws TransformException {
+    String key = keys[depth];
+    ObjectNode copy = shallowCopy(node);
+    if (depth == keys.length - 1) {
+      copy.set(key, value);
+      return copy;
+    }
+    JsonNode child = node.get(key);
+    ObjectNode parent;
+    if (child == null) {
+      parent = JsonNodeFactory.instance.objectNode();
+    } else if (child instanceof ObjectNode childObject) {
+      parent = childObject;
+    } else {
+      throw new TransformException(parentMessage);
+    }
+    copy.set(key, write(parent, keys, depth + 1, value, parentMessage));
+    return copy;
+  }
 }

@@ -1193,15 +1193,16 @@ routes:
       - { op: set, field: /event/version, json: "2" }          # any JSON value
 ```
 
-**Status.** The framework is in place: binding, validation, the owned-bytes document, the
-`transform` error type, and the per-copy run in `RecordProcessor`. Each op arrives as one op
-class, one validation case, and one row in this table, so until its row exists an op is
-rejected as an unknown `op` at validation (§5.7).
+**Status.** All three ops are in place, on the framework: binding, validation, the
+owned-bytes document, the `transform` error type, and the per-copy run in `RecordProcessor`.
+Each op is one op class, one validation case, and one row in this table; an op without a row
+is rejected as an unknown `op` at validation (§5.7).
 
 | Op | Fields | Effect |
 |---|---|---|
 | `remove` | `field` | Deletes the member at `field`. A missing member, or a parent that is absent or not an object, is a no-op. A `null` member is deleted. |
 | `rename` | `field`, `to` | Moves the member at `field` to `to`: the source is removed, then the target is written (an existing target is overwritten in place, a new one goes last, missing parents of `to` are created). A missing source, or a source parent that is absent or not an object, is a no-op. A `null` member moves. A parent of `to` that exists but is not an object is a `transform` failure. `field` equal to `to`, or one a prefix of the other, is rejected at validation. |
+| `set` | `field`, and exactly one of `value`, `json` | Writes a constant at `field`. `value` is a JSON string; `json` is the text of one JSON value (number, boolean, `null`, string, object, or array), parsed at bind with exact decimals. An existing member is overwritten in place, a new one goes last, missing parent objects are created. A parent that exists but is not an object (a `null` included) is a `transform` failure. Both or neither of `value` and `json` is rejected at validation. |
 
 - **Order.** Decode; extract `_id`, version, and timestamp from the original; route
   on the original; resolve the index from the original; apply the route's steps to

@@ -1085,4 +1085,74 @@ class RecordProcessorTest {
           });
     }
   }
+
+  /** The production {@code set} op in the processor. */
+  @Nested
+  class SetTransforms {
+
+    private static final String ROUTES =
+        """
+        p:
+          source: { cluster: k, topics: [t], max-record-bytes: 1KB }
+          route-mode: all
+          routes:
+            - name: plain
+              when: [ { field: /region, equals: eu } ]
+              cluster: es
+              index: "plain-%{kind}"
+            - name: stamped
+              when: [ { field: /region, equals: eu } ]
+              cluster: es2
+              index: "stamped-%{kind}"
+              transform:
+                - { op: set, field: /kind, value: changed }
+                - { op: set, field: /event/version, json: "2" }
+        """;
+
+    private static final String DOC = "{\"id\":\"a\",\"region\":\"eu\",\"kind\":\"k\"}";
+
+    @Test
+    void settingTheFieldsRoutingAndIndexReadChangesNeitherRouteNorIndex() {
+      processor = processor(ROUTES, PipelineMeters.NOOP, StepRegistry.BUILT_IN);
+      processor.process(List.of(record(DOC)));
+
+      assertThat(actions(ES2))
+          .singleElement()
+          .satisfies(a -> {
+            assertThat(a.id()).isEqualTo("a");
+            assertThat(a.index()).isEqualTo("stamped-k");
+            assertThat(new String(a.source(), StandardCharsets.UTF_8))
+                .isEqualTo(
+                    "{\"id\":\"a\",\"region\":\"eu\",\"kind\":\"changed\","
+                        + "\"event\":{\"version\":2}}");
+          });
+      assertThat(actions(ES))
+          .singleElement()
+          .satisfies(
+              a -> assertThat(new String(a.source(), StandardCharsets.UTF_8)).isEqualTo(DOC));
+      assertThat(dlq).isEmpty();
+    }
+
+    @Test
+    void parentThatIsNotAnObjectDeadLettersOnlyThatCopy() {
+      processor = processor(ROUTES, PipelineMeters.NOOP, StepRegistry.BUILT_IN);
+      String doc = "{\"id\":\"a\",\"region\":\"eu\",\"kind\":\"k\",\"event\":\"secret\"}";
+      processor.process(List.of(record(doc)));
+
+      assertThat(actions(ES)).hasSize(1);
+      assertThat(actions(ES2)).isEmpty();
+      assertThat(dlq)
+          .singleElement()
+          .satisfies(sent -> {
+            DlqRequest request = sent.request();
+            assertThat(request.errorType()).isEqualTo("transform");
+            assertThat(request.reason())
+                .isEqualTo(
+                    "route stamped, step 2 (set /event/version): "
+                        + "a parent of the field is not an object");
+            assertThat(request.reason()).doesNotContain("secret");
+            assertThat(request.value()).isEqualTo(doc.getBytes(StandardCharsets.UTF_8));
+          });
+    }
+  }
 }
