@@ -27,8 +27,10 @@ This runbook uses these conventions:
   events as plain text, with the trace and span id in brackets (a multi-line message or
   a stack trace continues on the following lines). Only stdout has a pod that failed to
   start, the last lines of a shutdown, and whatever was logged while the OTLP endpoint was
-  unreachable. The log lines quoted below are the
-  message of either.
+  unreachable. Only MDC keys on the allowlist are exported over OTLP (`pipeline` is
+  listed, though no code sets it yet); to see a new one in the backend, add it to
+  `captureMdcAttributes` in `logback-spring.xml`. The log
+  lines quoted below are the message of either.
 - Metric names are the Prometheus names from [DESIGN §10](DESIGN.md#10-observability).
 
 ## 1. Mental model in one minute
