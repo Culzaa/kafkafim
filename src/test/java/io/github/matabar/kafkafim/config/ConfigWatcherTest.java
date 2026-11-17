@@ -119,6 +119,26 @@ class ConfigWatcherTest {
     await().atMost(Duration.ofSeconds(10)).until(() -> changes.get() == 2);
   }
 
+  /** An Error from a reload (a NoClassDefFoundError while a client is built) ends no thread. */
+  @Test
+  void callbackErrorKeepsTheWatcherAlive() throws Exception {
+    Path file = Files.writeString(dir.resolve("app.yaml"), "1");
+    watcher =
+        new ConfigWatcher(
+            List.of(file),
+            Duration.ofMillis(100),
+            Duration.ofMillis(50),
+            () -> {
+              changes.incrementAndGet();
+              throw new LinkageError("boom");
+            });
+    watcher.start();
+    Files.writeString(file, "2");
+    await().atMost(Duration.ofSeconds(10)).until(() -> changes.get() == 1);
+    Files.writeString(file, "3");
+    await().atMost(Duration.ofSeconds(10)).until(() -> changes.get() == 2);
+  }
+
   @Test
   void closingDuringTheCallbackDoesNotInterruptIt() throws Exception {
     Path file = Files.writeString(dir.resolve("app.yaml"), "1");
