@@ -1,7 +1,7 @@
 # Grafana dashboards and Prometheus alert rules
 
 What [DESIGN §10](../../docs/DESIGN.md#shipped-with-the-repo) promises under "Shipped
-with the repo". Every query uses the metric names and labels of `/actuator/prometheus`
+with the repo". Every query uses the metric names and labels the backend stores for the OTLP metrics the app exports
 ([DESIGN §10](../../docs/DESIGN.md#10-observability), [RUNBOOK §3.3](../../docs/RUNBOOK.md#33-metrics-to-look-at-first)).
 
 | File | What |
@@ -55,7 +55,8 @@ with [`.yamllint.yaml`](../../.yamllint.yaml); Google has no YAML guide, so that
 standard.
 
 Counters and histograms use `$__rate_interval`; set the data source's scrape interval
-to the real one (Prometheus default 1m, the OTLP export step is 15s).
+to the real one. Nothing scrapes kafkafim: it pushes over OTLP every 15s, and a series of a
+stopped pod stays visible for the 5m lookback, because OTLP writes no stale markers.
 
 ## Alerts
 
@@ -93,18 +94,18 @@ Notes:
   `increase()` need two samples, so they miss that first increment.
   `kafkafim_auth_failures_total` exists from startup with 0 for every Elasticsearch
   cluster and identity a pipeline's routes write with, so `increase()` sees a 401/403
-  once the pod has been scraped. The auth alert and the "Auth failures" panel still add
+  once the pod has exported. The auth alert and the "Auth failures" panel still add
   the starting value of a series that is new in the window, for a 401/403 before a pod's
-  first scrape: a single one matters, and nothing else shows it. The panel is
-  approximate (`increase()` extrapolates), and a scrape gap longer than the window plus
+  first export: a single one matters, and nothing else shows it. The panel is
+  approximate (`increase()` extrapolates), and an export gap longer than the window plus
   5m makes an old series look new, so the panel then shows its total once; a single
-  failed scrape does not. "DLQ ratio" shows the first DLQ'd document, because
+  missed export does not. "DLQ ratio" shows the first DLQ'd document, because
   `kafkafim_docs_total` starts at 0 for every configured route and outcome and for
   `route="none"`, `outcome="dlq"` (failed before a route was chosen). The other
   counters come in streams, where one missed event doesn't matter. The DLQ alert needs a
   sustained rate, so it has no such term.
 - Rules group by `job`/`instance` where a per-pod answer matters; relabel to your own
-  pod label if your scrape config uses another one.
+  pod label if your backend names the instance differently.
 - Each alert carries a `runbook_url` annotation to the matching RUNBOOK section. In the
   repository it points at `main`; the release copy points at the tag's RUNBOOK
   (`release.yml` rewrites `blob/main` to `blob/v<ver>`) and the bundle ships `RUNBOOK.md`
@@ -149,12 +150,14 @@ and the same `dashboards/` directory (symlinked into its chart's `files/`) into 
 `lgtm` pod, so it shows the same two dashboards and, like the compose demo, loads no
 alert rules.
 
-Through OTLP every name matches `/actuator/prometheus`, the timers included: the app
+Over OTLP the names are the ones the queries use, the timers included (verified in #342, with
+scraping off: every panel and alert expression returns data): the app
 exports times in seconds (`management.otlp.metrics.export.base-time-unit: seconds`), so
 otel-lgtm stores `kafkafim_e2e_latency_seconds_*` and `kafkafim_bulk_latency_seconds_*`
 ([DESIGN §10](../../docs/DESIGN.md#10-observability)). `job` is `kafkafim/kafkafim`
 (`service.namespace`/`service.name`), and `instance` comes from `service.instance.id`:
 the pod name on Kubernetes (`POD_NAME` from the chart), the container's `HOSTNAME` in a
 plain container, and `localhost` for `./mvnw spring-boot:run` without either.
-The one OTLP-only difference is the timers' max gauge, `kafkafim_e2e_latency_max_seconds`
-(`kafkafim_e2e_latency_seconds_max` on `/actuator/prometheus`); no query here uses it.
+The timers' max gauges are `kafkafim_e2e_latency_max_seconds` and
+`kafkafim_bulk_latency_max_seconds`; no query here uses them. Histogram bounds are `le="10"`,
+not `le="10.0"`.

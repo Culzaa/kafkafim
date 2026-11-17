@@ -1,5 +1,6 @@
 # Prometheus alerting rules for kafkafim (DESIGN §10 "Shipped with the repo").
-# Metric names are those of /actuator/prometheus (docs/RUNBOOK.md §3.3). Validate with
+# Metric names and labels are those the OTLP-fed backend stores (docs/RUNBOOK.md §3.3; checked
+# against grafana/otel-lgtm in #342: job is kafkafim/kafkafim, instance the pod). Validate with
 #   promtool check rules deploy/grafana/alerts/kafkafim-alerts.yaml
 #   promtool test rules deploy/grafana/alerts/kafkafim-alerts.test.yaml
 # Thresholds marked "tune" are starting points; see deploy/grafana/README.md.
@@ -147,9 +148,10 @@ groups:
 
       - alert: KafkafimEsAuthFailures
         # Series exist from startup with 0 per cluster and identity, but one whose first
-        # scraped value is non-zero (a 401/403 before the pod's first scrape) has no
+        # exported value is non-zero (a 401/403 before the pod's first export) has no
         # increase(); the second clause catches it. It looks back over a range, not at one
-        # instant: a failed scrape's stale marker must not make an old series look new.
+        # instant: a gap in the series (a missed export, a stale marker) must not make an old
+        # series look new.
         expr: >-
           sum by (pipeline, es_cluster, identity) (increase(kafkafim_auth_failures_total[5m])) > 0
           or sum by (pipeline, es_cluster, identity) (
