@@ -1,9 +1,9 @@
 # kafkafim — Design
 
-Status: draft v0.4 (2026-11-07), MVP scope. Decisions are recorded one per file in
-[decisions/](decisions/README.md); the stack is in [TECH_STACK.md](TECH_STACK.md);
-CI/CD, registries, and the air-gap procedure in [DELIVERY.md](DELIVERY.md); the Helm
-chart in [HELM.md](HELM.md).
+Status: living design, MVP scope (first drafted 2026-11-07). Decisions are recorded one per
+file in [decisions/](decisions/README.md), the authoritative history. The stack is in
+[TECH_STACK.md](TECH_STACK.md); CI/CD, registries, and the air-gap procedure in
+[DELIVERY.md](DELIVERY.md); the Helm chart in [HELM.md](HELM.md).
 
 Replaces ~200 Logstash pipelines that ship JSON from 4 Kafka clusters (~100 topics)
 into ~20 Elasticsearch 8.x clusters.
