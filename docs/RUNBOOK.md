@@ -207,7 +207,9 @@ Where to read it:
   and `dlq_blocked` ([DLQ filling, or DLQ blocked (§5.6)](#56-dlq-filling-or-dlq-blocked)); more than
   one can be 1. It is 1
   only while the state is `paused`. `es_cluster` and `identity` name the cluster or identity
-  (`none` where the reason has none: `identity` for a breaker, both for `dlq_blocked`).
+  (`none` where the reason has none: `identity` for a breaker, both for `dlq_blocked`). Since
+  #328 the metric has one series per cluster and identity, not one per kind: a rule that
+  assumed a single series per `(pipeline, reason)` should `max by (pipeline, reason)`.
 - **Health**: `/actuator/health/readiness` includes the `pipelines` component. With
   the packaged `show-details: when-authorized` and no authentication, the response
   shows component statuses only, not the per-pipeline states, so use the metric.
