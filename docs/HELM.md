@@ -211,8 +211,8 @@ a pipeline the schema checks only the routes: a route with `drop: true` must not
 `cluster`, `identity`, `index`, `pipeline`, or `transform` (ADR-0037, ADR-0047), and any
 other route needs `cluster` and `index`. A route's `transform` is a list of at most 32
 steps that each have an `op`; the application checks the ops and their fields. The
-application validates the rest at startup. The application refuses `kafkafim.allow-inline-secrets=true` on Kubernetes however it is set (for
-example through
+application validates the rest at startup. The application refuses
+`kafkafim.allow-inline-secrets=true` on Kubernetes however it is set (for example through
 `extraEnv`), and likewise refuses to start with the `local` profile active there
 (`config/LocalProfileGuard`, [DESIGN §5.4](DESIGN.md#54-helm-rendering)). So a chart
 install, including the local Kubernetes demo
