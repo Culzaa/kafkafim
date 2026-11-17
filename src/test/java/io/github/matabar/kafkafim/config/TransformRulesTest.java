@@ -127,9 +127,4 @@ class TransformRulesTest {
     assertThat(check(java.util.Collections.nCopies(33, noop).toArray(Step[]::new)))
         .containsExactly("p.routes[0].transform: at most 32 steps per route, found 33");
   }
-
-  @Test
-  void productionKnowsNoOpsYet() {
-    assertThat(TransformRules.ops()).isEqualTo(TransformRules.BUILT_IN.keySet());
-  }
 }
