@@ -678,7 +678,8 @@ not used in production and not exercised in the MVP tests.
   identities on one cluster produces two bulk streams to it.
 - The circuit breaker stays per **cluster**: a 5xx or connection failure says
   something about the cluster, not the identity.
-- `401`/`403` on a bulk request is a **configuration failure, not a data failure**:
+- `401`/`403` on a bulk request (except a 403 `cluster_block_exception`, which is an index or
+  cluster block, §7) is a **configuration failure, not a data failure**:
   the affected pipeline pauses, retries with backoff, raises
   `kafkafim_auth_failures_total{es_cluster,identity}` and an alert. Documents are
   never sent to the DLQ because of a bad credential.
@@ -1365,7 +1366,7 @@ Exact label sets (`telemetry/TelemetryNames`, `telemetry/PipelineMeters`):
 | `kafkafim_bulk_latency_seconds`, `kafkafim_bulk_docs`, `kafkafim_bulk_bytes` (histograms) | `es_cluster` | every answered bulk request |
 | `kafkafim_item_errors_total` | `es_cluster`, `error_type` (Elasticsearch error type, `status_<n>` without one), `retryable` | every failed item: retried, or dead-lettered as `es_error` / `version_conflict` |
 | `kafkafim_retries_total` | `es_cluster`, `scope=request\|item` | every retryable failure of a whole request, and of an item (an item whose poison bound is reached also counts its last failure) |
-| `kafkafim_auth_failures_total` | `es_cluster`, `identity` (`none` for an unauthenticated cluster) | every response carrying a 401/403, for the request or for any item (one per response, not per item) |
+| `kafkafim_auth_failures_total` | `es_cluster`, `identity` (`none` for an unauthenticated cluster) | every response carrying a 401/403 (a 403 `cluster_block_exception` is not an auth failure and is not counted), for the request or for any item (one per response, not per item) |
 | `kafkafim_batch_flush_total` | `es_cluster`, `reason=docs\|bytes\|age\|explicit` | every sealed batch (`explicit`: revoke, stop) |
 | `kafkafim_e2e_latency_seconds` (histogram) | — | every Elasticsearch ack: ack time minus the Kafka record timestamp (DLQ'd documents are not counted) |
 | `kafkafim_in_flight_bytes`, `kafkafim_assigned_partitions`, `kafkafim_kafka_connected` (1/0) | — | the pipeline's running source, read on scrape |
