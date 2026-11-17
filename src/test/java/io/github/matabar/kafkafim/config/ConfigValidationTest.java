@@ -6,6 +6,7 @@ import static io.github.matabar.kafkafim.config.ConfigTestSupport.MINIMAL;
 import static io.github.matabar.kafkafim.config.ConfigTestSupport.pipeline;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -175,7 +176,7 @@ class ConfigValidationTest {
     @ValueSource(strings = {"PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512", "GSSAPI", "OAUTHBEARER"})
     void acceptsEveryKnownMechanism(String mechanism) {
       boolean password = mechanism.equals("PLAIN") || mechanism.startsWith("SCRAM");
-      List<String> overrides = new java.util.ArrayList<>();
+      List<String> overrides = new ArrayList<>();
       overrides.add(K + ".security-protocol=SASL_SSL");
       overrides.add(K + ".identities.r.sasl.mechanism=" + mechanism);
       if (password) {
