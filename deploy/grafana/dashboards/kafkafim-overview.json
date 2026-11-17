@@ -496,7 +496,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Why a pipeline is paused on a pod, by kind: es_breaker (RUNBOOK §5.1), es_auth (§5.2), dlq_blocked (§5.6). A series shows only while kafkafim_pipeline_pause_reason is 1; an empty panel means nothing is paused. The cluster or identity a reason names is in the logs (RUNBOOK §3.1).",
+      "description": "Why a pipeline is paused on a pod, by kind: es_breaker (RUNBOOK §5.1), es_auth (§5.2), dlq_blocked (§5.6). A series shows only while kafkafim_pipeline_pause_reason is 1; an empty panel means nothing is paused. The es_cluster and identity labels name the cluster or identity (none where the reason has none).",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -544,7 +544,7 @@
           },
           "expr": "kafkafim_pipeline_pause_reason{pipeline=~\"$pipeline\"} == 1",
           "instant": false,
-          "legendFormat": "{{pipeline}} {{reason}} {{instance}}",
+          "legendFormat": "{{pipeline}} {{reason}} {{es_cluster}} {{identity}} {{instance}}",
           "range": true,
           "refId": "A"
         }
