@@ -870,6 +870,36 @@ class RecordProcessorTest {
   }
 
   @Test
+  void failedDlqSendLogsTheCauseAndLeavesTheRecordIncomplete() {
+    CompiledPipeline compiled = PipelineMapping.compile("p", TestConfigs.withPipelines(FAN_OUT));
+    RecordProcessor failing =
+        new RecordProcessor(
+            compiled,
+            k -> new FakeSink(),
+            request -> CompletableFuture.failedFuture(new IllegalStateException("broker down")),
+            Clock.systemUTC());
+    FakeRecord r = record("{\"id\":\"a\"}");
+    Logger logger = (Logger) LoggerFactory.getLogger(RecordProcessor.class);
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    logger.addAppender(appender);
+    try {
+      failing.process(List.of(r));
+    } finally {
+      logger.detachAppender(appender);
+    }
+    assertThat(r.isComplete()).isFalse();
+    assertThat(appender.list)
+        .filteredOn(e -> e.getFormattedMessage().contains("failed; the record"))
+        .singleElement()
+        .satisfies(event -> {
+          assertThat(event.getLevel()).isEqualTo(Level.WARN);
+          assertThat(event.getFormattedMessage()).endsWith("will be re-delivered");
+          assertThat(event.getThrowableProxy().getMessage()).isEqualTo("broker down");
+        });
+  }
+
+  @Test
   void replayedDlqRecordUsesTheOriginalTimestampWithoutTimestampField() {
     RecordHeaders headers = new RecordHeaders();
     headers.add(
