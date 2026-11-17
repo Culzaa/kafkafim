@@ -48,6 +48,8 @@ public final class DlqProducers implements SmartLifecycle, AutoCloseable {
   /** Lifecycle phase: stops after the Kafka sources, before the web server (DESIGN §7). */
   public static final int PHASE = Integer.MAX_VALUE - 1000;
 
+  private static final java.util.concurrent.atomic.AtomicLong INSTANCES =
+      new java.util.concurrent.atomic.AtomicLong();
   private static final Logger LOG = LoggerFactory.getLogger(DlqProducers.class);
 
   private final KafkafimProperties properties;
@@ -129,6 +131,9 @@ public final class DlqProducers implements SmartLifecycle, AutoCloseable {
       DlqOptions options,
       KafkaTelemetry telemetry,
       @Nullable KafkaClientMeters meters) {
+    // A reload keeps the old instance alive next to the new one: the tag keeps their producers'
+    // series apart, so neither binding removes or hides the other's.
+    String instance = Long.toString(INSTANCES.incrementAndGet());
     this(
         properties,
         listener,
@@ -142,7 +147,9 @@ public final class DlqProducers implements SmartLifecycle, AutoCloseable {
                         telemetry.wrap(
                             meters == null
                                 ? producer
-                                : meters.bound(producer, Tags.of("kafka_cluster", cluster)))));
+                                : meters.bound(
+                                    producer,
+                                    Tags.of("kafka_cluster", cluster, "dlq_instance", instance)))));
   }
 
   DlqProducers(

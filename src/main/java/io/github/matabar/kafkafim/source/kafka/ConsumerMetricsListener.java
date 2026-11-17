@@ -4,6 +4,7 @@ import io.github.matabar.kafkafim.config.KafkafimProperties;
 import io.github.matabar.kafkafim.telemetry.KafkaClientMeters;
 import io.micrometer.core.instrument.Tags;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 import org.apache.kafka.clients.consumer.Consumer;
@@ -14,9 +15,8 @@ import org.springframework.kafka.core.ConsumerFactory;
  * Binds the Kafka metrics of every consumer a {@link ConsumerFactories} factory creates, tagged
  * {@code pipeline} and {@code kafka_cluster}, and removes them when the consumer closes (ADR-0028).
  * A factory is shared by the pipelines of a cluster, so the pipeline comes from the consumer's
- * client id, {@code kafkafim-<pipeline>} with an optional {@code -<n>} suffix of the container;
- * consumers of no configured pipeline (the metadata consumer of {@code partitionCount()}, which
- * closes at once) get no series.
+ * client id, {@code kafkafim-<pipeline>-<n>} (one per container thread); consumers of no configured
+ * pipeline (the metadata consumer of {@code partitionCount()}, which closes at once) get no series.
  */
 final class ConsumerMetricsListener implements ConsumerFactory.Listener<byte[], byte[]> {
 
@@ -36,7 +36,7 @@ final class ConsumerMetricsListener implements ConsumerFactory.Listener<byte[], 
 
   @Override
   public void consumerAdded(@Nullable String id, Consumer<byte[], byte[]> consumer) {
-    String pipeline = pipelineOf(id);
+    String pipeline = pipelineOf(id, properties.pipelines().keySet());
     if (pipeline != null) {
       bindings.computeIfAbsent(
           consumer, c -> meters.bind(c, Tags.of("pipeline", pipeline, "kafka_cluster", cluster)));
@@ -53,30 +53,25 @@ final class ConsumerMetricsListener implements ConsumerFactory.Listener<byte[], 
 
   /**
    * The pipeline whose consumer {@code id} is, or {@code null}. Spring Kafka prefixes the client id
-   * with the group id (or a placeholder when the factory is asked for none), so the id is matched
-   * by its end; of several matches the longest pipeline name wins, and an exact {@code
-   * kafkafim-<pipeline>} wins over a {@code -<n>} suffix.
+   * with the group id (or a placeholder when the factory is asked for none) and the container
+   * always appends {@code -<n>} per consumer thread, so the id must end in {@code
+   * kafkafim-<pipeline>-<n>}. Requiring the suffix makes the match unambiguous even for pipelines
+   * named {@code orders} and {@code orders-1}: {@code kafkafim-orders-1} is thread 1 of the first,
+   * {@code kafkafim-orders-1-0} thread 0 of the second.
    */
-  private @Nullable String pipelineOf(@Nullable String id) {
-    if (id == null) {
+  static @Nullable String pipelineOf(@Nullable String id, Set<String> pipelines) {
+    if (id == null || !CONCURRENCY_SUFFIX.matcher(id).find()) {
       return null;
     }
-    String best = null;
-    for (String name : properties.pipelines().keySet()) {
+    String withoutSuffix = CONCURRENCY_SUFFIX.matcher(id).replaceFirst("");
+    for (String name : pipelines) {
       String clientId = CLIENT_ID_PREFIX + name;
-      if (endsAtBoundary(id, clientId)
-          || endsAtBoundary(CONCURRENCY_SUFFIX.matcher(id).replaceFirst(""), clientId)) {
-        if (best == null || name.length() > best.length()) {
-          best = name;
-        }
+      if (withoutSuffix.endsWith(clientId)
+          && (withoutSuffix.length() == clientId.length()
+              || withoutSuffix.charAt(withoutSuffix.length() - clientId.length() - 1) == '.')) {
+        return name;
       }
     }
-    return best;
-  }
-
-  private static boolean endsAtBoundary(String id, String clientId) {
-    return id.endsWith(clientId)
-        && (id.length() == clientId.length()
-            || id.charAt(id.length() - clientId.length() - 1) == '.');
+    return null;
   }
 }
