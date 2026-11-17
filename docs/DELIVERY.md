@@ -405,10 +405,10 @@ deploy/local/demo.sh up                      # the chart on a local kind cluster
 
 `eclipse-temurin:27-jre` (Ubuntu), pinned in both Dockerfile stages by the digest of the
 multi-arch index (linux/amd64 and linux/arm64) so builds are reproducible. Dependabot's
-`docker` ecosystem updates the tag and digest together. Distroless does not ship a Java 27 runtime yet;
-revisit when it does. The image runs as UID 65532 with a read-only root filesystem
+`docker` ecosystem updates the tag and digest together. Distroless does not ship a Java 27
+runtime yet; revisit when it does. The image runs as UID 65532 with a read-only root filesystem
 and `JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError` as the default
-for running the image without the chart. The chart sets the same variable from `jvm.options`
+for running the image without the chart. The chart sets the same variable (with equivalent flags) from `jvm.options`
 in `values.yaml`; a pod env entry replaces the image's `ENV` (it does not append), so the
 flags are never defined twice. Change the flags for chart deployments in `jvm.options`.
 Class-data sharing (AppCDS) is a later startup optimisation, not needed for the MVP.
