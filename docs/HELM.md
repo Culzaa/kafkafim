@@ -208,8 +208,9 @@ group names are DNS labels); the cross-field rules above are `fail` calls in
 schema rejects any other key instead of silently dropping it. That includes
 `allow-inline-secrets`, which is for local development outside Kubernetes only. Inside
 a pipeline the schema checks only the routes: a route with `drop: true` must not set
-`cluster`, `identity`, `index`, or `pipeline` (ADR-0037), and any other route needs
-`cluster` and `index`. The application validates the rest at startup. The
+`cluster`, `identity`, `index`, `pipeline`, or `transform` (ADR-0037, ADR-0047), and any
+other route needs `cluster` and `index`. A route's `transform` is a list of at most 32
+steps that each have an `op`; the application checks the ops and their fields. The application validates the rest at startup. The
 application refuses `kafkafim.allow-inline-secrets=true` on Kubernetes however it is set (for
 example through
 `extraEnv`), and likewise refuses to start with the `local` profile active there

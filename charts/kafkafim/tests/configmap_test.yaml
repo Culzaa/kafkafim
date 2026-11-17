@@ -156,6 +156,43 @@ tests:
       - failedTemplate:
           errorPattern: "routes/0/(cluster|index)"
 
+  - it: renders a route's transform steps as written
+    values:
+      - ../ci/minimal-values.yaml
+    set:
+      config.kafkafim.pipelines.orders.routes:
+        - default: true
+          cluster: search-eu
+          index: orders
+          transform:
+            - { op: remove, field: /card/number }
+            - { op: set, field: /event/version, json: "2" }
+    asserts:
+      - matchRegex:
+          path: data["application-kafkafim.yaml"]
+          pattern: '(?m)^ +transform:\n +- field: /card/number\n +op: remove\n +- field: /event/version\n +json: "2"\n +op: set\n'
+
+  - it: rejects a transform step without an op
+    values:
+      - ../ci/minimal-values.yaml
+    set:
+      config.kafkafim.pipelines.orders.routes:
+        - { default: true, cluster: search-eu, index: orders, transform: [{ field: /a }] }
+    asserts:
+      - failedTemplate:
+          errorPattern: "transform/0"
+
+  - it: rejects a drop route with a transform
+    values:
+      - ../ci/minimal-values.yaml
+    set:
+      config.kafkafim.pipelines.orders.routes:
+        - { when: [{field: /level, equals: debug}], drop: true, transform: [{ op: remove, field: /a }] }
+        - { default: true, cluster: search-eu, index: orders }
+    asserts:
+      - failedTemplate:
+          errorPattern: "routes/0/transform"
+
   - it: still requires cluster and index on a route without drop
     values:
       - ../ci/minimal-values.yaml
