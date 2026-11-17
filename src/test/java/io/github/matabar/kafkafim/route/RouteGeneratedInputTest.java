@@ -14,6 +14,7 @@ import io.github.matabar.kafkafim.route.ConditionSpec.TopicEquals;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
 import org.junit.jupiter.api.Test;
@@ -52,7 +53,7 @@ class RouteGeneratedInputTest {
       IndexResolution resolution = pattern.resolve(document(random), EVENT);
       assertThat(resolution).as("round %d", i).isNotNull();
       if (resolution instanceof IndexResolution.Resolved resolved) {
-        assertThat(resolved.index()).isEqualTo(resolved.index().toLowerCase(java.util.Locale.ROOT));
+        assertThat(resolved.index()).isEqualTo(resolved.index().toLowerCase(Locale.ROOT));
         assertThat(IndexNames.problem(resolved.index())).isNull();
       }
     }

@@ -1,11 +1,11 @@
 package io.github.matabar.kafkafim;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Random;
 
 /**
  * Seeded generators for the generated-input tests on the poison-message path. Every test builds its
- * own {@link Random} from a fixed seed, so a failure reproduces; the seed is part of the assertion
- * message.
+ * own {@link Random} from a fixed seed, so a failure reproduces.
  */
 public final class GeneratedInputs {
 
@@ -35,8 +35,7 @@ public final class GeneratedInputs {
 
   /** Random bytes, biased towards JSON punctuation, UTF-8 lead bytes and BOM bytes. */
   public static byte[] bytes(Random random, int maxLength) {
-    byte[] pool =
-        "{}[]\",:0123456789-+.eE truefalsn\\/\n".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    byte[] pool = "{}[]\",:0123456789-+.eE truefalsn\\/\n".getBytes(StandardCharsets.UTF_8);
     byte[] out = new byte[random.nextInt(maxLength + 1)];
     for (int i = 0; i < out.length; i++) {
       out[i] =
