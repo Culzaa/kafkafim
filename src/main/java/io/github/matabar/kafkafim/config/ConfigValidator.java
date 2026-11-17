@@ -185,20 +185,26 @@ public final class ConfigValidator {
   private void checkElasticsearchCluster(String path, ElasticsearchCluster cluster) {
     Set<String> schemes = new HashSet<>();
     for (int i = 0; i < cluster.uris().size(); i++) {
-      String uri = cluster.uris().get(i);
+      String raw = cluster.uris().get(i);
+      String uri = ElasticsearchCluster.maskUserInfo(raw);
       String uriPath = path + ".uris[" + i + "]";
       try {
-        URI parsed = new URI(uri == null ? "" : uri);
+        URI parsed = new URI(raw == null ? "" : raw);
         String scheme = parsed.getScheme();
         if (!"http".equals(scheme) && !"https".equals(scheme)) {
           error(uriPath, "'" + uri + "' must start with http:// or https://");
+        } else if (parsed.getUserInfo() != null) {
+          error(
+              uriPath,
+              "must not contain credentials (user:password@); set them on an identity, with a"
+                  + " ${...} placeholder");
         } else if (parsed.getHost() == null) {
           error(uriPath, "'" + uri + "' has no host");
         } else {
           schemes.add(scheme);
         }
       } catch (URISyntaxException e) {
-        error(uriPath, "'" + uri + "' is not a URI: " + e.getMessage());
+        error(uriPath, "'" + uri + "' is not a URI: " + e.getReason());
       }
     }
     if (schemes.size() > 1) {

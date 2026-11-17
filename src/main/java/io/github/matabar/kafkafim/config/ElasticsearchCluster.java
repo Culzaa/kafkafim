@@ -50,6 +50,35 @@ public record ElasticsearchCluster(
         && uris.stream().allMatch(uri -> uri != null && uri.startsWith("https://"));
   }
 
+  /**
+   * Masks the userinfo of a URI string ({@code https://user:pass@host} becomes {@code
+   * https://[hidden]@host}) so the text is safe to print; the validator rejects userinfo, but the
+   * rejected value must not be echoed.
+   */
+  static String maskUserInfo(@Nullable String uri) {
+    return uri == null ? "" : uri.replaceFirst("(?s)^([^/?#]*//)[^/?#]*@", "$1[hidden]@");
+  }
+
+  /** Masks any userinfo in the URIs (§5.5). */
+  @Override
+  public String toString() {
+    return "ElasticsearchCluster[uris="
+        + uris.stream().map(ElasticsearchCluster::maskUserInfo).toList()
+        + ", ssl="
+        + ssl
+        + ", identities="
+        + identities
+        + ", defaultIdentity="
+        + defaultIdentity
+        + ", bulk="
+        + bulk
+        + ", compression="
+        + compression
+        + ", client="
+        + client
+        + "]";
+  }
+
   /** The URIs parsed; call only on a validated model. */
   public List<URI> parsedUris() {
     return uris.stream().map(URI::create).toList();

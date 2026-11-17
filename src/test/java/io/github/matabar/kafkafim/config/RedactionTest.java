@@ -116,6 +116,18 @@ class RedactionTest {
     assertThat(
             new ElasticsearchCluster.ElasticsearchIdentity(null, null, "S3CRET", null).toString())
         .isEqualTo("ElasticsearchIdentity[username=null, password=null, apiKey=******, ssl=null]");
+    assertThat(
+            new ElasticsearchCluster(
+                    List.of("https://u:S3CRET@es:9200", "https://es2:9200"),
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null)
+                .toString())
+        .doesNotContain("S3CRET")
+        .contains("https://[hidden]@es:9200", "https://es2:9200");
     assertThat(new ElasticsearchCluster.Keystore("/k", "S3CRET", "JKS").toString())
         .isEqualTo("Keystore[keystoreLocation=/k, keystorePassword=******, keystoreType=JKS]");
   }
