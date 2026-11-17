@@ -26,8 +26,10 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 import org.apache.kafka.clients.admin.Admin;
@@ -66,7 +68,7 @@ class KafkaTelemetryIntegrationTest {
   private static Admin admin;
 
   private final List<SpanData> spans = new CopyOnWriteArrayList<>();
-  private final Map<String, MetricData> metrics = new java.util.concurrent.ConcurrentHashMap<>();
+  private final Map<String, MetricData> metrics = new ConcurrentHashMap<>();
   private OpenTelemetrySdk sdk;
 
   @BeforeAll
@@ -167,7 +169,7 @@ class KafkaTelemetryIntegrationTest {
 
   private List<SpanData> spansOf(String operation) {
     return spans.stream()
-        .filter(s -> s.getName().toLowerCase(java.util.Locale.ROOT).contains(operation))
+        .filter(s -> s.getName().toLowerCase(Locale.ROOT).contains(operation))
         .collect(Collectors.toList());
   }
 

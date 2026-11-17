@@ -1397,7 +1397,7 @@ in-flight bytes and assigned partitions.
 
 ### Traces
 
-Kafka client spans (consumer receive/process, DLQ producer publish) come from the
+Kafka client spans (consumer process, one per record; receive spans are off by default; DLQ producer publish) come from the
 OpenTelemetry `opentelemetry-kafka-clients-2.6` library through one `KafkaTelemetry` bean
 (`telemetry/KafkaTelemetryConfiguration`; absent under `validate`). It is the only tracing
 mechanism for the Kafka clients: the OpenTelemetry Java agent must not be attached and
