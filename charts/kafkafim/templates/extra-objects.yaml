@@ -1,0 +1,6 @@
+{{- /* extraObjects: each entry is a string (rendered through tpl, so it can use release values)
+       or a map (rendered as YAML). Each becomes its own document. */}}
+{{- range .Values.extraObjects }}
+---
+{{ if kindIs "string" . }}{{ tpl . $ }}{{ else }}{{ toYaml . }}{{ end }}
+{{- end }}
