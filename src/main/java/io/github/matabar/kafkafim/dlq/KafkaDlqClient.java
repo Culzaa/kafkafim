@@ -345,7 +345,7 @@ final class KafkaDlqClient implements DlqClient {
           timeout.plus(closeGrace).toMillis());
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      LOG.warn(
+      LOG.info(
           "Interrupted while closing DLQ producer {}; it finishes closing on its own",
           producerSettings.get("client.id"));
     }

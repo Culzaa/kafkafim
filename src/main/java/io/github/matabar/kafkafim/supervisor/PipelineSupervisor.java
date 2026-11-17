@@ -425,7 +425,7 @@ public final class PipelineSupervisor implements SmartLifecycle {
         runtime.start();
         started.add(runtime.name());
       } catch (RuntimeException | Error e) {
-        LOG.warn("Pipeline '{}' could not be started again", runtime.name(), e);
+        LOG.error("Pipeline '{}' could not be started again", runtime.name(), e);
       }
     }
     LOG.warn(

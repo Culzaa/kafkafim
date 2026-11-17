@@ -86,7 +86,7 @@ public final class ConfigWatcher implements AutoCloseable {
     try {
       service = FileSystems.getDefault().newWatchService();
     } catch (IOException | UnsupportedOperationException e) {
-      LOG.warn("No file watch service ({}); relying on the {} poll", e, pollInterval);
+      LOG.info("No file watch service ({}); relying on the {} poll", e, pollInterval);
     }
     this.watchService = service;
     this.thread = Thread.ofPlatform().name("kafkafim-config-watcher").daemon().unstarted(this::run);
