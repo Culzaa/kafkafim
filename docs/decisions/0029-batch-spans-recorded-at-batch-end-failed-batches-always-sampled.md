@@ -1,6 +1,7 @@
 # ADR-0029: Batch spans are recorded when the batch ends, failed batches are always sampled, and the supervisor feeds telemetry
 
 Status: accepted · Date: 2026-11-08 · Refines [ADR-0013](0013-observability-otel-via-spring-boot.md)
+· Links and sampler refined by [ADR-0049](0049-kafka-clients-are-instrumented-with-the-otel-library-and-micrometer.md)
 
 ## Context
 
@@ -31,10 +32,12 @@ always. Two things do not fit a plain implementation:
   `parentBased(traceIdRatioBased(p))` with `parentBased(errors-or-ratio)`: a root
   `pipeline.batch` span with `error.type` is always sampled, every other root span by
   trace id at `management.tracing.sampling.probability` (0.01 in `application.yaml`),
-  children follow their parent.
+  children follow their parent. (ADR-0049: every span now follows its parent, so only a
+  batch without a Kafka parent uses the ratio; the error rule is unchanged.)
 - **Links.** The supervisor turns the handles into the records' distinct
   `traceparent` values (at most 128, the SDK's link limit); invalid values are
-  dropped. Links, never parents: a batch mixes documents of many traces.
+  dropped. Links, never parents: a batch mixes documents of many traces. (ADR-0049
+  refines this: the first record's Kafka process span parents the batch; the rest stay links.)
 - **Package direction.** `telemetry` depends on no kafkafim package but `config`
   (a new ArchUnit rule). It owns the meter names, label discipline, series lifecycle,
   spans, sampler and health indicators, with its own small types (`PipelineSpec`,
