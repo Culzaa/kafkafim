@@ -117,7 +117,24 @@ final class TelemetryListener implements SinkListener, DlqListener {
             report.sealed(),
             report.ended(),
             requests,
-            traceParents(report.handles())));
+            traceParents(report.handles()),
+            parentTraceParent(report.handles())));
+  }
+
+  /**
+   * The Kafka process span context of the first record of the batch that has one: the parent of the
+   * batch span (a span has one parent; the other records stay links).
+   */
+  static @Nullable String parentTraceParent(List<?> handles) {
+    for (Object handle : handles) {
+      if (handle instanceof RecordProcessor.DocumentRef ref) {
+        String parent = ref.record().processTraceParent();
+        if (parent != null) {
+          return parent;
+        }
+      }
+    }
+    return null;
   }
 
   /**

@@ -1,5 +1,10 @@
 package io.github.matabar.kafkafim.telemetry;
 
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanContext;
+import io.opentelemetry.api.trace.TraceFlags;
+import io.opentelemetry.api.trace.TraceState;
+import io.opentelemetry.context.Context;
 import java.util.Locale;
 import org.jspecify.annotations.Nullable;
 
@@ -45,6 +50,29 @@ public record TraceParent(String traceId, String spanId, boolean sampled) {
       return null;
     }
     return new TraceParent(traceId, spanId, (Integer.parseInt(flags, 16) & 1) == 1);
+  }
+
+  /** The version-00 header value of a span context. */
+  public static String format(SpanContext context) {
+    return "00-"
+        + context.getTraceId()
+        + "-"
+        + context.getSpanId()
+        + "-"
+        + (context.isSampled() ? "01" : "00");
+  }
+
+  /**
+   * An OpenTelemetry context whose current span is this remote span, for a span started under it.
+   */
+  public Context toContext() {
+    SpanContext remote =
+        SpanContext.createFromRemoteParent(
+            traceId,
+            spanId,
+            sampled ? TraceFlags.getSampled() : TraceFlags.getDefault(),
+            TraceState.getDefault());
+    return Context.root().with(Span.wrap(remote));
   }
 
   private static boolean hex(String text) {

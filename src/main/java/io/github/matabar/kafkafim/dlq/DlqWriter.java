@@ -1,5 +1,7 @@
 package io.github.matabar.kafkafim.dlq;
 
+import io.github.matabar.kafkafim.telemetry.TraceParent;
+import io.opentelemetry.context.Scope;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -216,25 +218,34 @@ public final class DlqWriter {
           failed(topicFailure(status));
           return;
         }
-        producer
-            .client()
-            .send(
-                record,
-                (metadata, exception) -> {
-                  if (done.get()) {
-                    return; // abandoned: a late callback changes nothing
-                  }
-                  if (exception == null) {
-                    // Synchronously, so a close that follows sees this send as acknowledged.
-                    owner.unregister(this);
-                    owner.dispatch(() -> succeeded(metadata), () -> succeeded(metadata));
-                  } else {
-                    owner.dispatch(() -> failed(exception), this::abandon);
-                  }
-                });
+        // The publish span starts inside send() on this thread, under whatever context is current:
+        // the source record's process span, so the DLQ write hangs off the record it dead-letters.
+        try (Scope ignored = parentScope()) {
+          producer
+              .client()
+              .send(
+                  record,
+                  (metadata, exception) -> {
+                    if (done.get()) {
+                      return; // abandoned: a late callback changes nothing
+                    }
+                    if (exception == null) {
+                      // Synchronously, so a close that follows sees this send as acknowledged.
+                      owner.unregister(this);
+                      owner.dispatch(() -> succeeded(metadata), () -> succeeded(metadata));
+                    } else {
+                      owner.dispatch(() -> failed(exception), this::abandon);
+                    }
+                  });
+        }
       } catch (RuntimeException e) {
         failed(e);
       }
+    }
+
+    private Scope parentScope() {
+      TraceParent parent = TraceParent.parse(request.processTraceParent());
+      return parent == null ? Scope.noop() : parent.toContext().makeCurrent();
     }
 
     private DlqTopicException topicFailure(TopicStatus status) {

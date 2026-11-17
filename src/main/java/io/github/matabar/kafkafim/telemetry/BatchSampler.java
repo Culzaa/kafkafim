@@ -10,24 +10,27 @@ import io.opentelemetry.sdk.trace.samplers.SamplingResult;
 import java.util.List;
 
 /**
- * Head sampling of batches with errors always kept (DESIGN §10, ADR-0029): a root {@code
- * pipeline.batch} span that carries {@code error.type} is always sampled; every other root span
- * (other batches, HTTP server spans) is sampled by trace id at {@code
- * management.tracing.sampling.probability}; child spans follow their parent, so a batch's {@code
- * es.bulk} spans are kept exactly when the batch is. Replaces Spring Boot's default sampler, which
- * is the same without the error rule.
+ * Head sampling of batches with errors always kept (DESIGN §10, ADR-0029). A {@code pipeline.batch}
+ * span that carries {@code error.type} is always sampled, whatever its parent decided: a failed
+ * batch is never lost. Every other span is sampled <em>parent-based</em>: a span with a parent
+ * follows the parent's sampled flag, so a batch parented on a Kafka {@code process} span is kept
+ * exactly when that span is, and its {@code es.bulk} children follow the batch; a root span (a
+ * batch without a Kafka parent, HTTP server spans) is sampled by trace id at {@code
+ * management.tracing.sampling.probability}. A failed batch whose parent was not sampled is
+ * therefore exported without its Kafka process parent. Replaces Spring Boot's default sampler,
+ * which is the same without the error rule.
  */
 public final class BatchSampler implements Sampler {
 
   private static final AttributeKey<String> ERROR_TYPE =
       AttributeKey.stringKey(BatchTracer.ERROR_TYPE);
 
-  private final Sampler ratio;
+  private final Sampler parentBased;
   private final double probability;
 
   private BatchSampler(double probability) {
     this.probability = probability;
-    this.ratio = Sampler.traceIdRatioBased(probability);
+    this.parentBased = Sampler.parentBased(Sampler.traceIdRatioBased(probability));
   }
 
   /**
@@ -36,7 +39,7 @@ public final class BatchSampler implements Sampler {
    * @param probability fraction of root spans without errors to keep, in {@code [0, 1]}
    */
   public static Sampler create(double probability) {
-    return Sampler.parentBased(new BatchSampler(probability));
+    return new BatchSampler(probability);
   }
 
   @Override
@@ -50,11 +53,12 @@ public final class BatchSampler implements Sampler {
     if (BatchTracer.BATCH_SPAN.equals(name) && attributes.get(ERROR_TYPE) != null) {
       return SamplingResult.recordAndSample();
     }
-    return ratio.shouldSample(parentContext, traceId, name, spanKind, attributes, parentLinks);
+    return parentBased.shouldSample(
+        parentContext, traceId, name, spanKind, attributes, parentLinks);
   }
 
   @Override
   public String getDescription() {
-    return "KafkafimBatchSampler{errors=always,ratio=" + probability + "}";
+    return "KafkafimBatchSampler{errors=always,parentBased,ratio=" + probability + "}";
   }
 }

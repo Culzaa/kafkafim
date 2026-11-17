@@ -135,6 +135,19 @@ class TelemetryListenerTest {
         .isEqualTo("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
   }
 
+  @Test
+  void theBatchParentIsTheFirstRecordsProcessSpanContext() {
+    String first = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+    String second = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+
+    // Untraced records are skipped; the first record that has a context wins.
+    assertThat(
+            TelemetryListener.parentTraceParent(
+                List.of(ref(null, null), ref(null, first), ref(null, second))))
+        .isEqualTo(first);
+    assertThat(TelemetryListener.parentTraceParent(List.of(ref(null, null)))).isNull();
+  }
+
   private static BatchReport report(List<?> handles) {
     return new BatchReport(
         FlushReason.DOCS,
@@ -148,6 +161,10 @@ class TelemetryListenerTest {
   }
 
   private static RecordProcessor.DocumentRef ref(String traceparent) {
+    return ref(traceparent, null);
+  }
+
+  private static RecordProcessor.DocumentRef ref(String traceparent, String processTraceParent) {
     RecordHeaders headers = new RecordHeaders();
     if (traceparent != null) {
       headers.add(new RecordHeader("traceparent", traceparent.getBytes(StandardCharsets.UTF_8)));
@@ -186,6 +203,11 @@ class TelemetryListenerTest {
           @Override
           public boolean isAbandoned() {
             return false;
+          }
+
+          @Override
+          public String processTraceParent() {
+            return processTraceParent;
           }
         };
     return new RecordProcessor.DocumentRef(

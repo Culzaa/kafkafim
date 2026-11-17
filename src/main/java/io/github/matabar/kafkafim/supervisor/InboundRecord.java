@@ -2,6 +2,7 @@ package io.github.matabar.kafkafim.supervisor;
 
 import io.github.matabar.kafkafim.source.kafka.SourceRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.jspecify.annotations.Nullable;
 
 /**
  * The part of {@link SourceRecord} the {@link RecordProcessor} uses: the raw record and its
@@ -23,6 +24,14 @@ interface InboundRecord {
 
   /** Whether the record's partition was revoked or lost; completing it is then a no-op. */
   boolean isAbandoned();
+
+  /**
+   * The {@code traceparent} of the record's Kafka {@code process} span, or {@code null} when the
+   * consumer is not traced.
+   */
+  default @Nullable String processTraceParent() {
+    return null;
+  }
 
   /** Adapts a source record. */
   static InboundRecord of(SourceRecord source) {
@@ -50,6 +59,11 @@ interface InboundRecord {
       @Override
       public boolean isAbandoned() {
         return source.isAbandoned();
+      }
+
+      @Override
+      public @Nullable String processTraceParent() {
+        return source.processTraceParent();
       }
 
       @Override
