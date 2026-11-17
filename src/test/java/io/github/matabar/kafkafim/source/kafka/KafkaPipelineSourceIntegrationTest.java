@@ -297,6 +297,12 @@ class KafkaPipelineSourceIntegrationTest {
     source.start();
     started.add(source);
     await().atMost(TIMEOUT).until(() -> !recorder.failures.isEmpty());
+    // An Error stops the container asynchronously; the handler-failure pause is set already.
+    await()
+        .atMost(TIMEOUT)
+        .until(() ->
+            !source.isRunning()
+                || source.pauseReasons().contains(KafkaPipelineSource.HANDLER_FAILURE_REASON));
 
     long begin = System.nanoTime();
     source.stop();
