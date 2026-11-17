@@ -39,6 +39,7 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
@@ -80,6 +81,13 @@ class KafkaTelemetryIntegrationTest {
       admin.close();
     }
     KAFKA.stop();
+  }
+
+  @AfterEach
+  void closeSdk() {
+    if (sdk != null) {
+      sdk.close();
+    }
   }
 
   private KafkaTelemetry telemetry() {
@@ -152,6 +160,8 @@ class KafkaTelemetryIntegrationTest {
     } finally {
       container.stop();
     }
+    // A duplicate span would be exported by now: the container has stopped and the processor is
+    // synchronous, so the counts the tests assert are final.
     return handled.size();
   }
 
@@ -186,7 +196,6 @@ class KafkaTelemetryIntegrationTest {
     // Receive spans are off by default (setMessagingReceiveTelemetryEnabled): one process span per
     // record is the whole default output.
     assertThat(spansOf("receive")).isEmpty();
-    sdk.close();
   }
 
   @Test
@@ -202,7 +211,6 @@ class KafkaTelemetryIntegrationTest {
     assertThat(consume(new DefaultKafkaConsumerFactory<>(config), topic, 6)).isEqualTo(6);
 
     assertThat(spansOf("process")).hasSize(6);
-    sdk.close();
   }
 
   @Test
@@ -226,7 +234,6 @@ class KafkaTelemetryIntegrationTest {
     // With receive spans off, the producer's span is the parent of each process span.
     assertThat(spansOf("process"))
         .allMatch(s -> publishSpanIds.contains(s.getParentSpanContext().getSpanId()));
-    sdk.close();
   }
 
   @Test
@@ -243,7 +250,6 @@ class KafkaTelemetryIntegrationTest {
     }
     List<String> names = new ArrayList<>(metrics.keySet());
     assertThat(names).anyMatch(n -> n.startsWith("kafka.producer."));
-    sdk.close();
   }
 
   private final class Capture implements SpanExporter {
