@@ -178,7 +178,7 @@ class TransformIntegrationTest {
                   es: { uris: ["http://%s"] }
               pipelines:
                 p:
-                  source: { cluster: k, topics: [%s] }
+                  source: { cluster: k, topics: [%s], offset-reset: earliest }
                   routes:
                     - name: eu
                       when: [ { field: /region, equals: eu } ]
