@@ -6,6 +6,9 @@ import static org.awaitility.Awaitility.await;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -253,6 +256,141 @@ class PipelineRuntimeTest {
       broken.stop();
     } finally {
       Thread.setDefaultUncaughtExceptionHandler(previous);
+    }
+  }
+
+  // ---- start and stop interleavings (#367), driven by a latch-controlled identity check ----
+
+  /** An identity check that parks the starter in preflight until released or interrupted. */
+  private static final class ParkedAuthCheck implements Preflight.AuthCheck {
+    final CountDownLatch entered = new CountDownLatch(1);
+    final CountDownLatch release = new CountDownLatch(1);
+    final AtomicInteger calls = new AtomicInteger();
+    volatile Preflight.Status verdict = Preflight.Status.OK;
+
+    @Override
+    public Preflight.Status check(String cluster, String identity) {
+      calls.incrementAndGet();
+      entered.countDown();
+      try {
+        release.await(30, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        // stop() interrupts the checks: answer "unreachable" at once, as the real ones do.
+        Thread.currentThread().interrupt();
+        return Preflight.Status.unreachable("interrupted");
+      }
+      return verdict;
+    }
+  }
+
+  private PipelineRuntime runtimeWith(PipelineResources pool) {
+    return new PipelineRuntime(
+        "a",
+        pool.acquire("a", TestConfigs.bind(yaml(A).replace("k1:9092", "127.0.0.1:9"))),
+        r -> {});
+  }
+
+  private static PipelineResources resourcesWith(Preflight.AuthCheck check) {
+    return new PipelineResources(
+        new ListenerRelay(List.of(), List.of()), p -> check, PipelineSupervisorTest.FAST_SETTINGS);
+  }
+
+  private static void awaitEntered(ParkedAuthCheck check) throws InterruptedException {
+    assertThat(check.entered.await(30, TimeUnit.SECONDS)).isTrue();
+  }
+
+  @Test
+  void stopDuringPreflightEndsStoppedWithNothingOpen() throws Exception {
+    ParkedAuthCheck check = new ParkedAuthCheck();
+    try (PipelineResources pool = resourcesWith(check)) {
+      PipelineRuntime parked = runtimeWith(pool);
+      parked.start();
+      awaitEntered(check);
+      assertThat(parked.state()).isEqualTo(PipelineState.STARTING);
+
+      parked.stop();
+
+      assertThat(parked.state()).isEqualTo(PipelineState.STOPPED);
+      assertThat(parked.source()).isNull();
+      assertThat(parked.failure()).isNull();
+      // A later start works: the cancelled start left no starter behind.
+      assertThat(parked.retryIfFailed()).isFalse();
+      parked.start();
+      assertThat(parked.state()).isEqualTo(PipelineState.STARTING);
+      parked.stop();
+      assertThat(parked.state()).isEqualTo(PipelineState.STOPPED);
+    }
+  }
+
+  @Test
+  void verdictThatArrivesAfterTheStopMeansNothing() throws Exception {
+    ParkedAuthCheck check = new ParkedAuthCheck();
+    // A configuration verdict, which would fail the pipeline, if the stop had not cancelled it.
+    check.verdict = Preflight.Status.rejected("bad key");
+    try (PipelineResources pool = resourcesWith(check)) {
+      PipelineRuntime parked = runtimeWith(pool);
+      parked.start();
+      awaitEntered(check);
+
+      parked.stop();
+      check.release.countDown();
+
+      assertThat(parked.state()).isEqualTo(PipelineState.STOPPED);
+      assertThat(parked.failure()).isNull();
+    }
+  }
+
+  @Test
+  void sourceFailedWhileStartingIsIgnoredBecauseThereIsNoSourceYet() throws Exception {
+    ParkedAuthCheck check = new ParkedAuthCheck();
+    try (PipelineResources pool = resourcesWith(check)) {
+      PipelineRuntime parked = runtimeWith(pool);
+      parked.start();
+      awaitEntered(check);
+
+      // A failure report of a source of an earlier run (or none): nothing to fail.
+      parked.sourceFailed(null, "late report");
+
+      assertThat(parked.state()).isEqualTo(PipelineState.STARTING);
+      assertThat(parked.failure()).isNull();
+      parked.stop();
+      assertThat(parked.state()).isEqualTo(PipelineState.STOPPED);
+    }
+  }
+
+  @Test
+  void stopDuringTheRetryBackoffCancelsTheStartAtOnce() throws Exception {
+    ParkedAuthCheck check = new ParkedAuthCheck();
+    check.verdict = Preflight.Status.unreachable("es down");
+    check.release.countDown();
+    try (PipelineResources pool = resourcesWith(check)) {
+      PipelineRuntime retrying = runtimeWith(pool);
+      retrying.start();
+      awaitEntered(check);
+      assertThat(retrying.state()).isEqualTo(PipelineState.STARTING);
+
+      retrying.stop();
+
+      assertThat(retrying.state()).isEqualTo(PipelineState.STOPPED);
+      assertThat(retrying.source()).isNull();
+      assertThat(retrying.failure()).isNull();
+    }
+  }
+
+  @Test
+  void concurrentStopsDuringPreflightAllReturnStopped() throws Exception {
+    ParkedAuthCheck check = new ParkedAuthCheck();
+    try (PipelineResources pool = resourcesWith(check)) {
+      PipelineRuntime parked = runtimeWith(pool);
+      parked.start();
+      awaitEntered(check);
+      Thread other = Thread.ofPlatform().name("test-second-stop").start(parked::stop);
+
+      parked.stop();
+      other.join(Duration.ofSeconds(30));
+
+      assertThat(other.isAlive()).isFalse();
+      assertThat(parked.state()).isEqualTo(PipelineState.STOPPED);
     }
   }
 
