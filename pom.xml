@@ -52,6 +52,12 @@
 		<jacoco.version>0.8.16</jacoco.version>
 		<!-- true skips only the floor check (CI's partial jobs); jacoco.skip would also stop data collection -->
 		<jacoco.check.skip>false</jacoco.check.skip>
+		<!-- Mutation testing of route and decode (docs/DELIVERY.md, "Mutation testing") -->
+		<pitest.version>1.30.1</pitest.version>
+		<pitest-junit5.version>1.2.3</pitest-junit5.version>
+		<!-- Measured 2026-11-17: 95.7 % of 511 mutants killed (489), identical in two runs of about 30 s.
+		     The floor sits just below; raise it when the score rises. -->
+		<pitest.mutation.threshold>95</pitest.mutation.threshold>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -272,6 +278,40 @@
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+			<plugin>
+				<!-- Mutation testing of the pure-logic route and decode packages. Not bound to a phase:
+				     run ./mvnw test-compile org.pitest:pitest-maven:mutationCoverage (CI job "Mutation tests"). -->
+				<groupId>org.pitest</groupId>
+				<artifactId>pitest-maven</artifactId>
+				<version>${pitest.version}</version>
+				<dependencies>
+					<dependency>
+						<groupId>org.pitest</groupId>
+						<artifactId>pitest-junit5-plugin</artifactId>
+						<version>${pitest-junit5.version}</version>
+					</dependency>
+				</dependencies>
+				<configuration>
+					<targetClasses>
+						<param>io.github.matabar.kafkafim.route.*</param>
+						<param>io.github.matabar.kafkafim.decode.*</param>
+					</targetClasses>
+					<targetTests>
+						<param>io.github.matabar.kafkafim.route.*Test</param>
+						<param>io.github.matabar.kafkafim.decode.*Test</param>
+					</targetTests>
+					<excludedTestClasses>
+						<param>**.*IntegrationTest</param>
+					</excludedTestClasses>
+					<mutationThreshold>${pitest.mutation.threshold}</mutationThreshold>
+					<threads>2</threads>
+					<outputFormats>
+						<param>HTML</param>
+						<param>XML</param>
+					</outputFormats>
+					<timestampedReports>false</timestampedReports>
+				</configuration>
 			</plugin>
 			<plugin>
 				<!-- Unit tests only; *IntegrationTest classes belong to Failsafe below -->
