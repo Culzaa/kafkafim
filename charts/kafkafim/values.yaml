@@ -140,6 +140,12 @@ jvm:
 extraEnv: []
 extraEnvFrom: []
 
+# Extra Kubernetes objects deployed with the release (for example an ExternalSecret that
+# creates a Secret listed under `secrets`). Each entry is a string, rendered through `tpl`
+# so it can use release values, or a map rendered as YAML. The objects are not validated
+# by values.schema.json.
+extraObjects: []
+
 serviceAccount:
   annotations: {}
 
