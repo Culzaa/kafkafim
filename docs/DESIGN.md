@@ -272,8 +272,9 @@ pauses nothing yet and reads 0.
   id; duplicates on retry, startup warning).
   A JSON string (1 to 512 UTF-8 bytes, ES's `_id` limit, no unpaired UTF-16 surrogate such
   as `\ud800`) is used as is; a JSON integer of any size becomes its decimal digits
-  (canonical, since JSON has no leading zeros or `+`; `-0` is `0`). A number with a fraction or exponent, a boolean, an object, or an
-  array is `missing_id` in both modes: `auto` covers only an absent or `null` id.
+  (canonical, since JSON has no leading zeros or `+`; `-0` is `0`). A number with a fraction
+  or exponent, a boolean, an object, or an array is `missing_id` in both modes: `auto` covers
+  only an absent or `null` id.
 - Optional external versioning: `document.version-field`, `version_type: external`.
   The version is a JSON integer or a string of ASCII digits in `[0, 2^63-1]`; anything
   else, including an absent or `null` version, is `error.type=decode`, because an
