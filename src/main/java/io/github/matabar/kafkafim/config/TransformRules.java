@@ -61,9 +61,25 @@ public final class TransformRules {
   }
 
   /** The production ops: one entry each, added with the op (ADR-0047). */
-  static final Map<String, Op> BUILT_IN = Map.of("remove", Op.of(Set.of("field"), Set.of()));
+  static final Map<String, Op> BUILT_IN =
+      Map.of(
+          "remove",
+          Op.of(Set.of("field"), Set.of()),
+          "rename",
+          new Op(Set.of("field", "to"), Set.of(), TransformRules::checkRename));
 
   private TransformRules() {}
+
+  /** {@code rename} must move a member somewhere else: not onto itself, not into or out of it. */
+  private static void checkRename(Step step, Consumer<String> problem) {
+    String from = step.field();
+    String to = step.to();
+    if (from.equals(to)) {
+      problem.accept("op 'rename' needs 'field' and 'to' to differ");
+    } else if (to.startsWith(from + "/") || from.startsWith(to + "/")) {
+      problem.accept("op 'rename' needs neither of 'field' and 'to' to be a prefix of the other");
+    }
+  }
 
   /** The names of the ops {@code transform} accepts. */
   public static Set<String> ops() {

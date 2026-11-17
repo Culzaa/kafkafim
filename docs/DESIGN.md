@@ -1201,6 +1201,7 @@ rejected as an unknown `op` at validation (§5.7).
 | Op | Fields | Effect |
 |---|---|---|
 | `remove` | `field` | Deletes the member at `field`. A missing member, or a parent that is absent or not an object, is a no-op. A `null` member is deleted. |
+| `rename` | `field`, `to` | Moves the member at `field` to `to`: the source is removed, then the target is written (an existing target is overwritten in place, a new one goes last, missing parents of `to` are created). A missing source, or a source parent that is absent or not an object, is a no-op. A `null` member moves. A parent of `to` that exists but is not an object is a `transform` failure. `field` equal to `to`, or one a prefix of the other, is rejected at validation. |
 
 - **Order.** Decode; extract `_id`, version, and timestamp from the original; route
   on the original; resolve the index from the original; apply the route's steps to
