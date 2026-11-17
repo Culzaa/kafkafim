@@ -947,4 +947,74 @@ class RecordProcessorTest {
       }
     }
   }
+
+  /** The production {@code remove} op in the processor: it runs after routing and extraction. */
+  @Nested
+  class RemoveTransforms {
+
+    private static final String ROUTES =
+        """
+        p:
+          source: { cluster: k, topics: [t], max-record-bytes: 1KB }
+          route-mode: all
+          routes:
+            - name: plain
+              when: [ { field: /region, equals: eu } ]
+              cluster: es
+              index: "plain-%{kind}"
+            - name: stripped
+              when: [ { field: /region, equals: eu } ]
+              cluster: es2
+              index: "stripped-%{kind}"
+              transform:
+                - { op: remove, field: /id }
+                - { op: remove, field: /region }
+                - { op: remove, field: /kind }
+                - { op: remove, field: /card/number }
+                - { op: remove, field: /missing/path }
+        """;
+
+    private static final String DOC =
+        "{\"id\":\"a\",\"region\":\"eu\",\"kind\":\"k\",\"card\":{\"number\":\"4111\","
+            + "\"brand\":\"v\"},\"keep\":null}";
+
+    @Test
+    void removingTheFieldsRoutingAndTheIdAlreadyReadChangesNeitherRouteNorIdNorIndex() {
+      processor = processor(ROUTES, PipelineMeters.NOOP, StepRegistry.BUILT_IN);
+      processor.process(List.of(record(DOC)));
+
+      assertThat(actions(ES2))
+          .singleElement()
+          .satisfies(a -> {
+            assertThat(a.id()).isEqualTo("a");
+            assertThat(a.index()).isEqualTo("stripped-k");
+            assertThat(new String(a.source(), StandardCharsets.UTF_8))
+                .isEqualTo("{\"card\":{\"brand\":\"v\"},\"keep\":null}");
+          });
+      assertThat(dlq).isEmpty();
+    }
+
+    @Test
+    void fanOutSiblingKeepsTheRecordBytesAndEveryField() {
+      processor = processor(ROUTES, PipelineMeters.NOOP, StepRegistry.BUILT_IN);
+      processor.process(List.of(record(DOC)));
+
+      assertThat(actions(ES))
+          .singleElement()
+          .satisfies(
+              a -> assertThat(new String(a.source(), StandardCharsets.UTF_8)).isEqualTo(DOC));
+    }
+
+    @Test
+    void arrayElementsAreStrippedOnTheirOwn() {
+      processor = processor(ROUTES, PipelineMeters.NOOP, StepRegistry.BUILT_IN);
+      processor.process(List.of(record("[" + DOC + "," + DOC.replace("\"a\"", "\"b\"") + "]")));
+
+      assertThat(actions(ES2)).extracting(BulkAction::id).containsExactly("a", "b");
+      assertThat(actions(ES2))
+          .allSatisfy(a ->
+              assertThat(new String(a.source(), StandardCharsets.UTF_8))
+                  .doesNotContain("4111", "region"));
+    }
+  }
 }
