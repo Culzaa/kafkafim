@@ -1,7 +1,8 @@
 # Grafana dashboards and Prometheus alert rules
 
 What [DESIGN §10](../../docs/DESIGN.md#shipped-with-the-repo) promises under "Shipped
-with the repo". Every query uses the metric names and labels the backend stores for the OTLP metrics the app exports
+with the repo". Every query uses the metric names and labels the backend stores for the
+OTLP metrics the app exports
 ([DESIGN §10](../../docs/DESIGN.md#10-observability), [RUNBOOK §3.3](../../docs/RUNBOOK.md#33-metrics-to-look-at-first)).
 
 | File | What |
@@ -150,8 +151,8 @@ and the same `dashboards/` directory (symlinked into its chart's `files/`) into 
 `lgtm` pod, so it shows the same two dashboards and, like the compose demo, loads no
 alert rules.
 
-Over OTLP the names are the ones the queries use, the timers included (checked in #342 with the metrics only
-arriving over OTLP: every panel and alert expression resolves): the app
+Over OTLP the names are the ones the queries use, the timers included (checked in #342 with the
+metrics only arriving over OTLP: every panel and alert expression resolves): the app
 exports times in seconds (`management.otlp.metrics.export.base-time-unit: seconds`), so
 otel-lgtm stores `kafkafim_e2e_latency_seconds_*` and `kafkafim_bulk_latency_seconds_*`
 ([DESIGN §10](../../docs/DESIGN.md#10-observability)). `job` is `kafkafim/kafkafim`
