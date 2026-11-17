@@ -57,6 +57,7 @@ class MdcAllowlistTest {
   @Test
   void exportsAllowlistedMdcKeyAndDropsTheOthers() {
     context.getMDCAdapter().put("pipeline", "orders");
+    context.getMDCAdapter().put("traceId", "abc");
     context.getMDCAdapter().put("document", "{\"card\":\"4111\"}");
     context.getLogger(MdcAllowlistTest.class).info("hello");
 
@@ -64,7 +65,7 @@ class MdcAllowlistTest {
     var attributes = exported.get(0).getAttributes();
     assertThat(attributes.get(AttributeKey.stringKey("pipeline"))).isEqualTo("orders");
     assertThat(attributes.asMap().keySet().stream().map(AttributeKey::getKey))
-        .noneMatch(k -> k.contains("document"));
+        .doesNotContain("document", "traceId");
   }
 
   private final class Capture implements LogRecordExporter {
