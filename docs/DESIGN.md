@@ -202,8 +202,9 @@ new sinks report them again if the cluster is still down, and the in-flight budg
 what is fetched meanwhile. `dlq-blocked` stays until the shared DLQ writer's retries
 succeed, unless the restart gives the pipeline a new DLQ writer (§5.6), whose events are
 then the only ones that count. A pipeline that is stopping cannot be started until the stop returns.
-`kafkafim_pipeline_pause_reason` (§10) exports the reasons, with the cluster and identity they name, while the
-pipeline is `paused`; a reason held for a pipeline that is not running pauses nothing yet and reads 0.
+`kafkafim_pipeline_pause_reason` (§10) exports the reasons, with the cluster and identity
+they name, while the pipeline is `paused`; a reason held for a pipeline that is not running
+pauses nothing yet and reads 0.
 
 - **Batching**: a batch is sealed at `bulk.max-docs`, at `bulk.max-bytes` (an action
   that would push it over seals it first, so only a single action larger than
