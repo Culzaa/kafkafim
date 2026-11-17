@@ -1,6 +1,6 @@
 # ADR-0043: The `validate` profile fails on a configuration that defines nothing
 
-Status: accepted · Date: 2026-11-13 · Refines [ADR-0040](0040-validate-profile-accepts-unmounted-secrets.md)
+Status: accepted; its scope is extended to reloads by [ADR-0051](0051-reload-rejects-a-tree-that-defines-nothing.md) · Date: 2026-11-13 · Refines [ADR-0040](0040-validate-profile-accepts-unmounted-secrets.md)
 
 ## Context
 
