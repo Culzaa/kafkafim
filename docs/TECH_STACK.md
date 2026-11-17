@@ -40,7 +40,10 @@ Versions are the ones pinned in `pom.xml`, the Dockerfile, and `compose.yaml`. E
 - **Spring Data Elasticsearch / typed `elasticsearch-java` client**: single-cluster
   assumption and server-major coupling (ADR-0005).
 - **`@KafkaListener` annotations**: pipelines are dynamic (ADR-0004).
-- **OpenTelemetry Java agent**: the Boot starter covers it (ADR-0013).
+- **OpenTelemetry Java agent**: the Boot starter covers it (ADR-0013). Kafka client spans
+  and metrics come from the `opentelemetry-kafka-clients-2.6` library, the one mechanism;
+  the agent must not be attached and Spring Kafka observation must not be enabled, or every
+  client would be traced twice (OTel Kafka instrumentation series, #321 to #326).
 - **Spring Cloud (Kubernetes, Circuit Breaker)**: extra BOM, no benefit (ADR-0012, ADR-0016).
 - **Kotlin, Gradle, GraalVM native**: not now; none is precluded.
 

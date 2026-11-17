@@ -36,9 +36,10 @@
 		     micrometer-registry-otlp ${micrometer.version} depends on (runtime scope).
 		     The maven-enforcer-plugin execution below fails the build when they differ. -->
 		<opentelemetry-proto.version>1.10.0-alpha</opentelemetry-proto.version>
-		<!-- Logback to OpenTelemetry log bridge (ADR-0044). Not in the Boot or OpenTelemetry BOMs:
-		     keep on the instrumentation release built against the BOM's ${opentelemetry.version}
-		     (instrumentation 2.N pairs with SDK 1.(N+34)). Dependabot ignores the artifact
+		<!-- OpenTelemetry instrumentation release for the Logback log bridge (ADR-0044) and the
+		     Kafka client instrumentation. Not in the Boot or OpenTelemetry BOMs: keep on the
+		     instrumentation release built against the BOM's ${opentelemetry.version}
+		     (instrumentation 2.N pairs with SDK 1.(N+34)). Dependabot ignores both artifacts
 		     (.github/dependabot.yml); bump it in the Boot upgrade that moves the SDK. -->
 		<opentelemetry-logback-appender.version>2.28.1-alpha</opentelemetry-logback-appender.version>
 		<!-- Google Java Style (ADR-0024) -->
@@ -77,6 +78,13 @@
 			     auto-configures with an OTLP exporter (logback-spring.xml, ADR-0044). -->
 			<groupId>io.opentelemetry.instrumentation</groupId>
 			<artifactId>opentelemetry-logback-appender-1.0</artifactId>
+			<version>${opentelemetry-logback-appender.version}</version>
+		</dependency>
+		<dependency>
+			<!-- Kafka client spans and metrics (ADR-0013). The only tracing mechanism for the Kafka
+			     clients: no OpenTelemetry Java agent, no Spring Kafka observation. -->
+			<groupId>io.opentelemetry.instrumentation</groupId>
+			<artifactId>opentelemetry-kafka-clients-2.6</artifactId>
 			<version>${opentelemetry-logback-appender.version}</version>
 		</dependency>
 		<dependency>
@@ -253,6 +261,8 @@
 				     Fail in validate when the declared version differs from the one micrometer-registry-otlp
 				     depends on, so a Boot/Micrometer upgrade cannot silently keep an old pin. Dependabot
 				     ignores the artifact (.github/dependabot.yml); bump it in the upgrade that fails here.
+				     The same rule covers the OpenTelemetry instrumentation artifacts (logback appender,
+				     kafka-clients), which share one version property and must resolve to one release.
 				     Micrometer 1.18 (Boot 4.2) shades the proto and the rule then passes vacuously: see #127. -->
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-enforcer-plugin</artifactId>
@@ -268,6 +278,7 @@
 								<dependencyConvergence>
 									<includes>
 										<include>io.opentelemetry.proto:opentelemetry-proto</include>
+										<include>io.opentelemetry.instrumentation:*</include>
 									</includes>
 								</dependencyConvergence>
 							</rules>
