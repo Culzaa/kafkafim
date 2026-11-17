@@ -3,6 +3,8 @@ package io.github.matabar.kafkafim.dlq;
 import io.github.matabar.kafkafim.config.KafkaCluster;
 import io.github.matabar.kafkafim.config.KafkafimProperties;
 import io.github.matabar.kafkafim.config.Pipeline;
+import io.github.matabar.kafkafim.telemetry.KafkaClientMeters;
+import io.micrometer.core.instrument.Tags;
 import io.opentelemetry.instrumentation.kafkaclients.v2_6.KafkaTelemetry;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -15,8 +17,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import org.apache.kafka.clients.producer.KafkaProducer;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,12 +48,14 @@ public final class DlqProducers implements SmartLifecycle, AutoCloseable {
   /** Lifecycle phase: stops after the Kafka sources, before the web server (DESIGN §7). */
   public static final int PHASE = Integer.MAX_VALUE - 1000;
 
+  private static final java.util.concurrent.atomic.AtomicLong INSTANCES =
+      new java.util.concurrent.atomic.AtomicLong();
   private static final Logger LOG = LoggerFactory.getLogger(DlqProducers.class);
 
   private final KafkafimProperties properties;
   private final DlqListener listener;
   private final DlqOptions options;
-  private final Function<Map<String, Object>, DlqClient> clients;
+  private final BiFunction<String, Map<String, Object>, DlqClient> clients;
   private final Map<Key, SharedProducer> producers = new ConcurrentHashMap<>();
   private final Map<String, DlqWriter> writers = new ConcurrentHashMap<>();
   private final Set<DlqWriter.Send> pending = ConcurrentHashMap.newKeySet();
@@ -78,7 +84,11 @@ public final class DlqProducers implements SmartLifecycle, AutoCloseable {
    * @param options timings
    */
   public DlqProducers(KafkafimProperties properties, DlqListener listener, DlqOptions options) {
-    this(properties, listener, options, KafkaDlqClient::new);
+    this(
+        properties,
+        listener,
+        options,
+        (Function<Map<String, Object>, DlqClient>) KafkaDlqClient::new);
   }
 
   /**
@@ -104,11 +114,62 @@ public final class DlqProducers implements SmartLifecycle, AutoCloseable {
             settings -> KafkaDlqClient.instrumented(settings, telemetry::wrap));
   }
 
+  /**
+   * As above, and the Kafka metrics of each producer (and of each replacement) are bound while it
+   * lives, tagged with its {@code kafka_cluster}. The producer is shared by the pipelines of the
+   * cluster, so its series carry no {@code pipeline}.
+   *
+   * @param properties the validated configuration
+   * @param listener metrics and supervisor hook
+   * @param options timings
+   * @param telemetry the process's one OpenTelemetry {@code kafka-clients} instrumentation
+   * @param meters binds the producers' Kafka metrics, or {@code null} for none
+   */
+  public DlqProducers(
+      KafkafimProperties properties,
+      DlqListener listener,
+      DlqOptions options,
+      KafkaTelemetry telemetry,
+      @Nullable KafkaClientMeters meters) {
+    // A reload keeps the old instance alive next to the new one: the tag keeps their producers'
+    // series apart, so neither binding removes or hides the other's.
+    String instance = Long.toString(INSTANCES.incrementAndGet());
+    this(
+        properties,
+        listener,
+        options,
+        (BiFunction<String, Map<String, Object>, DlqClient>)
+            (cluster, settings) ->
+                KafkaDlqClient.instrumented(
+                    settings,
+                    KafkaProducer::new,
+                    producer ->
+                        telemetry.wrap(
+                            meters == null
+                                ? producer
+                                : meters.bound(
+                                    producer,
+                                    Tags.of("kafka_cluster", cluster, "dlq_instance", instance)))));
+  }
+
   DlqProducers(
       KafkafimProperties properties,
       DlqListener listener,
       DlqOptions options,
       Function<Map<String, Object>, DlqClient> clients) {
+    this(
+        properties,
+        listener,
+        options,
+        (BiFunction<String, Map<String, Object>, DlqClient>)
+            (cluster, settings) -> clients.apply(settings));
+  }
+
+  private DlqProducers(
+      KafkafimProperties properties,
+      DlqListener listener,
+      DlqOptions options,
+      BiFunction<String, Map<String, Object>, DlqClient> clients) {
     this.properties = properties;
     this.listener = listener;
     this.options = options;
@@ -251,7 +312,8 @@ public final class DlqProducers implements SmartLifecycle, AutoCloseable {
     }
     Map<String, Object> settings =
         ProducerSettings.forIdentity(key.cluster(), cluster, key.identity(), identity);
-    return new SharedProducer(key.cluster(), key.identity(), clients.apply(settings));
+    return new SharedProducer(
+        key.cluster(), key.identity(), clients.apply(key.cluster(), settings));
   }
 
   // --- used by DlqWriter -------------------------------------------------------------------
