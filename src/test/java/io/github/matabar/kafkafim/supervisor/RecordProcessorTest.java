@@ -3,6 +3,8 @@ package io.github.matabar.kafkafim.supervisor;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.matabar.kafkafim.config.KafkafimProperties;
+import io.github.matabar.kafkafim.decode.StepRegistry;
+import io.github.matabar.kafkafim.decode.TestSteps;
 import io.github.matabar.kafkafim.dlq.DlqClosedException;
 import io.github.matabar.kafkafim.dlq.DlqListener;
 import io.github.matabar.kafkafim.dlq.DlqProducers;
@@ -35,6 +37,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.apache.kafka.common.header.internals.RecordHeaders;
 import org.apache.kafka.common.record.TimestampType;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -153,7 +156,12 @@ class RecordProcessorTest {
   }
 
   private RecordProcessor processor(String pipelines, PipelineMeters meters) {
-    CompiledPipeline compiled = PipelineMapping.compile("p", TestConfigs.withPipelines(pipelines));
+    return processor(pipelines, meters, StepRegistry.BUILT_IN);
+  }
+
+  private RecordProcessor processor(String pipelines, PipelineMeters meters, StepRegistry steps) {
+    CompiledPipeline compiled =
+        PipelineMapping.compile("p", TestConfigs.withPipelines(pipelines), steps);
     sinks.clear();
     for (RouteTarget.StreamKey key : compiled.streams().keySet()) {
       sinks.put(key, new FakeSink());
@@ -807,5 +815,136 @@ class RecordProcessorTest {
     processor.process(
         List.of(record("{\"id\":1,\"ts\":\"2024-02-29T10:00:00Z\"}", headers, RECORD_TS, false)));
     assertThat(actions(ES)).singleElement().extracting(BulkAction::index).isEqualTo("d-2024.02.29");
+  }
+
+  /** Route {@code transform} steps (DESIGN §8), with the framework's test ops. */
+  @Nested
+  class Transforms {
+
+    private static final String ROUTES =
+        """
+        p:
+          source: { cluster: k, topics: [t], max-record-bytes: 1KB }
+          route-mode: all
+          routes:
+            - name: plain
+              when: [ { field: /region, equals: eu } ]
+              cluster: es
+              index: plain
+            - name: stamped
+              when: [ { field: /region, equals: eu } ]
+              cluster: es2
+              index: stamped
+              transform:
+                - { op: noop }
+                - { op: append, field: stamp, value: x }
+            - name: broken
+              when: [ { field: /region, equals: eu } ]
+              cluster: es
+              index: "broken-%{kind}"
+              transform:
+                - { op: noop }
+                - { op: fail, field: /a/b }
+        """;
+
+    private RecordProcessor transforming(String pipelines) {
+      return processor(pipelines, PipelineMeters.NOOP, TestSteps.REGISTRY);
+    }
+
+    private String text(BulkAction<?> action) {
+      return new String(action.source(), StandardCharsets.UTF_8);
+    }
+
+    private static final String DOC =
+        "{\"id\":\"a\",\"region\":\"eu\",\"big\":123456789012345678901234567890,"
+            + "\"d\":0.1000000000000000055511151231257827,\"kind\":\"k\"}";
+
+    @Test
+    void transformedCopyOwnsItsBytesWhileTheOtherCopiesKeepTheRecordBytes() {
+      processor = transforming(ROUTES);
+      processor.process(List.of(record(DOC)));
+
+      assertThat(actions(ES)).extracting(this::text).containsExactly(DOC); // plain; broken failed
+      assertThat(actions(ES2))
+          .singleElement()
+          .satisfies(a -> {
+            assertThat(text(a)).isEqualTo(DOC.replace("}", ",\"stamp\":\"x\"}"));
+            assertThat(a.index()).isEqualTo("stamped");
+            assertThat(a.id()).isEqualTo("a");
+          });
+    }
+
+    @Test
+    void failedCopyIsDeadLetteredAloneWithTheOriginalBytesAndItsTarget() {
+      processor = transforming(ROUTES);
+      FakeRecord r = record(DOC);
+      processor.process(List.of(r));
+
+      assertThat(dlq)
+          .singleElement()
+          .satisfies(sent -> {
+            DlqRequest request = sent.request();
+            assertThat(request.errorType()).isEqualTo("transform");
+            assertThat(request.reason())
+                .isEqualTo("route broken, step 2 (fail /a/b): parent is not an object");
+            assertThat(request.value()).isEqualTo(DOC.getBytes(StandardCharsets.UTF_8));
+            assertThat(request.targetCluster()).isEqualTo("es");
+            assertThat(request.targetIndex()).isEqualTo("broken-k");
+            assertThat(request.docIndex()).isNull();
+          });
+      // Three parts: the plain copy, the stamped copy and the DLQ record.
+      ack(actions(ES).getFirst());
+      ack(actions(ES2).getFirst());
+      assertThat(r.isComplete()).isFalse();
+      dlq.getFirst().ack();
+      assertThat(r.isComplete()).isTrue();
+    }
+
+    @Test
+    void arrayElementsFailAndPassOnTheirOwn() {
+      processor = transforming(ROUTES);
+      processor.process(List.of(record("[" + DOC + "," + DOC.replace("\"a\"", "\"b\"") + "]")));
+
+      assertThat(actions(ES2)).extracting(BulkAction::id).containsExactly("a", "b");
+      assertThat(dlq)
+          .extracting(sent -> sent.request().errorType(), sent -> sent.request().docIndex())
+          .containsExactly(
+              org.assertj.core.groups.Tuple.tuple("transform", 0),
+              org.assertj.core.groups.Tuple.tuple("transform", 1));
+    }
+
+    @Test
+    void documentWithoutCopyNeverRunsItsSteps() {
+      processor = transforming(ROUTES);
+      processor.process(List.of(record("{\"region\":\"eu\",\"kind\":\"k\"}"))); // no _id
+
+      assertThat(actions(ES)).isEmpty();
+      assertThat(actions(ES2)).isEmpty();
+      assertThat(dlq).extracting(sent -> sent.request().errorType()).containsExactly("missing_id");
+    }
+
+    @Test
+    void failedCopyCountsAsDlqUnderItsRoute() {
+      SimpleMeterRegistry registry = new SimpleMeterRegistry();
+      try (KafkafimMeters meters = new KafkafimMeters(registry)) {
+        meters.sync(
+            Map.of(
+                "p",
+                new PipelineSpec(
+                    "k",
+                    List.of("t"),
+                    List.of("plain", "stamped", "broken"),
+                    Set.of("es", "es2"),
+                    SourceProbe.NONE)),
+            Set.of("es", "es2"),
+            cluster -> null);
+        processor = processor(ROUTES, meters.pipeline("p"), TestSteps.REGISTRY);
+        processor.process(List.of(record(DOC)));
+        dlq.forEach(Sent::ack);
+
+        assertThat(docs(registry, "broken", "dlq")).isOne();
+        assertThat(docs(registry, "stamped", "indexed")).isZero();
+      }
+    }
   }
 }

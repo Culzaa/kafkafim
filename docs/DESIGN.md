@@ -1193,6 +1193,14 @@ routes:
       - { op: set, field: /event/version, json: "2" }          # any JSON value
 ```
 
+**Status.** The framework is in place: binding, validation, the owned-bytes document, the
+`transform` error type, and the per-copy run in `RecordProcessor`. Each op arrives as one op
+class, one validation case, and one row in this table, so until its row exists an op is
+rejected as an unknown `op` at validation (§5.7).
+
+| Op | Fields | Effect |
+|---|---|---|
+
 - **Order.** Decode; extract `_id`, version, and timestamp from the original; route
   on the original; resolve the index from the original; apply the route's steps to
   that route's own copy; serialize. Conditions and `_id` never see a step's result,

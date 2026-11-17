@@ -5,6 +5,9 @@ import io.github.matabar.kafkafim.config.KafkafimProperties;
 import io.github.matabar.kafkafim.config.Pipeline;
 import io.github.matabar.kafkafim.decode.DecodeSpec;
 import io.github.matabar.kafkafim.decode.Decoder;
+import io.github.matabar.kafkafim.decode.DocumentTransform;
+import io.github.matabar.kafkafim.decode.StepRegistry;
+import io.github.matabar.kafkafim.decode.TransformStepSpec;
 import io.github.matabar.kafkafim.route.ConditionSpec;
 import io.github.matabar.kafkafim.route.RouteMode;
 import io.github.matabar.kafkafim.route.RouteSpec;
@@ -14,6 +17,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Maps the bound configuration of one pipeline onto the specs of the building blocks: {@link
@@ -35,6 +39,16 @@ public final class PipelineMapping {
    * @throws IllegalArgumentException if the pipeline cannot run as configured
    */
   public static CompiledPipeline compile(String name, KafkafimProperties properties) {
+    return compile(name, properties, StepRegistry.BUILT_IN);
+  }
+
+  /**
+   * As {@link #compile(String, KafkafimProperties)}, with the transform ops of {@code steps}.
+   *
+   * @param steps the ops a route's {@code transform} can name
+   */
+  public static CompiledPipeline compile(
+      String name, KafkafimProperties properties, StepRegistry steps) {
     Pipeline pipeline = properties.pipelines().get(name);
     if (pipeline == null) {
       throw new IllegalArgumentException("Unknown pipeline '" + name + "'");
@@ -46,7 +60,7 @@ public final class PipelineMapping {
           "document.op 'create' cannot be combined with document.version-field");
     }
     Decoder decoder = Decoder.compile(decodeSpec(pipeline));
-    List<RouteSpec<RouteTarget>> routes = routeSpecs(pipeline);
+    List<RouteSpec<RouteTarget>> routes = routeSpecs(pipeline, steps);
     Router<RouteTarget> router = Router.compile(routeMode(pipeline.routeMode()), routes);
     Map<RouteTarget.StreamKey, SinkSettings> streams = new LinkedHashMap<>();
     for (RouteSpec<RouteTarget> route : routes) {
@@ -101,6 +115,13 @@ public final class PipelineMapping {
    * has only its label ({@link RouteTarget#drop}).
    */
   static List<RouteSpec<RouteTarget>> routeSpecs(Pipeline pipeline) {
+    return routeSpecs(pipeline, StepRegistry.BUILT_IN);
+  }
+
+  /**
+   * As {@link #routeSpecs(Pipeline)}, compiling each route's {@code transform} with {@code steps}.
+   */
+  static List<RouteSpec<RouteTarget>> routeSpecs(Pipeline pipeline, StepRegistry steps) {
     List<RouteSpec<RouteTarget>> specs = new ArrayList<>(pipeline.routes().size());
     for (int i = 0; i < pipeline.routes().size(); i++) {
       Pipeline.Route route = pipeline.routes().get(i);
@@ -113,9 +134,12 @@ public final class PipelineMapping {
         if (route.cluster() != null
             || route.identity() != null
             || route.index() != null
-            || route.pipeline() != null) {
+            || route.pipeline() != null
+            || !route.transform().isEmpty()) {
           throw new IllegalArgumentException(
-              "route " + label + ": drop: true takes no cluster, identity, index or pipeline");
+              "route "
+                  + label
+                  + ": drop: true takes no cluster, identity, index, pipeline or transform");
         }
         specs.add(RouteSpec.drop(RouteTarget.drop(label), when, route.isDefault()));
         continue;
@@ -128,12 +152,33 @@ public final class PipelineMapping {
       }
       specs.add(
           new RouteSpec<>(
-              new RouteTarget(route.cluster(), route.identity(), route.pipeline(), label),
+              new RouteTarget(
+                  route.cluster(),
+                  route.identity(),
+                  route.pipeline(),
+                  label,
+                  transform(label, route.transform(), steps)),
               when,
               route.isDefault(),
               route.index()));
     }
     return specs;
+  }
+
+  /**
+   * A route's {@code transform} as compiled steps, or {@code null} for none (the zero-copy path).
+   */
+  static @Nullable DocumentTransform transform(
+      String routeLabel, List<Pipeline.Step> steps, StepRegistry registry) {
+    List<TransformStepSpec> specs = new ArrayList<>(steps.size());
+    for (Pipeline.Step step : steps) {
+      if (step.op() == null) {
+        throw new IllegalArgumentException("route " + routeLabel + ": transform step has no op");
+      }
+      specs.add(
+          new TransformStepSpec(step.op(), step.field(), step.to(), step.value(), step.json()));
+    }
+    return DocumentTransform.compile(routeLabel, specs, registry);
   }
 
   /** One {@code when} entry as a condition spec. */

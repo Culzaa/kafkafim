@@ -16,11 +16,21 @@
       }
     },
     "route": {
-      "description": "A routing rule (DESIGN §5.3). drop: true discards the documents it selects (ADR-0037) and takes the place of cluster, identity, index and pipeline.",
+      "description": "A routing rule (DESIGN §5.3). drop: true discards the documents it selects (ADR-0037) and takes the place of cluster, identity, index, pipeline and transform.",
       "type": "object",
       "properties": {
         "drop": { "type": "boolean" },
-        "default": { "type": "boolean" }
+        "default": { "type": "boolean" },
+        "transform": {
+          "description": "Ordered steps applied to this route's copy of each document (DESIGN §8, ADR-0047). The chart checks the shape; the application checks the ops and their fields at startup and on reload.",
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "required": ["op"],
+            "properties": { "op": { "type": "string" } }
+          }
+        }
       },
       "if": {
         "properties": { "drop": { "const": true } },
@@ -31,7 +41,8 @@
           "cluster": { "not": {}, "description": "drop: true takes no cluster" },
           "identity": { "not": {}, "description": "drop: true takes no identity" },
           "index": { "not": {}, "description": "drop: true takes no index" },
-          "pipeline": { "not": {}, "description": "drop: true takes no ingest pipeline" }
+          "pipeline": { "not": {}, "description": "drop: true takes no ingest pipeline" },
+          "transform": { "not": {}, "description": "drop: true takes no transform" }
         }
       },
       "else": {

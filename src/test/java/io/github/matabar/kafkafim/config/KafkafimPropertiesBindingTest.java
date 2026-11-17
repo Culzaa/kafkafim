@@ -302,4 +302,47 @@ class KafkafimPropertiesBindingTest {
     secrets.put("elasticsearch.search-us.orders-writer.api-key", "a2");
     return secrets;
   }
+
+  @Test
+  void bindsTransformStepsInOrderWithoutValidatingTheOps() {
+    String yaml =
+        ConfigTestSupport.pipeline(
+            """
+            routes:
+              - name: eu
+                default: true
+                cluster: es
+                index: idx
+                transform:
+                  - { op: remove, field: /card/number }
+                  - { op: rename, field: /usr, to: /user }
+                  - { op: set, field: /event/dataset, value: orders }
+                  - { op: set, field: /event/version, json: "2" }
+            """);
+    KafkafimProperties properties =
+        new org.springframework.boot.context.properties.bind.Binder(
+                org.springframework.boot.context.properties.source.ConfigurationPropertySources
+                    .from(ConfigTestSupport.load(yaml)))
+            .bind(KafkafimProperties.PREFIX, KafkafimProperties.class)
+            .get();
+
+    assertThat(properties.pipelines().get("p").routes().get(0).transform())
+        .containsExactly(
+            new Pipeline.Step("remove", "/card/number", null, null, null),
+            new Pipeline.Step("rename", "/usr", "/user", null, null),
+            new Pipeline.Step("set", "/event/dataset", null, "orders", null),
+            new Pipeline.Step("set", "/event/version", null, null, "2"));
+  }
+
+  @Test
+  void routeWithoutTransformHasAnEmptyList() {
+    assertThat(
+            ConfigTestSupport.bind(ConfigTestSupport.MINIMAL)
+                .pipelines()
+                .get("p")
+                .routes()
+                .get(0)
+                .transform())
+        .isEmpty();
+  }
 }

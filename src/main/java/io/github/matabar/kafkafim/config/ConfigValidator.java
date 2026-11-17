@@ -541,6 +541,8 @@ public final class ConfigValidator {
         checkDropRoute(routePath, route);
         continue;
       }
+      TransformRules.check(
+          routePath + ".transform", route.transform(), TransformRules.BUILT_IN, this::error);
       if (isBlank(route.cluster())) {
         error(routePath + ".cluster", "must not be blank");
       }
@@ -598,6 +600,12 @@ public final class ConfigValidator {
     rejectOnDropRoute(path, "identity", route.identity());
     rejectOnDropRoute(path, "index", route.index());
     rejectOnDropRoute(path, "pipeline", route.pipeline());
+    if (!route.transform().isEmpty()) {
+      error(
+          path + ".transform",
+          "a drop: true route discards its documents, so there is no copy to transform;"
+              + " remove transform or drop: true");
+    }
   }
 
   private void rejectOnDropRoute(String path, String key, String value) {
