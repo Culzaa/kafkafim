@@ -12,7 +12,7 @@ One file per decision, MADR-style. Supersede with a new ADR rather than editing 
 | [0006](0006-at-least-once-with-id-idempotence.md) | At-least-once delivery with ES-side idempotence via `_id` |
 | [0007](0007-deployment-groups-no-crds.md) | Deployment groups: plain Deployments, no CRDs, operators or storage |
 | [0008](0008-batching-per-es-cluster-with-offset-tracker.md) | Batch per ES cluster; track completion per partition |
-| [0009](0009-declarative-routing-no-expression-language.md) | Declarative routing rules with Logstash-style index patterns; no expression language |
+| [0009](0009-declarative-routing-no-expression-language.md) | Declarative routing rules with Logstash-style index patterns; no expression language (transformation part superseded by 0047) |
 | [0010](0010-kafka-as-the-only-buffer-backpressure.md) | Kafka is the only buffer; backpressure by pausing consumption |
 | [0011](0011-dlq-on-source-kafka-cluster.md) | DLQ topic on the source Kafka cluster; original bytes preserved; poison messages bounded (replay-lag backlog number superseded by 0034) |
 | [0012](0012-spring-configuration-helm-configtree-hot-reload.md) | Configuration is Spring Boot configuration rendered by Helm; secrets via `configtree`; hot reload with `Binder` |
@@ -23,7 +23,7 @@ One file per decision, MADR-style. Supersede with a new ADR rather than editing 
 | [0017](0017-migration-from-logstash.md) | Migration from Logstash: run in parallel on the same `_id`s, then stop Logstash |
 | [0018](0018-no-cli-single-run-mode.md) | No CLI in the MVP; one run mode plus a `validate` profile |
 | [0019](0019-testing-strategy.md) | Testing: unit tests for classification and routing, Testcontainers for end-to-end, explicit chaos cases |
-| [0020](0020-mvp-scope.md) | MVP scope — no transformations, no expressions, no CLI |
+| [0020](0020-mvp-scope.md) | MVP scope — no transformations, no expressions, no CLI (transformation part superseded by 0047) |
 | [0021](0021-no-resource-provisioning.md) | kafkafim never provisions Kafka or Elasticsearch resources |
 | [0022](0022-delivery-github-actions-ghcr-airgap.md) | Delivery via GitHub Actions and GHCR; signed, versioned air-gap bundles |
 | [0023](0023-helm-chart-one-release-per-cluster.md) | One Helm chart, one release per Kubernetes cluster, groups rendered as Deployments |
@@ -50,3 +50,4 @@ One file per decision, MADR-style. Supersede with a new ADR rather than editing 
 | [0044](0044-logs-over-otlp-stdout-is-readable-text.md) | Logs are exported over OTLP with metrics and traces; stdout is readable text, never JSON (supersedes the logs part of 0013) |
 | [0045](0045-secret-file-content-with-a-placeholder-is-rejected.md) | A `configtree` secret file whose content contains `${` fails startup, reload and the `validate` profile: the binder would substitute it, bypassing the inline-secret check (refines 0012) |
 | [0046](0046-google-style-guides-for-shell-markdown-prose-and-json-yaml.md) | Google style guides extend ADR-0024 to shell (shellcheck + shfmt in CI), Markdown, documentation prose and JSON/YAML (extends 0024) |
+| [0047](0047-route-transforms-remove-rename-set.md) | Routes can transform documents with a closed set of `remove`, `rename`, and `set` steps, applied to each route's own copy after routing; routes without `transform` stay zero-copy; new `transform` DLQ error type (supersedes the transformation parts of 0009 and 0020) |

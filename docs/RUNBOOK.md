@@ -557,6 +557,7 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
   | `es_error` | Mapping conflict, strict mapping, missing ingest pipeline | Fix the mapping/template/ingest pipeline (or the producer) |
   | `es_retries_exhausted` | Item-level 429/5xx or `index_not_found` for longer than `max-attempts`/`max-elapsed` | ES capacity, or the index/template is not provisioned |
   | `decode`, `missing_id`, `bad_timestamp` | Producer sends invalid JSON, a value over `source.max-record-bytes` (oversize records are `decode`), no id, or an unparsable timestamp | Producer side, or the pipeline's `document.*` settings |
+  | `transform` | A route's `transform` step needs a parent object that is a string, number, or array, or the result nests too deep (ADR-0047; the reason names the route, step, and pointer) | Producer / routes |
   | `no_route`, `unresolved_index` | Routing rules do not cover the document, or an index pattern field is missing/invalid | Routes / producer |
   | `version_conflict` | `on-version-conflict: dlq` and an older version arrived | Usually expected |
   | `too_large` | A single document over ES's `http.max_content_length` | ES setting or producer |
