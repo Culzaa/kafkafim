@@ -1,6 +1,6 @@
 # ADR-0051: A reload rejects a tree that defines nothing while pipelines run
 
-Status: accepted · Date: 2026-11-18 · Supersedes the scope of [ADR-0043](0043-validate-profile-fails-on-an-empty-configuration.md)
+Status: accepted · Date: 2026-11-18 · Extends [ADR-0043](0043-validate-profile-fails-on-an-empty-configuration.md)
 
 ## Context
 
