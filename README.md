@@ -4,8 +4,8 @@ Production-grade Kafka → Elasticsearch ingest for Kubernetes. kafkafim replace
 Logstash pipelines with one service that routes JSON records from many Kafka
 clusters to many Elasticsearch clusters. It provides at-least-once delivery, declarative
 per-event routing, a real DLQ, hot-reloaded Spring configuration rendered by Helm,
-and built-in OpenTelemetry. MVP scope: a shipper, not a pipeline engine (no
-transformations, no expression language, no CLI).
+and built-in OpenTelemetry. MVP scope: a shipper, not a pipeline engine (only per-route `remove`, `rename`
+and `set` transformations, no expression language, no CLI).
 
 Status: design and scaffolding. Nothing ships yet.
 

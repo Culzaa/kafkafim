@@ -48,9 +48,10 @@ into ~20 Elasticsearch 8.x clusters.
 
 ### Non-goals (MVP)
 
-- **Transformations.** Records are indexed as received (after optional JSON-array
-  explosion). Enrichment and reshaping belong to the producing service or to ES
-  ingest pipelines, which a route can name.
+- **General transformations.** Records are indexed as received (after optional
+  JSON-array explosion), except that a route can apply `remove`, `rename`, and `set`
+  steps to its own copy (§8, ADR-0047). Enrichment and any other reshaping belong to
+  the producing service or to ES ingest pipelines, which a route can name.
 - **Expression language.** Routing is rules, not code. If a case cannot be expressed
   with the rule set, the answer is an ES ingest pipeline or a new rule type, not CEL.
 - **CLI subcommands.** One run mode. Validation is fail-fast at startup and on
@@ -303,7 +304,8 @@ element, `kafkafim.doc-index`.
   other elements are indexed. A non-object element fails at once; an id, version or
   timestamp problem is held with the parsed object and applies after routing (§4.2).
   An empty array is zero documents, so its offset is committable at once.
-- **Source bytes.** Each document is indexed from its own bytes in the value (the
+- **Source bytes.** Unless its route has `transform` steps (§8, which give that copy
+  its own serialized bytes), each document is indexed from its own bytes in the value (the
   whole value for an object, the element's slice for an array), not from a
   re-serialised tree, so number spelling and key order survive. One leading UTF-8 BOM
   is skipped. A slice containing a line feed between tokens is copied once with the
@@ -1139,7 +1141,7 @@ are reported together:
 | Item 409 `version_conflict_engine_exception` | With an external version: `stale` (success) under `on-version-conflict: ignore`, DLQ `version_conflict` under `dlq`. For `op: create` without a version: an earlier attempt landed, so success. Otherwise `es_error`. |
 | Retryable **item** error (item 429 `es_rejected_execution_exception`, item 5xx, item 404 `index_not_found_exception`, any other unexpected item status) exceeding `max-attempts`/`max-elapsed` | The item goes back into the batcher after a backoff and travels in a later bulk; once it has failed `max-attempts` times, or `max-elapsed` after its first retryable failure, DLQ with `error.type=es_retries_exhausted`, partition continues. This is the poison-message bound. A missing index is a provisioning gap (ADR-0021) or a race with whoever creates the index, so it gets the bounded retry rather than an immediate DLQ or an unbounded stall. Request-level failures (connection errors, 5xx, request-level 429, breaker open, 401/403, unexpected statuses) are retried indefinitely and never count toward the bound; an ES outage produces lag, never DLQ records. |
 | Bulk request rejected with 413 | The request is split in halves and each half retried (recursively); a single-document bulk that still gets 413 sends that document to the DLQ with `error.type=too_large`. |
-| Undecodable record, non-object element, unusable version, missing `_id`, bad timestamp, no matching route, unresolved index pattern | DLQ with the matching `error.type` (`decode`, `missing_id`, `bad_timestamp`, `no_route`, `unresolved_index`). A document a drop route selected skips the version, `_id`, and timestamp checks and is never dead-lettered for them (§5.3); undecodable records and non-object elements still are. |
+| Undecodable record, non-object element, unusable version, missing `_id`, bad timestamp, no matching route, unresolved index pattern | DLQ with the matching `error.type` (`decode`, `missing_id`, `bad_timestamp`, `no_route`, `unresolved_index`), or, for a route's `transform` steps that cannot apply to the document (§8), `transform`. A document a drop route selected skips the version, `_id`, and timestamp checks and is never dead-lettered for them (§5.3); undecodable records and non-object elements still are. |
 | Missing topic, DLQ topic, or failed authentication at pipeline start | Pipeline stays stopped (`failed_preflight`) until the next accepted reload or a restart (§5.6), clear log naming resource and identity, alert. Other pipelines unaffected. kafkafim never creates the resource. |
 | Record handler throws, or a consumer of the listener container stops on its own (an error the container does not retry, an `Error` from the listener) | The pipeline goes to `failed` and is stopped gracefully: the source drains, commits what completed and leaves the group, so the group's other pods take its partitions; records still incomplete are re-delivered. When the container stopped itself, the source still waits (within its 10s container stop) for the other consumers to finish revoking before the sinks close. It stays stopped until the next accepted reload or a restart (§4.6, §5.6, ADR-0036); one ERROR line names the cause. Other pipelines unaffected. |
 | DLQ produce fails | Block the partition and alert. Losing data is worse than lag. The send is retried forever (100ms doubling to 30s, ±25% jitter) and never completes the source offset until the broker acknowledged it (`acks=all`), so the committed offset stays put. That, with the retry loop, is the guarantee against loss; it does not rest on idempotence (`enable.idempotence` may be turned off, §5.1), which only avoids duplicate DLQ records. The writer is *blocked* from its first failure until every failed send was acknowledged; the supervisor pauses the pipeline on `onBlocked` and resumes on `onUnblocked`. A missing DLQ topic, failed authentication or authorization, an invalid topic or a record larger than the producer or topic allows is a **configuration** failure (logged at `ERROR`, alert); anything else is **transient**. Both kinds are retried; neither drops the record. With idempotence off the producer has no fatal error state, so only the replacement below on `ClusterAuthorizationException` or an authentication error can still happen, and it is harmless. A producer error that kafka-clients can make fatal even for an idempotent producer (cluster authorization, authentication, unsupported version, a fenced producer or an invalid producer ID mapping) replaces the shared producer, so fixing the cause unblocks the next attempt without a restart. A missing `Write` ACL is usually not fatal, though: in kafka-clients 4.2 a `CLUSTER_AUTHORIZATION_FAILED` answer to `InitProducerId` is *abortable*: the producer fails the pending batches, goes back to uninitialized and retries `InitProducerId` on its own. The producer becomes fatal only when the error reaches its error state through a failed batch (a produce response carrying it). kafkafim replaces the producer on `ClusterAuthorizationException` either way: replacing it is cheap and covers the fatal path. On the abortable path kafka-clients still logs `Aborting producer batches due to fatal error` at `ERROR`, and kafkafim logs that the producer *may be* in a fatal state and replaces it; both mean only that the pending sends failed and will be retried. A send that fails only because of the replacement (closing the producer aborts its batch, or it reached the producer after the close began) is reported by the failure that triggered the replacement, so a missing ACL never shows up as a transient `Producer is closed forcefully`. Each send attempt is reported once, although kafka-clients can both throw from `send` and later fail the batch it had already appended. |
@@ -1166,13 +1168,59 @@ bytes per item and parsing stops at `"errors": false`.
 later write of the same id succeeded, or two bulks in flight). Pipelines that need
 last-writer-wins use `document.version-field` (external versions).
 
-## 8. No transformations
+## 8. Route transformations: `remove`, `rename`, `set`
 
 Documents are indexed byte-for-byte as decoded (a JSON array record is split into
-its elements). Field extraction for `_id`, version, timestamp, and routing is
-read-only. Reshaping and enrichment happen in the producer or in an ES ingest
-pipeline named on the route. This keeps kafkafim CPU-light, which is what lets a
-small pod drain a big backlog, and keeps the MVP honest.
+its elements), unless the route that selected them has `transform` steps (ADR-0047,
+which supersedes the transformation parts of ADR-0009 and ADR-0020). Field extraction
+for `_id`, version, timestamp, and routing is read-only and reads the original.
+Other reshaping and enrichment happen in the producer or in an ES ingest pipeline
+named on the route. A route without `transform` costs nothing extra, which keeps
+kafkafim CPU-light and lets a small pod drain a big backlog.
+
+```yaml
+routes:
+  - name: eu
+    cluster: search-eu
+    index: "orders-eu-%{+yyyy.MM}"
+    transform:
+      - { op: remove, field: /card/number }
+      - { op: rename, field: /usr, to: /user }
+      - { op: set, field: /event/dataset, value: orders }      # a JSON string
+      - { op: set, field: /event/version, json: "2" }          # any JSON value
+```
+
+- **Order.** Decode; extract `_id`, version, and timestamp from the original; route
+  on the original; resolve the index from the original; apply the route's steps to
+  that route's own copy; serialize. Conditions and `_id` never see a step's result,
+  and fan-out copies never see each other's.
+- **Closed set.** Only `remove`, `rename`, and `set`. No expression language, no
+  conditions in steps. A new op needs its own ADR.
+- **Fields.** `field` and `to` are non-empty JSON pointers to object members; array
+  elements cannot be addressed (`/a/0` is the key `"0"`). `set` and `rename` overwrite
+  an existing target and create missing parent objects. A missing source is a no-op,
+  as is a source whose parent is absent or not an object; a `null` member is present.
+- **Key order.** A replaced member keeps its position; a new member goes to the end of
+  its object.
+- **Limits.** At most 32 steps per route, 4 KiB for a `value` or `json` text, nesting
+  at most 500.
+- **Validation** at bind, startup, reload, and the `validate` profile: unknown op,
+  wrong fields for the op, a bad pointer or `json` text, both or neither of `value`
+  and `json`, `rename` with equal or nested `field` and `to`, and `transform` on a
+  `drop: true` route. A change to `transform` restarts only its pipeline (§5.6).
+- **Data path.** A route without `transform` keeps the zero-copy source (§4.5). A
+  route with `transform` gets a copy-on-write document that owns its bytes: only the
+  objects along changed paths are copied, and the result is serialized once as compact
+  one-line JSON. Key order is kept, whitespace is dropped, and strings use minimal
+  escapes. Numbers keep their exact value (never a `double`), but their spelling is
+  not guaranteed (`1e3` may become `1E+3`). Each transformed copy holds up to one
+  document size of extra heap until it completes (§4.5).
+- **Failures.** `error.type=transform`, for one copy, when a `set` or `rename` needs a
+  parent that exists but is not an object, or the result would nest deeper than 500.
+  The DLQ record carries the original bytes. `kafkafim.error.reason` names the route,
+  step position, op, and pointer, never a value. In `route-mode: all` only that copy
+  is dead-lettered. Counted in `kafkafim_dlq_records_total{error_type="transform"}`;
+  there is no new metric.
 
 ## 9. DLQ
 
@@ -1182,7 +1230,7 @@ no extra credentials or network paths. Record layout:
 - key: original key
 - value: original value, byte-for-byte
 - headers: `kafkafim.pipeline`, `kafkafim.error.type` (`decode`, `missing_id`,
-  `bad_timestamp`, `no_route`, `unresolved_index`, `es_error`, `es_retries_exhausted`,
+  `bad_timestamp`, `no_route`, `unresolved_index`, `transform`, `es_error`, `es_retries_exhausted`,
   `version_conflict`, `too_large`; section 7), `kafkafim.error.reason`
   (ES item error JSON, truncated to 4 KiB), `kafkafim.source.topic`,
   `kafkafim.source.partition`, `kafkafim.source.offset`, `kafkafim.target.cluster`,
@@ -1474,7 +1522,10 @@ Idempotent `_id`s make this low-risk:
 2. Deploy with a **new** consumer group at `offset-reset: latest` while Logstash
    keeps running. Same `_id`s → identical documents. Compare counts and DLQ rate.
 3. Stop the Logstash pipeline. No gap, no duplicates.
-4. Pipelines with ES-generated ids: stop Logstash first, then start kafkafim with
+4. Logstash filters that only remove, rename, or set fields become a route's
+   `transform` steps (§8, ADR-0047); other filters move to an ES ingest pipeline
+   first (ADR-0017).
+5. Pipelines with ES-generated ids: stop Logstash first, then start kafkafim with
    `source.group-id` set to Logstash's group so it continues from its offsets.
 
 ## 15. Delivery and Helm
@@ -1503,8 +1554,10 @@ CI-friendly `${revision}` versioning (ADR-0003, ADR-0022, ADR-0023).
 - **1.0** runbook, load-test results ([LOADTEST.md](LOADTEST.md)), first production pipelines (each
   Logstash
   pipeline translated by hand, §14 and ADR-0017; there is no config translator).
-- **Later**: DLQ tooling, transformations (if ever, as ES ingest pipelines first),
-  `update`/`delete` ops, KEDA where allowed, read-only UI over the same config.
+- **0.4** route transformations: `transform` steps `remove`, `rename`, and `set`
+  (ADR-0047; framework first, then one op at a time).
+- **Later**: DLQ tooling, transformations beyond those three ops (if ever, as ES
+  ingest pipelines first), `update`/`delete` ops, KEDA where allowed, read-only UI over the same config.
 
 ## 17. Open questions
 
