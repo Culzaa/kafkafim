@@ -15,7 +15,7 @@ Status: accepted · Date: 2026-11-07
 
 ## Consequences
 
-Filters that only remove, rename or set fields move to a route's `transform` steps
+Filters that only remove, rename, or set fields move to a route's `transform` steps
 ([ADR-0047](0047-route-transforms-remove-rename-set.md)); anything else still moves to an ES
 ingest pipeline first.
 

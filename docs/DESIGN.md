@@ -167,7 +167,8 @@ Kafka source. Per record it plans every part before dispatching any and declares
 number (`SourceRecord.expectParts`): one part per routed copy of a decoded document
 (`route-mode: all` fan-out makes several), one per document that fails decoding or
 routing (`missing_id`, `bad_timestamp`, `decode` with `doc-index`, `no_route`,
-`unresolved_index` with the route's `target.cluster`), one per document a drop route
+`unresolved_index` and, for a failed `transform` step, `transform`, each with the route's
+`target.cluster`), one per document a drop route
 selected (§5.3), and exactly one for a record that fails as a whole (oversize, never
 decoded; undecodable; tombstone). Each parsed object is routed before its id, version and
 timestamp problems apply: decoding extracts them and keeps any error with the document,
@@ -323,7 +324,8 @@ element, `kafkafim.doc-index`.
     thread, whatever the budget.
   - *Held in flight.* Until a record completes, kafkafim keeps the record (its raw
     bytes, which the budget counts) and one copy of each indexed document's bytes
-    (shared by its routes, so at most the value again). Per indexed copy it also keeps
+    (shared by its routes, so at most the value again; a route with `transform` steps holds
+    its own serialized copy, §8). Per indexed copy it also keeps
     a bulk action (index name, id, completion handle) and the sink's queue entry with
     its precomputed bulk metadata line: roughly 300–450 bytes of objects, an estimate
     from object layout, not a measurement. A document bound for the DLQ holds its DLQ
@@ -738,7 +740,8 @@ default (possible only in `all`) sends the document to the DLQ with
 **Drop routes** (ADR-0037). A route with `drop: true` discards the documents it selects:
 they are neither indexed nor dead-lettered. `drop: true` takes the place of `cluster`,
 `identity`, `index`, and `pipeline`, and validation rejects a drop route that sets any of
-them; `name`, `when`, and `default` work as on any route.
+them; `name`, `when`, and `default` work as on any route. `transform` is rejected on a drop
+route (§8).
 
 ```yaml
 routes:
@@ -1195,7 +1198,8 @@ routes:
   that route's own copy; serialize. Conditions and `_id` never see a step's result,
   and fan-out copies never see each other's.
 - **Closed set.** Only `remove`, `rename`, and `set`. No expression language, no
-  conditions in steps. A new op needs its own ADR.
+  conditions in steps. A new op needs its own ADR. Quote a `value` such as `no` or `on` in
+  YAML, or Spring binds it as a boolean.
 - **Fields.** `field` and `to` are non-empty JSON pointers to object members; array
   elements cannot be addressed (`/a/0` is the key `"0"`). `set` and `rename` overwrite
   an existing target and create missing parent objects. A missing source is a no-op,
@@ -1212,9 +1216,12 @@ routes:
   route with `transform` gets a copy-on-write document that owns its bytes: only the
   objects along changed paths are copied, and the result is serialized once as compact
   one-line JSON. Key order is kept, whitespace is dropped, and strings use minimal
-  escapes. Numbers keep their exact value (never a `double`), but their spelling is
-  not guaranteed (`1e3` may become `1E+3`). Each transformed copy holds up to one
-  document size of extra heap until it completes (§4.5).
+  escapes. Numbers keep their exact value, because the copy is parsed again from the
+  original bytes with exact decimals (the routing tree reads fractions as `double`), but
+  their spelling is not guaranteed (`1e3` becomes `1E+3`, `-0` becomes `0`). Each
+  transformed copy holds up to one document size of extra heap until it completes
+  (§4.5). The route's ingest `pipeline:` runs in Elasticsearch after the steps, and a
+  document that gets no copy (held error, no route, drop) never runs them.
 - **Failures.** `error.type=transform`, for one copy, when a `set` or `rename` needs a
   parent that exists but is not an object, or the result would nest deeper than 500.
   The DLQ record carries the original bytes. `kafkafim.error.reason` names the route,
@@ -1554,7 +1561,7 @@ CI-friendly `${revision}` versioning (ADR-0003, ADR-0022, ADR-0023).
 - **1.0** runbook, load-test results ([LOADTEST.md](LOADTEST.md)), first production pipelines (each
   Logstash
   pipeline translated by hand, §14 and ADR-0017; there is no config translator).
-- **0.4** route transformations: `transform` steps `remove`, `rename`, and `set`
+- **Next**: route transformations: `transform` steps `remove`, `rename`, and `set`
   (ADR-0047; framework first, then one op at a time).
 - **Later**: DLQ tooling, transformations beyond those three ops (if ever, as ES
   ingest pipelines first), `update`/`delete` ops, KEDA where allowed, read-only UI over the same config.
