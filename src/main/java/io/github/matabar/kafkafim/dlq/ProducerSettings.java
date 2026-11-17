@@ -92,18 +92,23 @@ public final class ProducerSettings {
           ProducerConfig.MAX_BLOCK_MS_CONFIG,
           10_000);
 
+  private static final String CLIENT_ID_PREFIX = "kafkafim-dlq.";
+  private static final String ADMIN_CLIENT_ID_PREFIX = "kafkafim-dlq-admin.";
+
   private ProducerSettings() {}
 
   /**
-   * The DLQ producer's {@code client.id}: {@code kafkafim-<cluster>-<identity>-dlq}, or {@code
-   * kafkafim-<cluster>-dlq} without an identity.
+   * The DLQ producer's {@code client.id}: {@code kafkafim-dlq.<cluster>.<identity>}, or {@code
+   * kafkafim-dlq.<cluster>} without an identity. Cluster and identity names are {@code [a-z0-9-]}
+   * and never contain a dot, so the dot keeps {@code (a-b, c)} and {@code (a, b-c)} distinct:
+   * producers of different pairs share neither an app-info MBean nor a metric series.
    *
    * @param clusterName the Kafka cluster's name
    * @param identityName the identity's name, or {@code null}
    * @return the client id
    */
   public static String clientId(String clusterName, @Nullable String identityName) {
-    return "kafkafim-" + clusterName + (identityName == null ? "" : "-" + identityName) + "-dlq";
+    return CLIENT_ID_PREFIX + clusterName + (identityName == null ? "" : "." + identityName);
   }
 
   /**
@@ -170,7 +175,9 @@ public final class ProducerSettings {
 
   /**
    * Admin settings for the DLQ topic check, derived from producer settings: the keys an admin
-   * client knows, with the client id suffixed {@code -admin}.
+   * client knows, with the client id's {@code kafkafim-dlq.} prefix replaced by {@code
+   * kafkafim-dlq-admin.} so it never equals a producer's id (an {@code -admin} or {@code .admin}
+   * suffix could, for an identity of that name).
    *
    * @param producerSettings settings from {@link #forIdentity}
    * @return mutable admin settings
@@ -183,9 +190,12 @@ public final class ProducerSettings {
         admin.put(key, value);
       }
     });
+    String producerId = String.valueOf(producerSettings.get(ProducerConfig.CLIENT_ID_CONFIG));
     admin.put(
         AdminClientConfig.CLIENT_ID_CONFIG,
-        producerSettings.get(ProducerConfig.CLIENT_ID_CONFIG) + "-admin");
+        producerId.startsWith(CLIENT_ID_PREFIX)
+            ? ADMIN_CLIENT_ID_PREFIX + producerId.substring(CLIENT_ID_PREFIX.length())
+            : producerId + "-admin");
     return admin;
   }
 
