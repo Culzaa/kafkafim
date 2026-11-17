@@ -45,7 +45,10 @@
 `verify` runs Google Java Style checks (Spotless + Checkstyle), unit tests,
 Testcontainers integration tests, and ArchUnit rules. CI runs the same checks, split into
 "Build and test" (`-DskipITs`) and a parallel "Integration tests" job, plus the
-Dockerfile build and Helm checks. All must pass before merge. A docs-only change
+Dockerfile build and Helm checks. All must pass before merge. `verify` also measures
+JaCoCo coverage of unit and integration tests together and enforces a floor on it (about 94 %
+of lines, 87 % of branches); the report is in `target/site/jacoco/index.html`. CI checks the
+floor in a separate "Coverage" job (see [DELIVERY.md](docs/DELIVERY.md#coverage-floor)). A docs-only change
 needs only `./mvnw -DskipTests verify`; CI skips the Java and image jobs for it.
 
 Shell scripts follow the [Google Shell Style Guide](https://google.github.io/styleguide/shellguide.html)
