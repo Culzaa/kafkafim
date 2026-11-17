@@ -1,7 +1,8 @@
 # ADR-0009: Declarative routing rules with Logstash-style index patterns; no expression language
 
 Status: accepted; the transformation part ("Transform steps: out of scope") is superseded by
-[ADR-0047](0047-route-transforms-remove-rename-set.md) · Date: 2026-11-07 (replaces an earlier draft that chose CEL)
+[ADR-0047](0047-route-transforms-remove-rename-set.md) · Date: 2026-11-07 (replaces an earlier
+draft that chose CEL)
 
 ## Context
 

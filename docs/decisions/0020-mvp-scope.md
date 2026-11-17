@@ -1,7 +1,8 @@
 # ADR-0020: MVP scope — no transformations, no expressions, no CLI
 
 Status: accepted; "transformations of any kind" and "none changes the data path" are superseded
-by [ADR-0047](0047-route-transforms-remove-rename-set.md) (the expression-language and CLI exclusions stand) · Date: 2026-11-07
+by [ADR-0047](0047-route-transforms-remove-rename-set.md) (the expression-language and CLI
+exclusions stand) · Date: 2026-11-07
 
 ## Decision
 
