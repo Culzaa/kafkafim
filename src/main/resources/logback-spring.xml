@@ -9,7 +9,7 @@
            event to the OpenTelemetry SDK's logger provider, which Spring Boot auto-configures
            with a batching OTLP exporter (management.opentelemetry.logging.export.* in
            application.yaml). Records travel with metrics and traces, under the same resource
-           attributes, with severity, logger name, thread, MDC entries, key-value pairs, the
+           attributes, with severity, logger name, thread, the allowlisted MDC entries, key-value pairs, the
            exception (type, message, stack trace) and the current span's trace and span id.
            Events logged before the SDK exists are kept (the first 1000) and replayed once
            telemetry/LogExportConfiguration installs it. Switching the export off
@@ -25,7 +25,8 @@
   <appender name="OTLP" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
     <!-- thread.name and thread.id: which consumer or sink thread logged -->
     <captureExperimentalAttributes>true</captureExperimentalAttributes>
-    <captureMdcAttributes>*</captureMdcAttributes>
+    <!-- explicit allowlist, comma separated; a new MDC key is exported only once added here -->
+    <captureMdcAttributes>pipeline</captureMdcAttributes>
     <captureKeyValuePairAttributes>true</captureKeyValuePairAttributes>
   </appender>
 
