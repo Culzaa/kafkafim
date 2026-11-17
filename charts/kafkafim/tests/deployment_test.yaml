@@ -608,3 +608,40 @@ tests:
       - equal:
           path: spec.replicas
           value: 4
+
+  - it: leaves the /tmp emptyDir unbounded and sets no ephemeral-storage by default
+    values:
+      - ../ci/minimal-values.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content: { name: tmp, emptyDir: {} }
+      - notExists:
+          path: spec.template.spec.containers[0].resources.requests["ephemeral-storage"]
+      - notExists:
+          path: spec.template.spec.containers[0].resources.limits["ephemeral-storage"]
+
+  - it: tmpSizeLimit bounds the /tmp emptyDir
+    values:
+      - ../ci/minimal-values.yaml
+    set:
+      tmpSizeLimit: 256Mi
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content: { name: tmp, emptyDir: { sizeLimit: 256Mi } }
+
+  - it: an ephemeral-storage request set in resources is rendered next to the default memory and cpu
+    values:
+      - ../ci/minimal-values.yaml
+    set:
+      resources:
+        requests:
+          ephemeral-storage: 256Mi
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests
+          value:
+            cpu: 500m
+            memory: 1536Mi
+            ephemeral-storage: 256Mi

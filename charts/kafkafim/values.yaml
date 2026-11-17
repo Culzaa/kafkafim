@@ -104,6 +104,11 @@ resources:
     memory: 1536Mi
   limits:
     memory: 1536Mi
+# Opt-in size limit of the /tmp emptyDir (a Kubernetes quantity such as 256Mi); unset means
+# unbounded. Exceeding it evicts the pod instead of filling the node's ephemeral storage.
+# An ephemeral-storage request needs no value of its own: add it to resources, e.g.
+#   resources: { requests: { ephemeral-storage: 256Mi } }
+tmpSizeLimit: ""
 nodeSelector: {}
 tolerations: []
 # Empty means: preferred pod anti-affinity on kubernetes.io/hostname within the group.
