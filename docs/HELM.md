@@ -129,7 +129,8 @@ For each `groups.<g>`:
   and `pdb` apply to every group that does not set its own (a group's value replaces the
   default, it is not merged). An empty group value (`tolerations: []`,
   `nodeSelector: {}`, `affinity: {}`, `resources: {}`) replaces the top-level one too, so a
-  group can opt out; an absent key inherits (`pdb` is not covered: an empty `pdb: {}` still inherits). `podAnnotations` are merged, the group's winning.
+  group can opt out; an absent key inherits (`pdb` is not covered: an empty `pdb: {}`
+  still inherits). `podAnnotations` are merged, the group's winning.
   `replicas` defaults to 2. In a `pdb`, `maxUnavailable` wins over `minAvailable`
   when both are set (so overriding the default `minAvailable: 1` needs no `null`).
   A single-replica group (`allowSingleReplica` with `replicas`, or
