@@ -10,7 +10,9 @@ import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import org.jspecify.annotations.Nullable;
 import tools.jackson.core.JacksonException;
+import tools.jackson.core.StreamReadConstraints;
 import tools.jackson.core.StreamReadFeature;
+import tools.jackson.core.exc.StreamConstraintsException;
 import tools.jackson.core.json.JsonFactory;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
@@ -35,11 +37,18 @@ public final class TransformRules {
   /** Longest {@code value} or {@code json} text, in UTF-8 bytes. */
   static final int MAX_TEXT_BYTES = 4096;
 
+  /** Deepest nesting of a document or a {@code json} constant; the decoder's limit. */
+  static final int MAX_NESTING_DEPTH = 500;
+
   private static final List<String> FIELDS = List.of("field", "to", "value", "json");
 
   private static final JsonMapper JSON =
       JsonMapper.builder(
-              JsonFactory.builder().enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build())
+              JsonFactory.builder()
+                  .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+                  .streamReadConstraints(
+                      StreamReadConstraints.builder().maxNestingDepth(MAX_NESTING_DEPTH).build())
+                  .build())
           .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
           .build();
 
@@ -149,7 +158,7 @@ public final class TransformRules {
     fieldsOk &= checkPointer(path + ".field", step.field(), error);
     fieldsOk &= checkPointer(path + ".to", step.to(), error);
     fieldsOk &= checkText(path + ".value", step.value(), error);
-    fieldsOk &= checkJson(path + ".json", step.json(), error);
+    fieldsOk &= checkJson(path + ".json", step.json(), step.field(), error);
     if (fieldsOk) {
       op.check().check(step, message -> error.accept(path, message));
     }
@@ -194,7 +203,10 @@ public final class TransformRules {
   }
 
   private static boolean checkJson(
-      String path, @Nullable String json, BiConsumer<String, String> error) {
+      String path,
+      @Nullable String json,
+      @Nullable String field,
+      BiConsumer<String, String> error) {
     if (!checkText(path, json, error) || json == null) {
       return json == null;
     }
@@ -204,12 +216,37 @@ public final class TransformRules {
         error.accept(path, "is empty; it must be one JSON value");
         return false;
       }
+      int depth = nesting(node);
+      // The constant sits one level below its parent, so it ends at the field's depth plus its own.
+      int atTarget =
+          field == null ? depth : depth + (int) field.chars().filter(c -> c == '/').count();
+      if (atTarget > MAX_NESTING_DEPTH) {
+        error.accept(
+            path,
+            "nests "
+                + depth
+                + " deep, which at the field's position would nest the document deeper than "
+                + MAX_NESTING_DEPTH);
+        return false;
+      }
       return true;
+    } catch (StreamConstraintsException e) {
+      error.accept(path, "nests deeper than " + MAX_NESTING_DEPTH);
+      return false;
     } catch (JacksonException e) {
       // The text is not echoed: it may carry a value the operator keeps out of logs.
       error.accept(
           path, "is not exactly one JSON value (invalid syntax, trailing text or a duplicate key)");
       return false;
     }
+  }
+
+  /** Levels of containers in {@code node}: 0 for a scalar, 1 for a flat object or array. */
+  private static int nesting(JsonNode node) {
+    int deepest = 0;
+    for (JsonNode child : node) {
+      deepest = Math.max(deepest, nesting(child));
+    }
+    return node.isContainer() ? deepest + 1 : 0;
   }
 }

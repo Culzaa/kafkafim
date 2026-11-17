@@ -1220,8 +1220,9 @@ is rejected as an unknown `op` at validation (§5.7).
 - **Limits.** At most 32 steps per route, 4 KiB for a `value` or `json` text, nesting
   at most 500.
 - **Validation** at bind, startup, reload, and the `validate` profile: unknown op,
-  wrong fields for the op, a bad pointer or `json` text, both or neither of `value`
-  and `json`, `rename` with equal or nested `field` and `to`, and `transform` on a
+  wrong fields for the op, a bad pointer or `json` text (including a `json` that nests
+  deeper than 500, or would pass 500 at its `field`), both or neither of `value` and
+  `json`, `rename` with equal or nested `field` and `to`, and `transform` on a
   `drop: true` route. A change to `transform` restarts only its pipeline (§5.6).
 - **Data path.** A route without `transform` keeps the zero-copy source (§4.5). A
   route with `transform` gets a copy-on-write document that owns its bytes: only the
@@ -1238,7 +1239,8 @@ is rejected as an unknown `op` at validation (§5.7).
   parent that exists but is not an object, or the result would nest deeper than 500.
   The DLQ record carries the original bytes. `kafkafim.error.reason` names the route,
   step position, op, and pointer, never a value. In `route-mode: all` only that copy
-  is dead-lettered. Counted in `kafkafim_dlq_records_total{error_type="transform"}`;
+  is dead-lettered. If the document cannot be parsed again for the steps, the reason names
+  the route only. Counted in `kafkafim_dlq_records_total{error_type="transform"}`;
   there is no new metric.
 
 ## 9. DLQ
