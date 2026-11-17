@@ -63,7 +63,9 @@ final class SharedProducer {
    * The topic's status, describing it unless it is known to exist or was just found not to. Of
    * concurrent callers needing a describe, one (the leader) describes and the others wait for its
    * answer. If the leader was interrupted its answer is no answer: it is neither cached nor handed
-   * to the waiters, which then describe themselves. A waiter interrupted while waiting gets {@link
+   * to the waiters, which then describe themselves. If the leader's describe throws, the waiters
+   * rethrow its exception. A waiter that waits longer than the timeout plus one second gets {@link
+   * TopicStatus#UNREACHABLE}, uncached. A waiter interrupted while waiting gets {@link
    * TopicStatus#UNREACHABLE} with its interrupt flag set, uncached, as {@link DlqClient#describe}
    * does.
    */
