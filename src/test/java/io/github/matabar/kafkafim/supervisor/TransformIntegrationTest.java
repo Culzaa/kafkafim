@@ -1,0 +1,275 @@
+package io.github.matabar.kafkafim.supervisor;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
+
+import io.github.matabar.kafkafim.KafkaTestContainers;
+import io.github.matabar.kafkafim.KafkaTopics;
+import io.github.matabar.kafkafim.config.KafkafimProperties;
+import io.github.matabar.kafkafim.decode.TestSteps;
+import io.github.matabar.kafkafim.dlq.DlqOptions;
+import io.github.matabar.kafkafim.sink.es.BreakerSettings;
+import io.github.matabar.kafkafim.sink.es.ClientSettings;
+import io.github.matabar.kafkafim.source.kafka.SourceOptions;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Properties;
+import java.util.UUID;
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.header.Header;
+import org.apache.kafka.common.serialization.ByteArrayDeserializer;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.testcontainers.elasticsearch.ElasticsearchContainer;
+import org.testcontainers.kafka.KafkaContainer;
+import org.testcontainers.lifecycle.Startables;
+import org.testcontainers.utility.DockerImageName;
+import tools.jackson.databind.json.JsonMapper;
+
+/**
+ * Route transforms end to end (DESIGN §8, ADR-0047) against a real broker and Elasticsearch 8.19,
+ * with the framework's test ops (the transform framework ships without a production op): a copy of
+ * a transformed route reaches Elasticsearch with its rewritten bytes, a copy of a plain route keeps
+ * the record's bytes, and a copy whose step fails is dead-lettered with the original value, its
+ * target headers and {@code error.type=transform}, while its offset is committed.
+ */
+class TransformIntegrationTest {
+
+  private static final KafkaContainer KAFKA =
+      KafkaTestContainers.kafka().withEnv("KAFKA_AUTO_CREATE_TOPICS_ENABLE", "false");
+
+  private static final ElasticsearchContainer ES =
+      new ElasticsearchContainer(
+              DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.19.0"))
+          .withEnv("xpack.security.enabled", "false")
+          .withEnv("ES_JAVA_OPTS", "-Xms512m -Xmx512m -XX:TieredStopAtLevel=1")
+          // Parallel Failsafe forks can boot several nodes at once; the 60 s default is tight.
+          .withStartupTimeout(Duration.ofMinutes(3));
+
+  private static final Duration TIMEOUT = Duration.ofSeconds(90);
+  private static final JsonMapper JSON = JsonMapper.builder().build();
+
+  private static Admin admin;
+  private static KafkaProducer<byte[], byte[]> producer;
+  private static HttpClient http;
+
+  private PipelineResources resources;
+  private PipelineSupervisor supervisor;
+
+  @BeforeAll
+  static void startContainers() {
+    Startables.deepStart(KAFKA, ES).join();
+    admin = KafkaTopics.awaitedAdmin(KAFKA.getBootstrapServers());
+    producer = new KafkaProducer<>(KafkaTopics.seedingProducerConfig(KAFKA.getBootstrapServers()));
+    http = HttpClient.newHttpClient();
+  }
+
+  @AfterAll
+  static void stopContainers() {
+    if (producer != null) {
+      producer.close();
+    }
+    if (admin != null) {
+      admin.close();
+    }
+    if (http != null) {
+      http.close();
+    }
+    ES.stop();
+    KAFKA.stop();
+  }
+
+  @AfterEach
+  void close() {
+    if (supervisor != null) {
+      supervisor.stop();
+    }
+    if (resources != null) {
+      resources.close();
+    }
+  }
+
+  @Test
+  void transformedCopiesAreRewrittenPlainCopiesKeepTheirBytesAndFailuresAreDeadLettered()
+      throws Exception {
+    String id = "tx" + UUID.randomUUID().toString().substring(0, 8); // topic and index prefix
+    String topic = id;
+    String dlqTopic = topic + ".kafkafim-dlq";
+    KafkaTopics.create(
+        admin, List.of(new NewTopic(topic, 1, (short) 1), new NewTopic(dlqTopic, 1, (short) 1)));
+    startPipeline(topic, id);
+
+    // A noop step still rewrites: compact one line, exact number value, 1e3 spelled 1E+3.
+    String eu = "{ \"id\": \"eu-1\",\n  \"region\": \"eu\", \"price\": 1.10, \"exp\": 1e3 }";
+    String other = "{ \"id\": \"us-1\", \"region\": \"us\", \"exp\": 1e3 }";
+    String bad = "{\"id\":\"bad-1\",\"region\":\"bad\",\"kind\":\"k\",\"a\":\"s\"}";
+    send(topic, eu);
+    send(topic, other);
+    send(topic, bad);
+    // An array record: each element is its own copy; the second one fails on its own.
+    send(topic, "[" + eu.replace("eu-1", "eu-2") + "," + bad.replace("bad-1", "bad-2") + "]");
+
+    await().atMost(TIMEOUT).untilAsserted(() -> assertThat(count(id + "-*")).isEqualTo(3));
+    String transformed = source(id + "-eu", "eu-1");
+    assertThat(transformed)
+        .isEqualTo(
+            "{\"id\":\"eu-1\",\"region\":\"eu\",\"price\":1.10,\"exp\":1E+3,\"stamp\":\"x\"}");
+    assertThat(source(id + "-eu", "eu-2")).contains("\"stamp\":\"x\"");
+    assertThat(source(id + "-other", "us-1")).contains("\"exp\": 1e3").doesNotContain("stamp");
+
+    List<ConsumerRecord<byte[], byte[]>> dead = awaitRecords(dlqTopic, 2);
+    assertThat(dead)
+        .allSatisfy(r -> {
+          assertThat(header(r, "kafkafim.error.type")).isEqualTo("transform");
+          assertThat(header(r, "kafkafim.target.cluster")).isEqualTo("es");
+          assertThat(header(r, "kafkafim.target.index")).isEqualTo(id + "-bad-k");
+          assertThat(header(r, "kafkafim.error.reason"))
+              .startsWith("route bad, step 1 (fail /a/b): ")
+              .doesNotContain("bad-");
+        });
+    // The DLQ value is the original record value, an array element's record included.
+    assertThat(dead.stream().map(r -> new String(r.value(), StandardCharsets.UTF_8)))
+        .containsExactlyInAnyOrder(
+            bad, "[" + eu.replace("eu-1", "eu-2") + "," + bad.replace("bad-1", "bad-2") + "]");
+    assertThat(dead.stream().map(r -> header(r, "kafkafim.doc-index")))
+        .containsExactlyInAnyOrder("", "1");
+    assertThat(count(id + "-bad-k")).isZero();
+
+    await()
+        .atMost(TIMEOUT)
+        .untilAsserted(() ->
+            assertThat(
+                    admin
+                        .listConsumerGroupOffsets("kafkafim.p")
+                        .partitionsToOffsetAndMetadata()
+                        .get()
+                        .values()
+                        .stream()
+                        .mapToLong(o -> o.offset())
+                        .sum())
+                .isEqualTo(4));
+  }
+
+  private void startPipeline(String topic, String id) {
+    KafkafimProperties properties =
+        TestConfigs.bind(
+            """
+            kafkafim:
+              kafka:
+                clusters:
+                  k: { bootstrap-servers: ["%s"] }
+              elasticsearch:
+                clusters:
+                  es: { uris: ["http://%s"] }
+              pipelines:
+                p:
+                  source: { cluster: k, topics: [%s] }
+                  routes:
+                    - name: eu
+                      when: [ { field: /region, equals: eu } ]
+                      cluster: es
+                      index: "%s-eu"
+                      transform: [ { op: noop }, { op: append, field: stamp, value: x } ]
+                    - name: bad
+                      when: [ { field: /region, equals: bad } ]
+                      cluster: es
+                      index: "%s-bad-%%{kind}"
+                      transform: [ { op: fail, field: /a/b } ]
+                    - { name: other, default: true, cluster: es, index: "%s-other" }
+            """
+                .formatted(
+                    KAFKA.getBootstrapServers(), ES.getHttpHostAddress(), topic, id, id, id));
+    ListenerRelay relay = new ListenerRelay(List.of(), List.of());
+    resources =
+        new PipelineResources(
+            relay,
+            p -> (cluster, identity) -> Preflight.Status.OK,
+            new PipelineResources.Settings(
+                SourceOptions.defaults(),
+                Duration.ofSeconds(1),
+                DlqOptions.DEFAULTS,
+                ClientSettings.DEFAULT,
+                BreakerSettings.DEFAULT,
+                Clock.systemUTC(),
+                TestSteps.REGISTRY));
+    supervisor = new PipelineSupervisor(properties, resources, List.of());
+    relay.attach(supervisor);
+    supervisor.start();
+    await().atMost(TIMEOUT).until(() -> supervisor.state("p") == PipelineState.RUNNING);
+  }
+
+  private static void send(String topic, String value) throws Exception {
+    producer
+        .send(
+            new ProducerRecord<byte[], byte[]>(topic, null, value.getBytes(StandardCharsets.UTF_8)))
+        .get();
+  }
+
+  private static List<ConsumerRecord<byte[], byte[]>> awaitRecords(String topic, int expected) {
+    List<ConsumerRecord<byte[], byte[]>> records = new ArrayList<>();
+    await()
+        .atMost(TIMEOUT)
+        .untilAsserted(() -> {
+          records.clear();
+          Properties config = new Properties();
+          config.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers());
+          config.put(ConsumerConfig.GROUP_ID_CONFIG, "it-reader-" + UUID.randomUUID());
+          config.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+          config.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);
+          config.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class);
+          try (KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(config)) {
+            consumer.subscribe(List.of(topic));
+            long deadline = System.nanoTime() + Duration.ofSeconds(2).toNanos();
+            while (System.nanoTime() < deadline) {
+              consumer.poll(Duration.ofMillis(200)).forEach(records::add);
+            }
+          }
+          assertThat(records).hasSize(expected);
+        });
+    return records;
+  }
+
+  private static String header(ConsumerRecord<byte[], byte[]> record, String name) {
+    Header header = record.headers().lastHeader(name);
+    return header == null ? "" : new String(header.value(), StandardCharsets.UTF_8);
+  }
+
+  private static HttpResponse<String> es(String method, String path) throws Exception {
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create("http://" + ES.getHttpHostAddress() + path))
+            .header("Content-Type", "application/json")
+            .method(method, HttpRequest.BodyPublishers.noBody())
+            .build();
+    return http.send(request, HttpResponse.BodyHandlers.ofString());
+  }
+
+  private static long count(String indices) throws Exception {
+    es("POST", "/" + indices + "/_refresh?ignore_unavailable=true&allow_no_indices=true");
+    HttpResponse<String> response =
+        es("GET", "/" + indices + "/_count?ignore_unavailable=true&allow_no_indices=true");
+    return response.statusCode() == 200 ? JSON.readTree(response.body()).get("count").asLong() : 0;
+  }
+
+  /** The {@code _source} of a document, as the text Elasticsearch stored it. */
+  private static String source(String index, String id) throws Exception {
+    String body = es("GET", "/" + index + "/_doc/" + id).body();
+    assertThat(JSON.readTree(body).path("found").asBoolean()).isTrue();
+    int start = body.indexOf("\"_source\":") + "\"_source\":".length();
+    return body.substring(start, body.length() - 1); // _source is the last member
+  }
+}

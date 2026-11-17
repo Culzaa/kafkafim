@@ -3,6 +3,9 @@ package io.github.matabar.kafkafim.supervisor;
 import io.github.matabar.kafkafim.decode.DecodeError;
 import io.github.matabar.kafkafim.decode.DecodeResult;
 import io.github.matabar.kafkafim.decode.DocumentOutcome;
+import io.github.matabar.kafkafim.decode.DocumentTransform;
+import io.github.matabar.kafkafim.decode.ErrorType;
+import io.github.matabar.kafkafim.decode.TransformException;
 import io.github.matabar.kafkafim.dlq.DlqClosedException;
 import io.github.matabar.kafkafim.dlq.DlqRequest;
 import io.github.matabar.kafkafim.route.HeaderLookup;
@@ -28,6 +31,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import tools.jackson.databind.JsonNode;
 
 /**
  * The data path of one pipeline (DESIGN §4.2, §4.3): decodes each record, routes each document,
@@ -38,15 +42,17 @@ import org.slf4j.LoggerFactory;
  * number with {@link InboundRecord#expectParts}: one part per routed copy of a decoded document
  * (fan-out in {@code route-mode: all} makes several), one per document that fails decoding or
  * routing ({@code missing_id}, {@code bad_timestamp}, {@code decode}, {@code no_route}, {@code
- * unresolved_index}), one per document a drop route selected, and exactly one for a record that
- * fails as a whole (oversize, undecodable). Each document is routed before its id, version and
- * timestamp problems apply ({@link DocumentOutcome.Unindexable}); such a problem is still one part
- * per document, whatever the fan-out, and a dropped document is never checked for one. An empty
- * array has zero parts and completes at once. A part completes when Elasticsearch acked the action
- * ({@code indexed} or {@code stale}), when the DLQ broker acknowledged its DLQ record (the sink's
- * {@code dlq} outcomes and every decode or route failure), or, for a dropped document, as soon as
- * it is dispatched: a record whose documents all drop completes at once. A DLQ send that fails at
- * shutdown leaves the part, and so the record, incomplete: it is re-delivered.
+ * unresolved_index}), one per routed copy whose route's {@code transform} steps cannot apply
+ * ({@code transform}, like {@code unresolved_index}: the other copies go ahead), one per document a
+ * drop route selected, and exactly one for a record that fails as a whole (oversize, undecodable).
+ * Each document is routed before its id, version and timestamp problems apply ({@link
+ * DocumentOutcome.Unindexable}); such a problem is still one part per document, whatever the
+ * fan-out, and a dropped document is never checked for one. An empty array has zero parts and
+ * completes at once. A part completes when Elasticsearch acked the action ({@code indexed} or
+ * {@code stale}), when the DLQ broker acknowledged its DLQ record (the sink's {@code dlq} outcomes
+ * and every decode or route failure), or, for a dropped document, as soon as it is dispatched: a
+ * record whose documents all drop completes at once. A DLQ send that fails at shutdown leaves the
+ * part, and so the record, incomplete: it is re-delivered.
  *
  * <p>Thread-safety: {@link #process} runs on consumer threads, {@link #onOutcome} on sink sender
  * threads and DLQ completions on DLQ threads; the part counter lives in the source's record.
@@ -237,14 +243,41 @@ final class RecordProcessor {
               docIndex));
       return;
     }
-    byte[] source = null;
+    byte[] source = null; // shared by the routes without transform steps
+    JsonNode exact = null; // the exact parse, shared by the routes with transform steps
     for (Route<RouteTarget> route : routes) {
       RouteTarget target = route.target();
       IndexResolution resolution = route.index().resolve(doc.node(), doc.timestamp());
       switch (resolution) {
         case IndexResolution.Resolved resolved -> {
-          if (source == null) {
-            source = doc.source().toByteArray();
+          byte[] bytes;
+          if (target.transform() == null) {
+            if (source == null) {
+              source = doc.source().toByteArray();
+            }
+            bytes = source;
+          } else {
+            try {
+              if (exact == null) {
+                exact = DocumentTransform.parseExact(doc.source());
+              }
+              bytes = target.transform().apply(exact).toByteArray();
+            } catch (TransformException e) {
+              // The DLQ record keeps the original value bytes (request), and the index is
+              // already resolved, so its headers name the cluster and the index.
+              parts.add(
+                  dlq(
+                      inbound,
+                      ErrorType.TRANSFORM.wireName(),
+                      e.getMessage(),
+                      target.cluster(),
+                      resolved.index(),
+                      1,
+                      now(),
+                      docIndex,
+                      target.label()));
+              continue;
+            }
           }
           parts.add(
               new IndexPart(
@@ -254,7 +287,7 @@ final class RecordProcessor {
                       pipeline.op(),
                       doc.version().isPresent() ? doc.version().getAsLong() : null,
                       target.ingestPipeline(),
-                      source,
+                      bytes,
                       new DocumentRef(inbound, docIndex, target))));
         }
         case IndexResolution.Failure failure ->

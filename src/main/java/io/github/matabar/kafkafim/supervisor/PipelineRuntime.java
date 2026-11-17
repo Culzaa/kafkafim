@@ -2,6 +2,7 @@ package io.github.matabar.kafkafim.supervisor;
 
 import io.github.matabar.kafkafim.config.KafkafimProperties;
 import io.github.matabar.kafkafim.config.Pipeline;
+import io.github.matabar.kafkafim.decode.StepRegistry;
 import io.github.matabar.kafkafim.dlq.DlqProducers;
 import io.github.matabar.kafkafim.dlq.DlqWriter;
 import io.github.matabar.kafkafim.sink.es.BulkSink;
@@ -102,6 +103,7 @@ final class PipelineRuntime {
    * @param sourceOptions source timings
    * @param sinkCloseTimeout how long a stop waits for the sinks
    * @param clock record processor clock
+   * @param steps the ops a route's {@code transform} can name
    */
   record Context(
       KafkafimProperties properties,
@@ -111,7 +113,8 @@ final class PipelineRuntime {
       Preflight.AuthCheck authCheck,
       SourceOptions sourceOptions,
       Duration sinkCloseTimeout,
-      Clock clock) {}
+      Clock clock,
+      StepRegistry steps) {}
 
   private final String name;
   private final Consumer<PipelineRuntime> onChange;
@@ -438,7 +441,7 @@ final class PipelineRuntime {
     DlqWriter writer;
     ConsumerFactory<byte[], byte[]> consumers;
     try {
-      compiled = PipelineMapping.compile(name, context.properties());
+      compiled = PipelineMapping.compile(name, context.properties(), context.steps());
       writer = context.dlqProducers().writer(name);
       // Resolved here, so a passthrough key kafkafim owns fails the pipeline, not the group check.
       consumers =

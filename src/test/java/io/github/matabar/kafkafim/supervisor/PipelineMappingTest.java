@@ -5,7 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.matabar.kafkafim.config.KafkafimProperties;
 import io.github.matabar.kafkafim.config.Pipeline;
+import io.github.matabar.kafkafim.config.TransformRules;
 import io.github.matabar.kafkafim.decode.DecodeSpec;
+import io.github.matabar.kafkafim.decode.StepRegistry;
+import io.github.matabar.kafkafim.decode.TestSteps;
 import io.github.matabar.kafkafim.route.ConditionSpec;
 import io.github.matabar.kafkafim.route.RouteMode;
 import io.github.matabar.kafkafim.route.RouteSpec;
@@ -199,5 +202,49 @@ class PipelineMappingTest {
   void unknownPipelineIsRejected() {
     assertThatThrownBy(() -> PipelineMapping.compile("nope", properties))
         .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  private static final String TRANSFORM_YAML =
+      """
+      p:
+        source: { cluster: k, topics: [t] }
+        routes:
+          - name: shaped
+            when: [ { field: /a, exists: true } ]
+            cluster: es
+            index: a
+            transform: [ { op: noop }, { op: append, field: x, value: "1" } ]
+          - { default: true, cluster: es, index: b }
+      """;
+
+  @Test
+  void compilesTransformPerRouteAndNoneForRoutesWithout() {
+    CompiledPipeline compiled =
+        PipelineMapping.compile("p", TestConfigs.withPipelines(TRANSFORM_YAML), TestSteps.REGISTRY);
+
+    assertThat(PipelineMappingTest.targets(compiled))
+        .extracting(t -> t.transform() == null ? 0 : t.transform().size())
+        .containsExactly(2, 0);
+  }
+
+  @Test
+  void opMissingFromTheRegistryFailsThePipelineWithRouteAndStep() {
+    assertThatThrownBy(
+            () -> PipelineMapping.compile("p", TestConfigs.withPipelines(TRANSFORM_YAML)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("route shaped, step 1: unknown op 'noop'");
+  }
+
+  /** The config validator and the decoder must accept the same ops (ADR-0003 keeps them apart). */
+  @Test
+  void configAndDecodeKnowTheSameOps() {
+    assertThat(TransformRules.ops())
+        .isEqualTo(new java.util.TreeSet<>(StepRegistry.BUILT_IN.ops()));
+  }
+
+  private static List<RouteTarget> targets(CompiledPipeline compiled) {
+    return PipelineMapping.routeSpecs(compiled.config(), TestSteps.REGISTRY).stream()
+        .map(RouteSpec::target)
+        .toList();
   }
 }
