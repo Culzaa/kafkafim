@@ -195,6 +195,18 @@ Where to read it:
 - **Logs**: every transition is logged at INFO as `Pipeline '<name>': <from> -> <to>`;
   a pause as WARN `Pipeline '<name>': pausing (<reason>)` and its end as INFO
   `Pipeline '<name>': <reason> cleared`.
+- **Which log levels need action**: ERROR always needs a look: a pipeline `failed` or
+  `failed_preflight`, a reload that failed or was rejected, a pipeline that
+  `could not be started again` after a rolled-back reload, a `stopping the half-started
+  container failed` (a consumer may still hold partitions: restart the pod if the group
+  does not settle), a sink outcome callback or a record, revoke or lost-partitions handler
+  that threw. WARN is informational unless it repeats or the matching metric stays bad: a
+  pause, a retried request, DLQ records, a
+  close or cleanup that failed (`Closing ... failed`, `Dropping the DLQ writer ...
+  failed`: the resource is released with the process at the latest), records that will be
+  re-delivered. INFO is routine, including the watcher falling back to polling and an
+  interrupted DLQ producer close. A telemetry listener that threw is WARN. Alert on ERROR
+  (except the harmless one below); use the metrics for WARN conditions.
 - **Harmless ERROR after a stop or reload**: a stop or reload that interrupts an Elasticsearch
   preflight check within milliseconds of its start can log `ERROR
   org.apache.hc.client5.http.impl.async` with a
@@ -256,6 +268,49 @@ release bundle's `kafkafim-<ver>-grafana/` (what the air gap loads, see
 the [Grafana README](../deploy/grafana/README.md) for importing the dashboards
 and loading the rules. Every alert's `runbook_url` points to a section of §5 (or
 §3.1), and each of those sections names the alerts that lead to it.
+
+### 3.4 Checking the Kafka spans in Elastic APM
+
+kafkafim exports traces over OTLP to the same endpoint as metrics and logs
+([DESIGN §10](DESIGN.md#traces), [ADR-0049](decisions/0049-kafka-clients-are-instrumented-with-the-otel-library-and-micrometer.md)).
+In Elastic APM, open Traces for the service `kafkafim` (filter `service.instance.id` for
+one pod). A healthy trace reads, from the top: the producer's `publish` span, kafkafim's
+`<topic> process` span (consumer), `pipeline.batch`, then one or more `es.bulk` spans. A
+dead-lettered record adds a `publish` span under its `process` span, with the DLQ
+topic.
+
+- **Process spans are tiny.** They last microseconds, because kafkafim processes the
+  record after the poll: the span marks delivery. Look at `pipeline.batch` and `es.bulk`
+  for time spent. This is normal, not an outage.
+- **No receive spans.** They are off. A trace without them is complete.
+- **Sampling.** The Kafka producer's sampler decides whether a record's trace is kept, and
+  kafkafim follows it: a healthy batch is kept exactly when its process span is. Only
+  batches without a Kafka parent are sampled at 1%. A failed batch is always exported,
+  even when its parent was not sampled; then it has no Kafka parent in the trace view.
+  A trace that starts at `pipeline.batch` is therefore expected for failed batches and
+  for records produced without tracing.
+- **Duplicates.** Each Kafka client is instrumented once. Two `process` spans for one
+  record (same topic, partition and `messaging.kafka.message.offset`), or two sets of
+  `kafka_consumer_*` series, mean a second mechanism is active: check that
+  `-javaagent` is not in `JAVA_TOOL_OPTIONS` or the image, and that nothing enables Spring
+  Kafka observation. kafkafim never does either.
+- **Span volume.** One `process` span exists per record, so at high throughput the span
+  count follows the topic's rate times the producer's sampling rate. If APM storage or
+  ingest climbs after a rollout, compare the span rate with `kafkafim_records_consumed_total`,
+  and lower the sampling at the producers (or `management.tracing.sampling.probability`
+  for batches that have no Kafka parent). While Elasticsearch pushes back (429s), nearly
+  every batch is a failed batch and is always kept, so volume rises then too
+  ([DESIGN §10](DESIGN.md#traces)).
+- **Client metrics.** `kafka_consumer_*` and `kafka_producer_*` (over OTLP
+  `kafka.consumer.*`, `kafka.producer.*`) come from Micrometer, tagged `pipeline` and
+  `kafka_cluster` (the DLQ producer: `kafka_cluster` and `dlq_instance`). They are gone
+  when a pipeline stops. Consumer lag is not among them
+  ([ADR-0034](decisions/0034-consumer-lag-is-monitored-outside-kafkafim.md)).
+- **Library risk.** The Kafka tracing library is an alpha artifact whose parenting hook
+  uses an internal class. If, after an upgrade, `pipeline.batch` spans stop having a
+  Kafka parent (and DLQ `publish` spans have no `process` parent) but still carry links, that
+  hook broke: the pipeline is unaffected, and
+  the fix is a version pin or a code change.
 
 ## 4. Hot reload and secret rotation
 
