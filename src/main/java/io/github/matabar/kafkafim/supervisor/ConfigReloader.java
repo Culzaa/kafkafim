@@ -319,7 +319,7 @@ final class ConfigReloader implements SmartLifecycle {
         return;
       }
       LOG.info(
-          "Configuration change not applied, the supervisor is shutting down: {}", e.getMessage());
+          "Configuration change not applied, the supervisor is shutting down: {}", firstLine(e));
     }
   }
 }
