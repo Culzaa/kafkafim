@@ -54,7 +54,7 @@
 		<!-- true skips only the floor check (CI's partial jobs); jacoco.skip would also stop data collection -->
 		<jacoco.check.skip>false</jacoco.check.skip>
 		<!-- Mutation testing of route and decode (docs/DELIVERY.md, "Mutation testing") -->
-		<pitest.version>1.30.1</pitest.version>
+		<pitest.version>1.30.2</pitest.version>
 		<pitest-junit5.version>1.2.3</pitest-junit5.version>
 		<!-- Measured 2026-11-17: 95.7 % of 511 mutants killed (489), identical in two runs of about 30 s.
 		     The floor sits just below; raise it when the score rises. -->
