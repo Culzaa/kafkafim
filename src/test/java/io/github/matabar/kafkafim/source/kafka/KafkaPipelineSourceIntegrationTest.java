@@ -268,6 +268,44 @@ class KafkaPipelineSourceIntegrationTest {
   }
 
   @Test
+  void stopAfterHandlerFailureDoesNotWaitForTheDrainTimeout() throws Exception {
+    assertFastStopAfter(record -> {
+      throw new IllegalStateException("boom");
+    });
+  }
+
+  @Test
+  void stopAfterTheConsumerDiedDoesNotWaitForTheDrainTimeout() throws Exception {
+    assertFastStopAfter(record -> {
+      throw new LinkageError("fatal");
+    });
+  }
+
+  /** Records the failed handler never took stay pending forever; stop must not wait for them. */
+  private void assertFastStopAfter(Consumer<SourceRecord> handler) throws Exception {
+    String topic = createTopic(1);
+    produce(topic, 0, 3, 10);
+    Recorder recorder = new Recorder(handler);
+    Duration drainTimeout = Duration.ofSeconds(60);
+    KafkaPipelineSource source =
+        new KafkaPipelineSource(
+            "failed-stop",
+            source(topic, 500, DataSize.ofMegabytes(1)),
+            factories.get("local", null),
+            recorder,
+            SourceOptions.defaults().withDesiredConcurrency(1).withDrainTimeout(drainTimeout));
+    source.start();
+    started.add(source);
+    await().atMost(TIMEOUT).until(() -> !recorder.failures.isEmpty());
+
+    long begin = System.nanoTime();
+    source.stop();
+    assertThat(Duration.ofNanos(System.nanoTime() - begin))
+        .as("stop() after a failure")
+        .isLessThan(drainTimeout.dividedBy(2));
+  }
+
+  @Test
   void consumerStoppingOnItsOwnIsReported() throws Exception {
     String topic = createTopic(1);
     produce(topic, 0, 1, 10);
