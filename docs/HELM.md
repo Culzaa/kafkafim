@@ -127,7 +127,9 @@ For each `groups.<g>`:
   `NetworkPolicy` / `ServiceMonitor`) are named `<fullname>` and select every group.
 - Group defaults: top-level `resources`, `nodeSelector`, `tolerations`, `affinity`,
   and `pdb` apply to every group that does not set its own (a group's value replaces the
-  default, it is not merged); `podAnnotations` are merged, the group's winning.
+  default, it is not merged). An empty group value (`tolerations: []`,
+  `nodeSelector: {}`, `affinity: {}`, `resources: {}`) replaces the top-level one too, so a
+  group can opt out; an absent or `null` key inherits. `podAnnotations` are merged, the group's winning.
   `replicas` defaults to 2. In a `pdb`, `maxUnavailable` wins over `minAvailable`
   when both are set (so overriding the default `minAvailable: 1` needs no `null`).
   A single-replica group (`allowSingleReplica` with `replicas`, or
