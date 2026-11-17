@@ -51,12 +51,17 @@ public record ElasticsearchCluster(
   }
 
   /**
-   * Masks the userinfo of a URI string ({@code https://user:pass@host} becomes {@code
-   * https://[hidden]@host}) so the text is safe to print; the validator rejects userinfo, but the
-   * rejected value must not be echoed.
+   * Masks everything between the scheme and the last {@code @} of a URI string ({@code
+   * https://user:pass@host} becomes {@code https://[hidden]@host}), so the text is safe to print.
+   * Deliberately generous: a password holding {@code /}, {@code ?} or {@code #}, a missing {@code
+   * //} or a missing scheme still hides the credential. An {@code @} in a path is masked too, which
+   * only matters in diagnostics. The validator rejects userinfo; the rejected value must not be
+   * echoed.
    */
   static String maskUserInfo(@Nullable String uri) {
-    return uri == null ? "" : uri.replaceFirst("(?s)^([^/?#]*//)[^/?#]*@", "$1[hidden]@");
+    return uri == null
+        ? ""
+        : uri.replaceFirst("(?s)^((?:[A-Za-z][A-Za-z0-9+.-]*:)?(?://)?).*@", "$1[hidden]@");
   }
 
   /** Masks any userinfo in the URIs (§5.5). */
