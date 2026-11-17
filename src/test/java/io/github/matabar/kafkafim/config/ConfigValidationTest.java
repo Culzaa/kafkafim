@@ -170,6 +170,60 @@ class ConfigValidationTest {
           K + ".identities.reader.sasl.username=u");
     }
 
+    @ParameterizedTest
+    @ValueSource(
+        strings = {
+          "group.id",
+          "enable.auto.commit",
+          "key.deserializer",
+          "client.id",
+          "bootstrap.servers",
+          "security.protocol",
+          "acks",
+          "retries",
+          "key.serializer",
+          "transactional.id",
+          "interceptor.classes"
+        })
+    void rejectsPassthroughKeysKafkafimOwns(String key) {
+      List<String> errors = ConfigTestSupport.errors(MINIMAL, K + ".properties[" + key + "]=x");
+      assertThat(errors)
+          .anyMatch(e -> e.startsWith(K + ".properties[" + key + "]: kafkafim sets this key"));
+      assertThat(String.join("\n", errors)).doesNotContain("=x");
+    }
+
+    @Test
+    void rejectsSecurityKeysDerivedFromTheClusterAndItsIdentities() {
+      List<String> errors =
+          ConfigTestSupport.errors(
+              MINIMAL,
+              K + ".security-protocol=SASL_SSL",
+              K + ".ssl.truststore-location=/t.p12",
+              K + ".identities.r.sasl.mechanism=SCRAM-SHA-256",
+              K + ".identities.r.sasl.username=u",
+              K + ".identities.r.sasl.password=p",
+              K + ".identities.m.ssl.keystore-location=/k.p12",
+              K + ".properties[ssl.truststore.location]=/other",
+              K + ".properties[sasl.jaas.config]=x",
+              K + ".properties[sasl.mechanism]=PLAIN",
+              K + ".properties[ssl.keystore.location]=/other");
+      assertThat(errors)
+          .anyMatch(e -> e.startsWith(K + ".properties[ssl.truststore.location]:"))
+          .anyMatch(e -> e.startsWith(K + ".properties[sasl.jaas.config]:"))
+          .anyMatch(e -> e.startsWith(K + ".properties[sasl.mechanism]:"))
+          .anyMatch(e -> e.startsWith(K + ".properties[ssl.keystore.location]:"));
+    }
+
+    @Test
+    void acceptsPassthroughKeysKafkafimDoesNotOwn() {
+      assertValid(
+          MINIMAL,
+          K + ".properties[fetch.max.bytes]=1048576",
+          K + ".properties[enable.idempotence]=false",
+          K + ".properties[sasl.jaas.config]=x",
+          "kafkafim.allow-inline-secrets=true");
+    }
+
     @Test
     void acceptsGssapiWithoutPassword() {
       assertValid(

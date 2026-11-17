@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Stream;
@@ -152,6 +153,32 @@ public final class ConfigValidator {
           checkName(identityPath, "identity", name);
           checkKafkaIdentity(identityPath, identity, protocol);
         });
+    checkOwnedProperties(path, cluster);
+  }
+
+  /**
+   * A passthrough key kafkafim owns fails at pipeline start (and {@code validate} would pass it),
+   * so it is rejected here: the keys of {@link OwnedKafkaKeys} for either client, and the security
+   * keys derived from the cluster's {@code ssl} block or any identity's {@code sasl}/{@code ssl}
+   * block. Names only, never values.
+   */
+  private void checkOwnedProperties(String path, KafkaCluster cluster) {
+    Set<String> owned = new TreeSet<>();
+    cluster.properties().keySet().stream()
+        .filter(
+            key -> OwnedKafkaKeys.CONSUMER.contains(key) || OwnedKafkaKeys.PRODUCER.contains(key))
+        .forEach(owned::add);
+    Set<String> derived = new TreeSet<>(KafkaClientSecurity.properties(cluster, null).keySet());
+    cluster
+        .identities()
+        .values()
+        .forEach(
+            identity -> derived.addAll(KafkaClientSecurity.properties(cluster, identity).keySet()));
+    cluster.properties().keySet().stream().filter(derived::contains).forEach(owned::add);
+    owned.forEach(key ->
+        error(
+            path + ".properties[" + key + "]",
+            "kafkafim sets this key itself; remove it from the passthrough"));
   }
 
   private void checkKafkaIdentity(

@@ -534,8 +534,10 @@ kafkafim:
 ```
 
 A Kafka cluster's `properties` are passed to kafka-clients under kafkafim's own
-consumer settings (`source/kafka/ConsumerSettings`). A key kafkafim owns is rejected when
-the pipeline's consumer factory is built, naming the key but never its value:
+consumer settings (`source/kafka/ConsumerSettings`). A key kafkafim owns, for the
+consumer or for the DLQ producer, is rejected at bind and reload (`config/OwnedKafkaKeys`,
+plus the security keys derived from the cluster's and identities' blocks) and again when a
+client is built, naming the key but never its value. The consumer's:
 `bootstrap.servers`, `security.protocol`, `group.id`, `group.instance.id`,
 `group.protocol` (always `classic`, which the cooperative-sticky assignor needs),
 `client.id` (`kafkafim-<pipeline>-<n>`), `enable.auto.commit` (always `false`),
