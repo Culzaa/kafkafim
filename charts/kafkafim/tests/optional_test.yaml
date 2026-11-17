@@ -71,3 +71,19 @@ tests:
           path: spec.endpoints
           value:
             - { port: http, path: /actuator/prometheus, interval: 30s }
+
+  - it: an empty allowFrom renders an ingress rule without from (any source)
+    values:
+      - ../ci/minimal-values.yaml
+    template: templates/networkpolicy.yaml
+    set:
+      networkPolicy:
+        enabled: true
+        allowFrom: []
+    asserts:
+      - equal:
+          path: spec.ingress
+          value:
+            - ports:
+                - port: 8080
+                  protocol: TCP
