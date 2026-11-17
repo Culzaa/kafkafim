@@ -12,6 +12,7 @@ import io.github.matabar.kafkafim.sink.es.ClientSettings;
 import io.github.matabar.kafkafim.sink.es.ElasticsearchSinks;
 import io.github.matabar.kafkafim.source.kafka.ConsumerFactories;
 import io.github.matabar.kafkafim.source.kafka.SourceOptions;
+import io.opentelemetry.instrumentation.kafkaclients.v2_6.KafkaTelemetry;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -120,6 +121,7 @@ final class PipelineResources implements SmartLifecycle, AutoCloseable {
   private final ListenerRelay relay;
   private final Function<KafkafimProperties, Preflight.AuthCheck> authChecks;
   private final Settings settings;
+  private final @Nullable KafkaTelemetry kafkaTelemetry;
 
   private final Map<String, KafkaHandle> currentKafka = new HashMap<>(); // guarded by this
   private final Map<String, EsHandle> currentEs = new HashMap<>(); // guarded by this
@@ -133,9 +135,18 @@ final class PipelineResources implements SmartLifecycle, AutoCloseable {
       ListenerRelay relay,
       Function<KafkafimProperties, Preflight.AuthCheck> authChecks,
       Settings settings) {
+    this(relay, authChecks, settings, null);
+  }
+
+  PipelineResources(
+      ListenerRelay relay,
+      Function<KafkafimProperties, Preflight.AuthCheck> authChecks,
+      Settings settings,
+      @Nullable KafkaTelemetry kafkaTelemetry) {
     this.relay = relay;
     this.authChecks = authChecks;
     this.settings = settings;
+    this.kafkaTelemetry = kafkaTelemetry;
   }
 
   /**
@@ -494,7 +505,7 @@ final class PipelineResources implements SmartLifecycle, AutoCloseable {
       super(cluster);
       this.definition = definition;
       this.properties = properties;
-      this.consumerFactories = new ConsumerFactories(properties);
+      this.consumerFactories = new ConsumerFactories(properties, kafkaTelemetry);
       AtomicReference<Object> owner = new AtomicReference<>();
       this.dlq = new DlqProducers(properties, relay.dlqListener(owner::get), settings.dlqOptions());
       owner.set(dlq);

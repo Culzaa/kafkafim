@@ -11,6 +11,8 @@ import io.github.matabar.kafkafim.config.KafkaCluster.SecurityProtocol;
 import io.github.matabar.kafkafim.config.KafkaCluster.Trust;
 import io.github.matabar.kafkafim.config.KafkafimProperties;
 import io.github.matabar.kafkafim.config.Pipeline;
+import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.instrumentation.kafkaclients.v2_6.KafkaTelemetry;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -21,6 +23,7 @@ import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.util.unit.DataSize;
 
 class ConsumerSettingsTest {
@@ -215,5 +218,23 @@ class ConsumerSettingsTest {
         .isInstanceOf(IllegalArgumentException.class);
     assertThatThrownBy(() -> factories.get("missing", null))
         .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void consumersAreWrappedByTheTelemetryOnlyWhenOneIsGiven() {
+    KafkaCluster cluster = new KafkaCluster(List.of("k1:9092"), null, null, null, null, Map.of());
+    KafkafimProperties properties =
+        new KafkafimProperties(
+            false, new KafkafimProperties.Kafka(Map.of("k", cluster)), null, null);
+
+    var plain =
+        (DefaultKafkaConsumerFactory<?, ?>) new ConsumerFactories(properties).get("k", null);
+    var traced =
+        (DefaultKafkaConsumerFactory<?, ?>)
+            new ConsumerFactories(properties, KafkaTelemetry.create(OpenTelemetry.noop()))
+                .get("k", null);
+
+    assertThat(plain.getPostProcessors()).isEmpty();
+    assertThat(traced.getPostProcessors()).hasSize(1);
   }
 }
