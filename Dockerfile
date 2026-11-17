@@ -3,14 +3,17 @@
 # job); this file only layers it. See docs/DELIVERY.md.
 ARG JAR_FILE=target/*.jar
 
+# Both stages pin the multi-arch index digest (amd64 + arm64); Dependabot's docker
+# ecosystem bumps the tag and digest together. Keep the two image references identical.
+
 # Extraction output is platform-independent: run it natively instead of under QEMU.
-FROM --platform=$BUILDPLATFORM eclipse-temurin:27-jre AS extract
+FROM --platform=$BUILDPLATFORM eclipse-temurin:27-jre@sha256:acfb350b50e707addf3dcbb47f7052d1882d1e5f1670ce838a9c7838d82d4fe5 AS extract
 WORKDIR /build
 ARG JAR_FILE
 COPY ${JAR_FILE} application.jar
 RUN java -Djarmode=tools -jar application.jar extract --layers --destination extracted
 
-FROM eclipse-temurin:27-jre
+FROM eclipse-temurin:27-jre@sha256:acfb350b50e707addf3dcbb47f7052d1882d1e5f1670ce838a9c7838d82d4fe5
 LABEL org.opencontainers.image.source="https://github.com/matabar/kafkafim" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.title="kafkafim" \
