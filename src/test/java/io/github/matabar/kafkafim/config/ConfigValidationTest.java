@@ -189,7 +189,7 @@ class ConfigValidationTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"plain", "Scram-Sha-256", "scram-sha-512", "gssapi", "OAuthBearer"})
-    void rejectsMisCasedMechanismWithAHint(String mechanism) {
+    void rejectsMisCasedMechanismWithHint(String mechanism) {
       List<String> errors =
           ConfigTestSupport.errors(
               MINIMAL,
@@ -204,7 +204,7 @@ class ConfigValidationTest {
     }
 
     @Test
-    void rejectsUnknownMechanismWithoutAHint() {
+    void rejectsUnknownMechanismWithoutHint() {
       List<String> errors =
           ConfigTestSupport.errors(
               MINIMAL, K + ".security-protocol=SASL_SSL", K + ".identities.r.sasl.mechanism=NTLM");
