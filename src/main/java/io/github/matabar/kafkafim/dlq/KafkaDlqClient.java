@@ -9,6 +9,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
+import java.util.function.UnaryOperator;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.DescribeTopicsOptions;
 import org.apache.kafka.clients.producer.Callback;
@@ -92,6 +93,27 @@ final class KafkaDlqClient implements DlqClient {
     this.generation = new Generation(producers.apply(producerSettings));
     this.adminSettings = ProducerSettings.adminSettings(producerSettings);
     this.closeGrace = closeGrace;
+  }
+
+  /**
+   * A client whose every producer, the first and each replacement, goes through {@code
+   * instrumentation} right after it is created; the raw {@link KafkaProducer} stays the one this
+   * class replaces and closes the wrapper of. Each {@code send} still reaches exactly one wrapped
+   * producer, so a retry or a replacement adds an attempt (one publish span), never a duplicate.
+   */
+  static KafkaDlqClient instrumented(
+      Map<String, Object> producerSettings,
+      UnaryOperator<Producer<byte[], byte[]>> instrumentation) {
+    return instrumented(producerSettings, KafkaProducer::new, instrumentation);
+  }
+
+  /** As above, over {@code raw} producers instead of {@link KafkaProducer}s, for tests. */
+  static KafkaDlqClient instrumented(
+      Map<String, Object> producerSettings,
+      Function<Map<String, Object>, Producer<byte[], byte[]>> raw,
+      UnaryOperator<Producer<byte[], byte[]>> instrumentation) {
+    return new KafkaDlqClient(
+        producerSettings, settings -> instrumentation.apply(raw.apply(settings)));
   }
 
   @Override
