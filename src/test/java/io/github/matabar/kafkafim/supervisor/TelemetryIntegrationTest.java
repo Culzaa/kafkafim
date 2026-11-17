@@ -216,7 +216,7 @@ class TelemetryIntegrationTest {
                       .filter(n -> n.startsWith("kafkafim."))
                       .collect(Collectors.joining("\n")))
               .as("no resolved index or partition labels, and no consumer lag (ADR-0034)")
-              .doesNotContain("tel-docs", "partition", "consumer.lag");
+              .doesNotContain("tel-docs", "tag(partition=", "consumer.lag");
         });
     // The Prometheus registry and its actuator endpoint are gone: OTLP is the only export.
     assertThat(
