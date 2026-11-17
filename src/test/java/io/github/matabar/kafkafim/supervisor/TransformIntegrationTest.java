@@ -159,9 +159,10 @@ class TransformIntegrationTest {
                         .listConsumerGroupOffsets("kafkafim.p")
                         .partitionsToOffsetAndMetadata()
                         .get()
-                        .values()
+                        .entrySet()
                         .stream()
-                        .mapToLong(o -> o.offset())
+                        .filter(e -> e.getKey().topic().equals(topic))
+                        .mapToLong(e -> e.getValue().offset())
                         .sum())
                 .isEqualTo(4));
   }
