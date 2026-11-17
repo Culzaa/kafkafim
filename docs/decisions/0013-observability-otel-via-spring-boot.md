@@ -1,6 +1,9 @@
 # ADR-0013: Observability through Spring Boot's OpenTelemetry starter, OTLP to Elastic APM Server, plus Prometheus endpoint
 
-Status: accepted · Date: 2026-11-07 · Refined by [ADR-0049](0049-kafka-clients-are-instrumented-with-the-otel-library-and-micrometer.md)
+Status: accepted; the logs part ("Logs: ECS-structured JSON on stdout") is superseded by
+[ADR-0044](0044-logs-over-otlp-stdout-is-readable-text.md), with its MDC export narrowed by
+[ADR-0048](0048-only-allowlisted-mdc-keys-are-exported-over-otlp.md) · Date: 2026-11-07 ·
+Refined by [ADR-0049](0049-kafka-clients-are-instrumented-with-the-otel-library-and-micrometer.md)
 
 ## Decision
 
