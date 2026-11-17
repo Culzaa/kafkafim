@@ -226,7 +226,8 @@ final class KafkaDlqClient implements DlqClient {
     LOG.warn(
         "DLQ producer {} may be in a fatal state ({}); replacing it",
         producerSettings.get("client.id"),
-        DlqFailure.unwrap(failure).getClass().getSimpleName());
+        DlqFailure.unwrap(failure).getClass().getSimpleName(),
+        DlqFailure.unwrap(failure));
     try {
       // Possibly on the failed producer's own I/O thread, where kafka-clients forces a zero
       // timeout.

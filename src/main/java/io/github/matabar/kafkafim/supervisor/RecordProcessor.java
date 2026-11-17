@@ -364,7 +364,7 @@ final class RecordProcessor {
           "Pipeline '{}': DLQ send for {} refused; the record will be re-delivered: {}",
           pipeline.name(),
           request,
-          e.toString());
+          e);
       return;
     }
     sent.whenComplete((ignored, error) -> {
@@ -384,7 +384,7 @@ final class RecordProcessor {
             "Pipeline '{}': DLQ send for {} failed; the record will be re-delivered: {}",
             pipeline.name(),
             request,
-            cause.toString());
+            cause);
       }
     });
   }

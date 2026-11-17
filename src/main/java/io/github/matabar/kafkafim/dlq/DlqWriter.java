@@ -133,7 +133,8 @@ public final class DlqWriter {
             topic,
             producer.describeIdentity(),
             failure.kind(),
-            describe(failure.cause()));
+            describe(failure.cause()),
+            failure.cause());
       } else {
         LOG.warn(
             message,
@@ -141,7 +142,8 @@ public final class DlqWriter {
             topic,
             producer.describeIdentity(),
             failure.kind(),
-            describe(failure.cause()));
+            describe(failure.cause()),
+            failure.cause());
       }
       owner.notify(listener -> listener.onBlocked(pipeline, failure));
     }
@@ -160,7 +162,8 @@ public final class DlqWriter {
         pipeline,
         topic,
         producer.describeIdentity(),
-        describe(failure.cause()));
+        describe(failure.cause()),
+        failure.cause());
   }
 
   private void recovered() {
@@ -175,7 +178,8 @@ public final class DlqWriter {
   }
 
   private static String describe(Throwable failure) {
-    return failure.getClass().getSimpleName() + ": " + failure.getMessage();
+    String message = failure.getMessage();
+    return failure.getClass().getSimpleName() + (message == null ? "" : ": " + message);
   }
 
   /** One request until it is acknowledged or abandoned. */
