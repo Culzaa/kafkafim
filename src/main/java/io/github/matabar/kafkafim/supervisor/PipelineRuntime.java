@@ -390,10 +390,13 @@ final class PipelineRuntime {
       sinks = Map.of();
     }
     try {
-      if (abandoned != null) {
-        abandoned.stop();
+      try {
+        if (abandoned != null) {
+          abandoned.stop();
+        }
+      } finally {
+        closeSinks(toClose, Duration.ZERO); // also when the source's stop threw
       }
-      closeSinks(toClose, Duration.ZERO);
     } catch (RuntimeException e) {
       LOG.warn("Pipeline '{}': discarding the failed start failed", name, e);
     }
@@ -714,10 +717,15 @@ final class PipelineRuntime {
         running = source;
         toClose = sinks;
       }
-      if (running != null) {
-        running.stop();
+      try {
+        if (running != null) {
+          running.stop();
+        }
+      } finally {
+        // Also when the source's stop threw: the sinks are forgotten below and nothing else
+        // could close them.
+        closeSinks(toClose, context.sinkCloseTimeout());
       }
-      closeSinks(toClose, context.sinkCloseTimeout());
     } finally {
       synchronized (lock) {
         // Only what this stop stopped is forgotten; no start can run while a stop is in progress.

@@ -270,10 +270,11 @@ pauses nothing yet and reads 0.
   Ids always come from the JSON content, never from the Kafka key. If missing →
   DLQ with `error.type=missing_id`, unless `document.id-missing: auto` (ES-generated
   id; duplicates on retry, startup warning).
-  A JSON string (1 to 512 UTF-8 bytes, ES's `_id` limit) is used as is; a JSON integer
-  of any size becomes its decimal digits (canonical, since JSON has no leading zeros or
-  `+`; `-0` is `0`). A number with a fraction or exponent, a boolean, an object, or an
-  array is `missing_id` in both modes: `auto` covers only an absent or `null` id.
+  A JSON string (1 to 512 UTF-8 bytes, ES's `_id` limit, no unpaired UTF-16 surrogate such
+  as `\ud800`) is used as is; a JSON integer of any size becomes its decimal digits
+  (canonical, since JSON has no leading zeros or `+`; `-0` is `0`). A number with a fraction
+  or exponent, a boolean, an object, or an array is `missing_id` in both modes: `auto` covers
+  only an absent or `null` id.
 - Optional external versioning: `document.version-field`, `version_type: external`.
   The version is a JSON integer or a string of ASCII digits in `[0, 2^63-1]`; anything
   else, including an absent or `null` version, is `error.type=decode`, because an
@@ -550,7 +551,8 @@ passes through. Consumer factories are cached per `(cluster, identity)`; every
 pipeline's container creates its own consumers.
 
 The DLQ producer (`dlq/ProducerSettings`, one per `(cluster, identity)`, `client.id`
-`kafkafim-<cluster>-<identity>-dlq`) takes the same map in three layers: kafkafim's
+`kafkafim-dlq.<cluster>.<identity>`; names never contain a dot, so ids stay distinct) takes the same
+map in three layers: kafkafim's
 defaults (`compression.type=lz4`, `max.request.size` 16 MiB, `max.block.ms` 10s), then the
 passthrough restricted to keys a producer knows (consumer-only keys such as
 `fetch.min.bytes` are dropped; keys neither client knows, such as plugin settings, pass),
@@ -1139,7 +1141,7 @@ are reported together:
 | Repeated cluster-level failures | Circuit breaker per ES cluster (Resilience4j, shared by all identities and pipelines): count window of 20 requests, opens at ≥50% failures after at least 10, stays open 10s, then lets 2 probes through. While it is open every sender for that cluster waits; pipelines routing to that cluster pause (supervisor reason `es-breaker:<cluster>`, from open until the breaker is closed again; half-open keeps the pause), others proceed. |
 | Bulk request rejected with 401 / 403 | Configuration failure, not data failure: retried with backoff forever and reported through the sink listener (the supervisor pauses the pipeline; `kafkafim_auth_failures_total` and an alert fire). Not a breaker failure. Nothing goes to the DLQ. The log line and the listener event keep the security error's type and `reason` (user, roles, action, index), never the raw body (ADR-0030). An **item** with 401/403 (the identity may not write that index) is handled the same way. |
 | Bulk request with any other unexpected status (a 400 for the whole request, a 404 from a proxy or a wrong path, a 3xx) or a 2xx body that is not a bulk response | Retried forever with backoff and logged with Elasticsearch's `error.type` and `root_cause[].type`s, never its `reason`, which can quote field values (ADR-0030; a body that is not JSON is logged by its size, an unparsable 2xx body by what was wrong with it; the body itself only at DEBUG on the `BulkSink` logger): it cannot be attributed to one document, so it never reaches the DLQ. An unexpected status is not a cluster-health signal and does not open the breaker; an unparsable 2xx body does. |
-| An action Elasticsearch would reject for the whole request (`op: create` with an external version, an empty ingest `pipeline` name, an `_id` outside 1 to 512 UTF-8 bytes) | Rejected when the action is built (`BulkAction`), because a whole-request 400 could only be retried forever. Config validation (§5.7) therefore rejects `op: create` together with `document.version-field` (ES answers "create operations only support internal versioning") and a blank route ingest `pipeline` (`""`, whitespace, or a bare `pipeline:`). |
+| An action Elasticsearch would reject for the whole request (`op: create` with an external version, an empty ingest `pipeline` name, an `_id` outside 1 to 512 UTF-8 bytes or with an unpaired UTF-16 surrogate) | Rejected when the action is built (`BulkAction`), because a whole-request 400 could only be retried forever. Config validation (§5.7) therefore rejects `op: create` together with `document.version-field` (ES answers "create operations only support internal versioning") and a blank route ingest `pipeline` (`""`, whitespace, or a bare `pipeline:`). |
 | Bulk partial failure | Only failed items are retried; successful items are acked immediately. |
 | Non-retryable item error: the 400 family (`mapper_parsing_exception`, `document_parsing_exception`, `strict_dynamic_mapping_exception`, `illegal_argument_exception` such as a missing ingest pipeline) and any other 4xx item not listed here | DLQ immediately with `error.type=es_error`, partition continues. |
 | Item 409 `version_conflict_engine_exception` | With an external version: `stale` (success) under `on-version-conflict: ignore`, DLQ `version_conflict` under `dlq`. For `op: create` without a version: an earlier attempt landed, so success. Otherwise `es_error`. |
