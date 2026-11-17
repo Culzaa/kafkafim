@@ -7,6 +7,12 @@ import io.github.matabar.kafkafim.KafkaTestContainers;
 import io.github.matabar.kafkafim.KafkaTopics;
 import io.github.matabar.kafkafim.KafkafimApplication;
 import io.github.matabar.kafkafim.telemetry.BatchTracer;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.DistributionSummary;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.Meter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.sdk.common.CompletableResultCode;
 import io.opentelemetry.sdk.trace.data.SpanData;
@@ -24,8 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.function.ToDoubleFunction;
 import java.util.stream.Collectors;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.NewTopic;
@@ -50,11 +55,11 @@ import org.testcontainers.utility.DockerImageName;
 
 /**
  * DESIGN §10 end to end: real Kafka → Elasticsearch traffic (good documents, a mapping failure, an
- * undecodable record), then {@code /actuator/prometheus} carries the §10 series with their labels,
- * the liveness and readiness groups contain the {@code supervisor} and {@code kafka} contributors,
- * and the failed batch is traced although the sampling probability is 0: a {@code pipeline.batch}
- * span with an {@code es.bulk} child and a link to the trace of the record's {@code traceparent}
- * header.
+ * undecodable record), then the meter registry carries the §10 series with their labels, the
+ * liveness and readiness groups contain the {@code supervisor} and {@code kafka} contributors, and
+ * {@code /actuator/prometheus} is 404 (OTLP is the only metrics export), and the failed batch is
+ * traced although the sampling probability is 0: a {@code pipeline.batch} span with an {@code
+ * es.bulk} child and a link to the trace of the record's {@code traceparent} header.
  */
 class TelemetryIntegrationTest {
 
@@ -137,7 +142,7 @@ class TelemetryIntegrationTest {
   }
 
   @Test
-  void prometheusSpansAndProbesAfterRealTraffic() throws Exception {
+  void metricsSpansAndProbesAfterRealTraffic() throws Exception {
     KafkaTopics.create(
         admin,
         List.of(
@@ -162,73 +167,66 @@ class TelemetryIntegrationTest {
 
     // ---- metrics ----
     String port = app.getEnvironment().getProperty("local.server.port");
+    MeterRegistry registry = app.getBean(MeterRegistry.class);
     await()
         .atMost(TIMEOUT)
         .untilAsserted(() -> {
-          String scrape = get(port, "/actuator/prometheus");
-          String base = "kafka_cluster=\"local\",pipeline=\"tel\"";
-          assertThat(value(scrape, "kafkafim_records_consumed_total", base, "topic=\"tel.events\""))
+          String base = "kafka_cluster=local,pipeline=tel";
+          assertThat(value(registry, "kafkafim.records.consumed", base, "topic=tel.events"))
               .isEqualTo(12);
-          assertThat(value(scrape, "kafkafim_bytes_consumed_total", base)).isPositive();
-          assertThat(
-                  value(scrape, "kafkafim_docs_total", base, "outcome=\"indexed\"", "route=\"0\""))
+          assertThat(value(registry, "kafkafim.bytes.consumed", base)).isPositive();
+          assertThat(value(registry, "kafkafim.docs", base, "outcome=indexed", "route=0"))
               .isEqualTo(10);
-          assertThat(value(scrape, "kafkafim_docs_total", base, "outcome=\"dlq\"", "route=\"0\""))
+          assertThat(value(registry, "kafkafim.docs", base, "outcome=dlq", "route=0")).isEqualTo(1);
+          assertThat(value(registry, "kafkafim.docs", base, "outcome=dlq", "route=none"))
+              .isEqualTo(1);
+          assertThat(value(registry, "kafkafim.dlq.records", base, "error_type=es_error"))
+              .isEqualTo(1);
+          assertThat(value(registry, "kafkafim.dlq.records", base, "error_type=decode"))
               .isEqualTo(1);
           assertThat(
-                  value(scrape, "kafkafim_docs_total", base, "outcome=\"dlq\"", "route=\"none\""))
-              .isEqualTo(1);
-          assertThat(value(scrape, "kafkafim_dlq_records_total", base, "error_type=\"es_error\""))
-              .isEqualTo(1);
-          assertThat(value(scrape, "kafkafim_dlq_records_total", base, "error_type=\"decode\""))
-              .isEqualTo(1);
-          assertThat(
-                  value(
-                      scrape,
-                      "kafkafim_bulk_requests_total",
-                      base,
-                      "es_cluster=\"local\"",
-                      "status=\"200\""))
+                  value(registry, "kafkafim.bulk.requests", base, "es_cluster=local", "status=200"))
               .isPositive();
-          assertThat(value(scrape, "kafkafim_item_errors_total", base, "retryable=\"false\""))
-              .isEqualTo(1);
-          assertThat(value(scrape, "kafkafim_bulk_latency_seconds_count", base)).isPositive();
-          assertThat(value(scrape, "kafkafim_bulk_docs_sum", base)).isEqualTo(11);
-          assertThat(value(scrape, "kafkafim_bulk_bytes_sum", base)).isPositive();
-          assertThat(value(scrape, "kafkafim_batch_flush_total", base, "es_cluster=\"local\""))
+          assertThat(value(registry, "kafkafim.item.errors", base, "retryable=false")).isEqualTo(1);
+          assertThat(count(registry, "kafkafim.bulk.latency", base)).isPositive();
+          assertThat(sum(registry, "kafkafim.bulk.docs", base)).isEqualTo(11);
+          assertThat(sum(registry, "kafkafim.bulk.bytes", base)).isPositive();
+          assertThat(value(registry, "kafkafim.batch.flush", base, "es_cluster=local"))
               .isPositive();
-          assertThat(value(scrape, "kafkafim_e2e_latency_seconds_count", base)).isEqualTo(10);
-          assertThat(value(scrape, "kafkafim_assigned_partitions", base)).isEqualTo(2);
-          assertThat(value(scrape, "kafkafim_kafka_connected", base)).isEqualTo(1);
-          assertThat(value(scrape, "kafkafim_in_flight_bytes", base)).isZero();
-          assertThat(value(scrape, "kafkafim_breaker_state", "es_cluster=\"local\"")).isZero();
+          assertThat(count(registry, "kafkafim.e2e.latency", base)).isEqualTo(10);
+          assertThat(value(registry, "kafkafim.assigned.partitions", base)).isEqualTo(2);
+          assertThat(value(registry, "kafkafim.kafka.connected", base)).isEqualTo(1);
+          assertThat(value(registry, "kafkafim.in.flight.bytes", base)).isZero();
+          assertThat(value(registry, "kafkafim.breaker.state", "es_cluster=local")).isZero();
           // Registered from the configuration: the unauthenticated cluster's identity="none".
           assertThat(
                   value(
-                      scrape,
-                      "kafkafim_auth_failures_total",
+                      registry,
+                      "kafkafim.auth.failures",
                       base,
-                      "es_cluster=\"local\"",
-                      "identity=\"none\""))
+                      "es_cluster=local",
+                      "identity=none"))
               .isZero();
-          assertThat(
-                  value(scrape, "kafkafim_pipeline_state", "pipeline=\"tel\"", "state=\"running\""))
+          assertThat(value(registry, "kafkafim.pipeline.state", "pipeline=tel", "state=running"))
               .isEqualTo(1);
-          assertThat(value(scrape, "kafkafim_config_generation")).isEqualTo(1);
+          assertThat(value(registry, "kafkafim.config.generation")).isEqualTo(1);
           assertThat(
-                  scrape
-                      .lines()
-                      .filter(l -> l.startsWith("kafkafim_"))
+                  registry.getMeters().stream()
+                      .map(m -> m.getId().getName() + m.getId().getTags())
+                      .filter(n -> n.startsWith("kafkafim."))
                       .collect(Collectors.joining("\n")))
               .as("no resolved index or partition labels, and no consumer lag (ADR-0034)")
-              .doesNotContain("tel-docs", "partition=\"", "kafkafim_consumer_lag");
+              .doesNotContain("tel-docs", "partition", "consumer.lag");
         });
-    System.out.println(
-        "---- /actuator/prometheus (kafkafim_*) ----\n"
-            + get(port, "/actuator/prometheus")
-                .lines()
-                .filter(l -> l.startsWith("kafkafim_") && !l.contains("_bucket{"))
-                .collect(Collectors.joining("\n")));
+    // The Prometheus registry and its actuator endpoint are gone: OTLP is the only export.
+    assertThat(
+            http.send(
+                    HttpRequest.newBuilder(
+                            URI.create("http://127.0.0.1:" + port + "/actuator/prometheus"))
+                        .build(),
+                    HttpResponse.BodyHandlers.ofString())
+                .statusCode())
+        .isEqualTo(404);
 
     // ---- probes ----
     String liveness = get(port, "/actuator/health/liveness");
@@ -364,33 +362,59 @@ class TelemetryIntegrationTest {
     assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
   }
 
-  /**
-   * The sum of every sample of {@code name} whose labels contain all of {@code labels}, or -1 if
-   * there is none.
-   */
-  static double value(String scrape, String name, String... labels) {
-    Pattern line = Pattern.compile("^" + Pattern.quote(name) + "(\\{[^}]*\\})? (\\S+)$");
-    double sum = 0;
+  /** The sum of the counters and gauges named {@code name} with all {@code tags}, or -1. */
+  static double value(MeterRegistry registry, String name, String... tags) {
+    return total(
+        registry,
+        name,
+        tags,
+        m -> m instanceof Counter c ? c.count() : m instanceof Gauge g ? g.value() : Double.NaN);
+  }
+
+  /** The sum of the observation counts of the timers and summaries named {@code name}, or -1. */
+  static double count(MeterRegistry registry, String name, String... tags) {
+    return total(
+        registry,
+        name,
+        tags,
+        m ->
+            m instanceof Timer t
+                ? t.count()
+                : m instanceof DistributionSummary d ? d.count() : Double.NaN);
+  }
+
+  /** The sum of the amounts recorded by the summaries named {@code name}, or -1. */
+  static double sum(MeterRegistry registry, String name, String... tags) {
+    return total(
+        registry,
+        name,
+        tags,
+        m -> m instanceof DistributionSummary d ? d.totalAmount() : Double.NaN);
+  }
+
+  private static double total(
+      MeterRegistry registry, String name, String[] tags, ToDoubleFunction<Meter> read) {
+    double total = 0;
     boolean found = false;
-    for (String text : scrape.lines().toList()) {
-      Matcher matcher = line.matcher(text);
-      if (!matcher.matches()) {
+    for (Meter meter : registry.getMeters()) {
+      if (!meter.getId().getName().equals(name)) {
         continue;
       }
-      String set = matcher.group(1) == null ? "" : matcher.group(1);
       boolean all = true;
-      for (String label : labels) {
-        for (String part : label.split(",")) {
-          if (!set.contains(part)) {
+      for (String tag : tags) {
+        for (String part : tag.split(",")) {
+          String[] kv = part.split("=", 2);
+          if (!kv[1].equals(meter.getId().getTag(kv[0]))) {
             all = false;
           }
         }
       }
-      if (all) {
+      double v = read.applyAsDouble(meter);
+      if (all && !Double.isNaN(v)) {
         found = true;
-        sum += Double.parseDouble(matcher.group(2));
+        total += v;
       }
     }
-    return found ? sum : -1;
+    return found ? total : -1;
   }
 }
