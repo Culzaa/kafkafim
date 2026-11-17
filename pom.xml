@@ -370,8 +370,8 @@
 								<rule>
 									<element>BUNDLE</element>
 									<limits>
-										<!-- Merged unit + integration coverage measured 2026-11-17: line 94.5 %,
-										     branch 87.3 %. Floors sit just below; raise them when coverage rises. -->
+										<!-- Merged unit + integration coverage measured 2026-11-17: line 94.7 %,
+										     branch 87.8 %. Floors sit just below; raise them when coverage rises. -->
 										<limit>
 											<counter>LINE</counter>
 											<value>COVEREDRATIO</value>
@@ -380,7 +380,7 @@
 										<limit>
 											<counter>BRANCH</counter>
 											<value>COVEREDRATIO</value>
-											<minimum>0.87</minimum>
+											<minimum>0.875</minimum>
 										</limit>
 									</limits>
 								</rule>
