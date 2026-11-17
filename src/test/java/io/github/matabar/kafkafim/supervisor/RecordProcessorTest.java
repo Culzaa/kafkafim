@@ -2,6 +2,10 @@ package io.github.matabar.kafkafim.supervisor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.github.matabar.kafkafim.config.KafkafimProperties;
 import io.github.matabar.kafkafim.decode.StepRegistry;
 import io.github.matabar.kafkafim.decode.TestSteps;
@@ -41,6 +45,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.LoggerFactory;
 
 /**
  * Record-completion accounting (DESIGN §4.3): a record completes only when every part (routed copy
@@ -841,8 +846,27 @@ class RecordProcessorTest {
             },
             Clock.systemUTC());
     FakeRecord r = record("{\"id\":\"a\"}");
-    refusing.process(List.of(r));
+    Logger logger = (Logger) LoggerFactory.getLogger(RecordProcessor.class);
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    logger.addAppender(appender);
+    try {
+      refusing.process(List.of(r));
+    } finally {
+      logger.detachAppender(appender);
+    }
     assertThat(r.isComplete()).isFalse();
+    // An unexpected failure keeps its stack trace, and the line carries no record data.
+    assertThat(appender.list)
+        .filteredOn(e -> e.getFormattedMessage().contains("refused"))
+        .singleElement()
+        .satisfies(event -> {
+          assertThat(event.getLevel()).isEqualTo(Level.WARN);
+          assertThat(event.getFormattedMessage()).endsWith("will be re-delivered");
+          assertThat(event.getThrowableProxy().getClassName())
+              .isEqualTo(IllegalStateException.class.getName());
+          assertThat(event.getThrowableProxy().getMessage()).isEqualTo("DLQ producers are closed");
+        });
   }
 
   @Test
