@@ -1,7 +1,7 @@
 # kafkafim — Design
 
-Status: draft v0.4 (2026-11-07), MVP scope. Decisions are recorded one per file in
-[decisions/](decisions/README.md); the stack is in [TECH_STACK.md](TECH_STACK.md);
+Status: living design, MVP scope (first drafted 2026-11-07). Decisions are recorded one per
+file in [decisions/](decisions/README.md), the authoritative history; the stack is in [TECH_STACK.md](TECH_STACK.md);
 CI/CD, registries, and the air-gap procedure in [DELIVERY.md](DELIVERY.md); the Helm
 chart in [HELM.md](HELM.md).
 
