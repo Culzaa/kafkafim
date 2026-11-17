@@ -1421,7 +1421,8 @@ in-flight bytes and assigned partitions.
 
 The Kafka clients' own metrics (`kafka_consumer_*`, `kafka_producer_*` on Prometheus;
 `kafka.consumer.*`, `kafka.producer.*` over OTLP) come from Micrometer's `KafkaClientMetrics`,
-the one binder (ADR-0013, ADR-0049): Spring Boot's OpenTelemetry bean has no exporting meter provider,
+the one binder (ADR-0013, ADR-0049): Spring Boot's OpenTelemetry bean has no exporting
+meter provider,
 so the OpenTelemetry library's metrics reporter is not configured and nothing is duplicated.
 Each pipeline consumer's series carry `pipeline` and `kafka_cluster`, plus kafka-clients' own
 `client-id` (`kafkafim-<pipeline>-<n>`, one per consumer thread) and, for the per-topic and

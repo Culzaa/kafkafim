@@ -296,7 +296,8 @@ topic.
   ([ADR-0034](decisions/0034-consumer-lag-is-monitored-outside-kafkafim.md)).
 - **Library risk.** The Kafka tracing library is an alpha artifact whose parenting hook
   uses an internal class. If, after an upgrade, `pipeline.batch` spans stop having a
-  Kafka parent but still carry links, that hook broke: the pipeline is unaffected, and
+  Kafka parent (and DLQ `publish` spans have no `process` parent) but still carry links, that
+  hook broke: the pipeline is unaffected, and
   the fix is a version pin or a code change.
 
 ## 4. Hot reload and secret rotation

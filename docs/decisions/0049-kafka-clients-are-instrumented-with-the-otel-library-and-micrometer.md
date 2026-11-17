@@ -7,8 +7,8 @@ and [ADR-0029](0029-batch-spans-recorded-at-batch-end-failed-batches-always-samp
 
 ADR-0013 left the Kafka clients uninstrumented: the consumer containers and the DLQ
 producer are built by hand, so Spring Boot's Kafka observation never applies, and no
-agent runs. No Kafka span reached Elastic APM, and a `pipeline.batch` span had no link
-to the trace that produced its records except through `traceparent` links. Issues 321 to
+agent runs. No Kafka span reached Elastic APM, and a `pipeline.batch` span had no parent
+in the trace that produced its records, only `traceparent` links. Issues 321 to
 326 add them. The spike in issue 321 and the metrics check in issue 324 settled what the
 real libraries do.
 
