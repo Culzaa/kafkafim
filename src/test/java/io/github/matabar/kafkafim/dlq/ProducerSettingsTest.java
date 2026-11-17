@@ -37,7 +37,7 @@ class ProducerSettingsTest {
     assertThat(settings)
         .containsEntry("bootstrap.servers", "k1:9093,k2:9093")
         .containsEntry("security.protocol", "PLAINTEXT")
-        .containsEntry("client.id", "kafkafim-prod-a-dlq")
+        .containsEntry("client.id", "kafkafim-dlq.prod-a")
         .containsEntry("acks", "all")
         .containsEntry("enable.idempotence", true)
         .containsEntry("retries", Integer.MAX_VALUE)
@@ -65,7 +65,7 @@ class ProducerSettingsTest {
             new KafkaIdentity(SCRAM, null));
 
     assertThat(settings)
-        .containsEntry("client.id", "kafkafim-prod-a-dlq-writer-dlq")
+        .containsEntry("client.id", "kafkafim-dlq.prod-a.dlq-writer")
         .containsEntry("security.protocol", "SASL_SSL")
         .containsEntry("ssl.truststore.location", "/etc/trust.p12")
         .containsEntry("ssl.truststore.password", "trust-pass")
@@ -279,7 +279,7 @@ class ProducerSettingsTest {
 
     assertThat(redacted.toString())
         .doesNotContain("s3cr3t", "trust-pass", "ks-pass", "key-pass")
-        .contains("sasl.jaas.config=[hidden]", "client.id=kafkafim-prod-a-dlq-writer-dlq");
+        .contains("sasl.jaas.config=[hidden]", "client.id=kafkafim-dlq.prod-a.dlq-writer");
   }
 
   @Test
@@ -296,10 +296,32 @@ class ProducerSettingsTest {
     assertThat(admin)
         .containsEntry("bootstrap.servers", "k1:9093,k2:9093")
         .containsEntry("security.protocol", "SASL_SSL")
-        .containsEntry("client.id", "kafkafim-prod-a-dlq-writer-dlq-admin")
+        .containsEntry("client.id", "kafkafim-dlq-admin.prod-a.dlq-writer")
         .containsKeys("sasl.jaas.config", "sasl.mechanism", "ssl.truststore.location")
         .doesNotContainKeys(
             "acks", "key.serializer", "enable.idempotence", "compression.type", "max.block.ms");
     new AdminClientConfig(admin);
+  }
+
+  @Test
+  void clientIdsOfNamesContainingDashesDoNotCollide() {
+    assertThat(ProducerSettings.clientId("a-b", "c"))
+        .isNotEqualTo(ProducerSettings.clientId("a", "b-c"));
+    assertThat(ProducerSettings.clientId("a", "b"))
+        .isNotEqualTo(ProducerSettings.clientId("a-b", null));
+    assertThat(ProducerSettings.clientId("a", null)).isEqualTo("kafkafim-dlq.a");
+  }
+
+  @Test
+  void adminClientIdNeverEqualsAnyProducerClientId() {
+    String admin =
+        (String)
+            ProducerSettings.adminSettings(Map.of("client.id", ProducerSettings.clientId("a", "b")))
+                .get("client.id");
+
+    assertThat(admin)
+        .isNotEqualTo(ProducerSettings.clientId("a", "b-admin"))
+        .isNotEqualTo(ProducerSettings.clientId("a", "b.admin"))
+        .isNotEqualTo(ProducerSettings.clientId("a", "admin"));
   }
 }

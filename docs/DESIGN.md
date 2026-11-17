@@ -550,7 +550,7 @@ passes through. Consumer factories are cached per `(cluster, identity)`; every
 pipeline's container creates its own consumers.
 
 The DLQ producer (`dlq/ProducerSettings`, one per `(cluster, identity)`, `client.id`
-`kafkafim-<cluster>-<identity>-dlq`) takes the same map in three layers: kafkafim's
+`kafkafim-dlq.<cluster>.<identity>`, no collision between names that contain `-`) takes the same map in three layers: kafkafim's
 defaults (`compression.type=lz4`, `max.request.size` 16 MiB, `max.block.ms` 10s), then the
 passthrough restricted to keys a producer knows (consumer-only keys such as
 `fetch.min.bytes` are dropped; keys neither client knows, such as plugin settings, pass),
