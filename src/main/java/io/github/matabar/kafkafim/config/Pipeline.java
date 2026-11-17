@@ -209,6 +209,8 @@ public record Pipeline(
    * @param index Logstash-style index pattern ({@code %{field}}, {@code %{+yyyy.MM.dd}}); required
    *     unless {@code drop}
    * @param pipeline ES ingest pipeline; optional
+   * @param transform ordered steps applied to this route's own copy of each document after routing
+   *     (DESIGN §8, ADR-0047); empty for none, and always empty for a {@code drop} route
    */
   public record Route(
       @Nullable String name,
@@ -218,7 +220,8 @@ public record Pipeline(
       @Nullable String cluster,
       @Nullable String identity,
       @Nullable String index,
-      @Nullable String pipeline) {
+      @Nullable String pipeline,
+      List<Step> transform) {
 
     /** The {@code route} label of a document that failed before a route was selected. */
     public static final String NO_ROUTE_LABEL = "none";
@@ -228,6 +231,7 @@ public record Pipeline(
       when = Defaults.list(when);
       isDefault = Defaults.orDefault(isDefault, Boolean.FALSE);
       drop = Defaults.orDefault(drop, Boolean.FALSE);
+      transform = Defaults.list(transform);
     }
 
     /** Whether this route discards the documents it selects. */
@@ -248,9 +252,28 @@ public record Pipeline(
     }
 
     Route withIdentity(String newIdentity) {
-      return new Route(name, when, isDefault, drop, cluster, newIdentity, index, pipeline);
+      return new Route(
+          name, when, isDefault, drop, cluster, newIdentity, index, pipeline, transform);
     }
   }
+
+  /**
+   * One {@code transform} step (DESIGN §8, ADR-0047): an {@code op} and the fields that op takes.
+   * Which fields an op takes, requires or forbids is {@link TransformRules}' to check, so that a
+   * new op adds one rule and no field here.
+   *
+   * @param op the operation, e.g. {@code remove}
+   * @param field JSON pointer to an object member
+   * @param to JSON pointer to a target member
+   * @param value a JSON string to write
+   * @param json the text of one JSON value to write
+   */
+  public record Step(
+      @Nullable String op,
+      @Nullable String field,
+      @Nullable String to,
+      @Nullable String value,
+      @Nullable String json) {}
 
   /**
    * One {@code when} condition. Exactly one subject ({@code field}, {@code header} or {@code

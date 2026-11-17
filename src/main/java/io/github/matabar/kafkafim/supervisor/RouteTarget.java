@@ -1,5 +1,6 @@
 package io.github.matabar.kafkafim.supervisor;
 
+import io.github.matabar.kafkafim.decode.DocumentTransform;
 import java.util.Objects;
 import org.jspecify.annotations.Nullable;
 
@@ -13,12 +14,24 @@ import org.jspecify.annotations.Nullable;
  * @param ingestPipeline Elasticsearch ingest pipeline named on the route, or {@code null}
  * @param label the route's {@code name}, or its zero-based position; for logs and metrics, never a
  *     resolved index
+ * @param transform the route's compiled {@code transform} steps, or {@code null} for the zero-copy
+ *     path (DESIGN §8)
  */
 public record RouteTarget(
     @Nullable String cluster,
     @Nullable String identity,
     @Nullable String ingestPipeline,
-    String label) {
+    String label,
+    @Nullable DocumentTransform transform) {
+
+  /** A target without transform steps. */
+  public RouteTarget(
+      @Nullable String cluster,
+      @Nullable String identity,
+      @Nullable String ingestPipeline,
+      String label) {
+    this(cluster, identity, ingestPipeline, label, null);
+  }
 
   /** Requires the label, and a cluster unless nothing else is set (a drop route). */
   public RouteTarget {

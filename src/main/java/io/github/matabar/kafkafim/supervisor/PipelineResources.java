@@ -4,6 +4,7 @@ import io.github.matabar.kafkafim.config.ElasticsearchCluster;
 import io.github.matabar.kafkafim.config.KafkaCluster;
 import io.github.matabar.kafkafim.config.KafkafimProperties;
 import io.github.matabar.kafkafim.config.Pipeline;
+import io.github.matabar.kafkafim.decode.StepRegistry;
 import io.github.matabar.kafkafim.dlq.DlqOptions;
 import io.github.matabar.kafkafim.dlq.DlqProducers;
 import io.github.matabar.kafkafim.sink.es.BreakerSettings;
@@ -76,6 +77,8 @@ final class PipelineResources implements SmartLifecycle, AutoCloseable {
    * @param clientSettings Elasticsearch HTTP client pool settings; timeouts come from each cluster
    * @param breakerSettings per-cluster breaker settings
    * @param clock clock of the record processor
+   * @param steps the ops a route's {@code transform} can name; {@link StepRegistry#BUILT_IN} in
+   *     production
    */
   record Settings(
       SourceOptions sourceOptions,
@@ -83,7 +86,26 @@ final class PipelineResources implements SmartLifecycle, AutoCloseable {
       DlqOptions dlqOptions,
       ClientSettings clientSettings,
       BreakerSettings breakerSettings,
-      Clock clock) {
+      Clock clock,
+      StepRegistry steps) {
+
+    /** Settings with the production transform ops. */
+    Settings(
+        SourceOptions sourceOptions,
+        Duration sinkCloseTimeout,
+        DlqOptions dlqOptions,
+        ClientSettings clientSettings,
+        BreakerSettings breakerSettings,
+        Clock clock) {
+      this(
+          sourceOptions,
+          sinkCloseTimeout,
+          dlqOptions,
+          clientSettings,
+          breakerSettings,
+          clock,
+          StepRegistry.BUILT_IN);
+    }
 
     static final Settings DEFAULTS =
         new Settings(
@@ -174,7 +196,8 @@ final class PipelineResources implements SmartLifecycle, AutoCloseable {
                 authCheck,
                 settings.sourceOptions(),
                 settings.sinkCloseTimeout(),
-                settings.clock());
+                settings.clock(),
+                settings.steps());
         pipelineOf.put(context, pipeline);
       }
     } finally {

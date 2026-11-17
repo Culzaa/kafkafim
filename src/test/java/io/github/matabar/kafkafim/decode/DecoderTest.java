@@ -634,7 +634,7 @@ class DecoderTest {
     void errorTypesMatchDesignWireNames() {
       assertThat(ErrorType.values())
           .extracting(ErrorType::wireName)
-          .containsExactly("decode", "missing_id", "bad_timestamp");
+          .containsExactly("decode", "missing_id", "bad_timestamp", "transform");
     }
   }
 }

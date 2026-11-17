@@ -39,7 +39,7 @@ image:
 #       routes:
 #         - name: debug
 #           when: [ { field: /level, equals: debug } ]
-#           drop: true                 # no cluster, identity, index or pipeline
+#           drop: true                 # no cluster, identity, index, pipeline or transform
 #         - default: true
 #           cluster: search-eu
 #           index: "logs-%{+yyyy.MM.dd}"

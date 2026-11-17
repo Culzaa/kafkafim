@@ -136,6 +136,60 @@ class ConfigDiffTest {
   }
 
   @Test
+  void changedTransformRestartsOnlyItsPipeline() {
+    KafkafimProperties base = base();
+    KafkafimProperties withNoop = withTransform(base, "a", List.of(step("noop", "/x")));
+
+    ConfigDiff added = ConfigDiff.between(base, withNoop);
+    ConfigDiff changed =
+        ConfigDiff.between(withNoop, withTransform(base, "a", List.of(step("noop", "/y"))));
+    ConfigDiff same =
+        ConfigDiff.between(withNoop, withTransform(base, "a", List.of(step("noop", "/x"))));
+
+    assertThat(added.restarted()).containsOnlyKeys("a");
+    assertThat(added.restarted().get("a")).containsExactly("pipeline definition changed");
+    assertThat(added.unchanged()).containsExactly("b", "c");
+    assertThat(changed.restarted()).containsOnlyKeys("a");
+    assertThat(same.restarted()).isEmpty();
+  }
+
+  private static Pipeline.Step step(String op, String field) {
+    return new Pipeline.Step(op, field, null, null, null);
+  }
+
+  /** {@code base} with the transform of every route of {@code pipeline} replaced (unvalidated). */
+  private static KafkafimProperties withTransform(
+      KafkafimProperties base, String pipeline, List<Pipeline.Step> steps) {
+    Map<String, Pipeline> pipelines = new java.util.LinkedHashMap<>(base.pipelines());
+    Pipeline before = pipelines.get(pipeline);
+    List<Pipeline.Route> routes =
+        before.routes().stream()
+            .map(r ->
+                new Pipeline.Route(
+                    r.name(),
+                    r.when(),
+                    r.isDefault(),
+                    r.drop(),
+                    r.cluster(),
+                    r.identity(),
+                    r.index(),
+                    r.pipeline(),
+                    steps))
+            .toList();
+    pipelines.put(
+        pipeline,
+        new Pipeline(
+            before.source(),
+            before.document(),
+            routes,
+            before.routeMode(),
+            before.dlq(),
+            before.latency()));
+    return new KafkafimProperties(
+        base.allowInlineSecrets(), base.kafka(), base.elasticsearch(), pipelines, base.reload());
+  }
+
+  @Test
   void addedAndRemovedPipelines() {
     String d =
         """
