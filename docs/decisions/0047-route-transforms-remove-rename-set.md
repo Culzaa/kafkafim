@@ -73,7 +73,7 @@ routes:
 |---|---|---|
 | `remove` | `field` | Deletes the member at `field`. |
 | `rename` | `field`, `to` | Moves the member at `field` to `to`. |
-| `set` | `field`, and exactly one of `value`, `json` | Writes a value at `field`. `value` is a JSON string. `json` is the text of one JSON value (number, boolean, `null`, string, object or array), parsed at bind. |
+| `set` | `field`, and exactly one of `value`, `json` | Writes a value at `field`. `value` is a JSON string. `json` is the text of one JSON value (number, boolean, `null`, string, object, or array), parsed at bind. |
 
 - `field` and `to` are JSON pointers (RFC 6901) that name **object members**. Unlike `when`
   conditions, they cannot index arrays. A pointer is non-empty (the root cannot be a target),
@@ -117,15 +117,16 @@ routes:
   is serialized once, as compact JSON on one line, so it is NDJSON-safe, and a new
   `DocumentSource` that owns those bytes replaces the view of the Kafka value for this
   copy. The work lives in `decode` (a `DocumentSource` factory for owned bytes) and is
-  called from the supervisor's copy planning; `config` and `route` hold only the
-  validated step model (ADR-0003: JDK and Jackson only).
-- **Number spelling, key order and whitespace on transformed routes.** Key order is
+  called from the supervisor's copy planning. `config` binds and validates the steps, and
+  because `decode` may not depend on `config` or `route` (ADR-0003), `decode` defines
+  its own step spec (like `DecodeSpec`) that the supervisor maps from the bound steps.
+- **Number spelling, key order, and whitespace on transformed routes.** Key order is
   preserved, except as the rules above state for new and moved members. Insignificant
   whitespace is dropped, and string escapes are written in Jackson's minimal form.
   Numbers keep their **exact value**: the exact parse above never goes through
   `double`, so integers beyond 64 bits and decimals with many digits survive. Their
-  **spelling** is not guaranteed (`1e3` is written `1E+3`, and `-0` is written `0`).
-  Elasticsearch reads the same number either
+  **spelling** is not guaranteed (`1e3` is written `1E+3`, `-0` is written `0`, and `-0.0`
+  is written `0.0`). Elasticsearch reads the same number either
   way. Byte-for-byte output is a property of routes without `transform` only.
 - Memory: a transformed copy holds its own serialized bytes until its part completes,
   instead of sharing the one byte copy of its routes. `max-in-flight-bytes` still counts

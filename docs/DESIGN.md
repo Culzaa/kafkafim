@@ -1218,7 +1218,8 @@ routes:
   one-line JSON. Key order is kept, whitespace is dropped, and strings use minimal
   escapes. Numbers keep their exact value, because the copy is parsed again from the
   original bytes with exact decimals (the routing tree reads fractions as `double`), but
-  their spelling is not guaranteed (`1e3` becomes `1E+3`, `-0` becomes `0`). Each
+  their spelling is not guaranteed (`1e3` becomes `1E+3`, `-0` becomes `0`, `-0.0` becomes
+  `0.0`). Each
   transformed copy holds up to one document size of extra heap until it completes
   (§4.5). The route's ingest `pipeline:` runs in Elasticsearch after the steps, and a
   document that gets no copy (held error, no route, drop) never runs them.
@@ -1564,7 +1565,8 @@ CI-friendly `${revision}` versioning (ADR-0003, ADR-0022, ADR-0023).
 - **Next**: route transformations: `transform` steps `remove`, `rename`, and `set`
   (ADR-0047; framework first, then one op at a time).
 - **Later**: DLQ tooling, transformations beyond those three ops (if ever, as ES
-  ingest pipelines first), `update`/`delete` ops, KEDA where allowed, read-only UI over the same config.
+  ingest pipelines first), `update`/`delete` ops, KEDA where allowed, read-only UI over
+  the same config.
 
 ## 17. Open questions
 
