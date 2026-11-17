@@ -183,8 +183,8 @@ class ConfigValidationTest {
         overrides.add(K + ".identities.r.sasl.password=p");
       }
       overrides.add(K + ".default-identity=r");
-      assertThat(ConfigTestSupport.errors(MINIMAL, overrides.toArray(String[]::new)))
-          .noneMatch(e -> e.contains("mechanism"));
+      overrides.add("kafkafim.allow-inline-secrets=true");
+      assertValid(MINIMAL, overrides.toArray(String[]::new));
     }
 
     @ParameterizedTest
