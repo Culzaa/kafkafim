@@ -6,8 +6,6 @@ import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.micrometer.prometheusmetrics.PrometheusConfig;
-import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -22,7 +20,7 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
-/** Meter binding of DESIGN §10 against a {@link SimpleMeterRegistry}, and the Prometheus names. */
+/** Meter binding of DESIGN §10 against a {@link SimpleMeterRegistry}, and the §10 names. */
 class KafkafimMetersTest {
 
   private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
@@ -470,16 +468,16 @@ class KafkafimMetersTest {
     assertThat(meters.pipeline("unknown")).isSameAs(PipelineMeters.NOOP);
   }
 
-  /** The §10 names, as /actuator/prometheus renders them. */
+  /** The §10 meter names and tags, as Micrometer registers them (the OTLP export sends these). */
   @Test
-  void prometheusRendersTheDesignNames() {
-    PrometheusMeterRegistry prometheus = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
-    try (KafkafimMeters onPrometheus = new KafkafimMeters(prometheus)) {
-      onPrometheus.sync(
+  void registersTheDesignNamesAndTags() {
+    SimpleMeterRegistry simple = new SimpleMeterRegistry();
+    try (KafkafimMeters onSimple = new KafkafimMeters(simple)) {
+      onSimple.sync(
           Map.of("orders", spec("prod-a", List.of("orders.v1"), new Probe())),
           Set.of("search-eu"),
           c -> CircuitBreaker.State.CLOSED);
-      PipelineMeters orders = onPrometheus.pipeline("orders");
+      PipelineMeters orders = onSimple.pipeline("orders");
       orders.flush("search-eu", "AGE");
       orders.bulkResponse("search-eu", 200, 3, 300, Duration.ofMillis(3));
       orders.itemError("search-eu", "mapper_parsing_exception", false);
@@ -487,42 +485,84 @@ class KafkafimMetersTest {
       orders.authFailure("search-eu", "writer");
       orders.dlqRecord("decode");
 
-      String scrape = prometheus.scrape();
-      assertThat(scrape)
-          .contains(
-              "kafkafim_records_consumed_total{kafka_cluster=\"prod-a\",pipeline=\"orders\","
-                  + "topic=\"orders.v1\"} 0.0",
-              "kafkafim_bytes_consumed_total{",
-              "kafkafim_docs_total{kafka_cluster=\"prod-a\",outcome=\"indexed\","
-                  + "pipeline=\"orders\",route=\"eu\"} 0.0",
-              "kafkafim_bulk_requests_total{es_cluster=\"search-eu\",kafka_cluster=\"prod-a\","
-                  + "pipeline=\"orders\",status=\"200\"} 1.0",
-              "kafkafim_bulk_latency_seconds_bucket{",
-              "kafkafim_bulk_latency_seconds_count{",
-              "kafkafim_bulk_docs_bucket{",
-              "kafkafim_bulk_bytes_bucket{",
-              "kafkafim_item_errors_total{error_type=\"mapper_parsing_exception\","
-                  + "es_cluster=\"search-eu\",kafka_cluster=\"prod-a\",pipeline=\"orders\","
-                  + "retryable=\"false\"} 1.0",
-              "kafkafim_retries_total{",
-              "kafkafim_breaker_state{es_cluster=\"search-eu\"} 0.0",
-              "kafkafim_auth_failures_total{es_cluster=\"search-eu\",identity=\"writer\",",
-              "kafkafim_e2e_latency_seconds_bucket{",
-              "kafkafim_batch_flush_total{es_cluster=\"search-eu\",kafka_cluster=\"prod-a\","
-                  + "pipeline=\"orders\",reason=\"age\"} 1.0",
-              "kafkafim_in_flight_bytes{kafka_cluster=\"prod-a\",pipeline=\"orders\"} 0.0",
-              "kafkafim_assigned_partitions{kafka_cluster=\"prod-a\",pipeline=\"orders\"} 0.0",
-              "kafkafim_kafka_connected{kafka_cluster=\"prod-a\",pipeline=\"orders\"} 0.0",
-              "kafkafim_pipeline_pause_reason{es_cluster=\"none\",identity=\"none\","
-                  + "kafka_cluster=\"prod-a\",pipeline=\"orders\",reason=\"dlq_blocked\"} 0.0",
-              "kafkafim_dlq_records_total{error_type=\"decode\",kafka_cluster=\"prod-a\","
-                  + "pipeline=\"orders\"} 1.0")
-          .doesNotContain(
-              "kafkafim_bulk_bytes_bytes",
-              "kafkafim_in_flight_bytes_bytes",
-              "kafkafim_consumer_lag");
+      String[] base = {"kafka_cluster", "prod-a", "pipeline", "orders"};
+      assertThat(
+              simple
+                  .find("kafkafim.records.consumed")
+                  .tags(with(base, "topic", "orders.v1"))
+                  .counter())
+          .isNotNull();
+      assertThat(simple.find("kafkafim.bytes.consumed").tags(base).counter()).isNotNull();
+      assertThat(
+              simple
+                  .find("kafkafim.docs")
+                  .tags(with(base, "outcome", "indexed", "route", "eu"))
+                  .counter())
+          .isNotNull();
+      assertThat(
+              simple
+                  .find("kafkafim.bulk.requests")
+                  .tags(with(base, "es_cluster", "search-eu", "status", "200"))
+                  .counter()
+                  .count())
+          .isEqualTo(1);
+      assertThat(simple.find("kafkafim.bulk.latency").tags(base).timer().count()).isEqualTo(1);
+      assertThat(simple.find("kafkafim.bulk.docs").tags(base).summary().totalAmount()).isEqualTo(3);
+      assertThat(simple.find("kafkafim.bulk.bytes").tags(base).summary().totalAmount())
+          .isEqualTo(300);
+      assertThat(
+              simple
+                  .find("kafkafim.item.errors")
+                  .tags(
+                      with(
+                          base,
+                          "error_type",
+                          "mapper_parsing_exception",
+                          "es_cluster",
+                          "search-eu",
+                          "retryable",
+                          "false"))
+                  .counter()
+                  .count())
+          .isEqualTo(1);
+      assertThat(simple.find("kafkafim.retries").tags(base).counter()).isNotNull();
+      assertThat(
+              simple.find("kafkafim.breaker.state").tag("es_cluster", "search-eu").gauge().value())
+          .isZero();
+      assertThat(
+              simple
+                  .find("kafkafim.auth.failures")
+                  .tags(with(base, "es_cluster", "search-eu", "identity", "writer"))
+                  .counter())
+          .isNotNull();
+      assertThat(simple.find("kafkafim.e2e.latency").tags(base).timer()).isNotNull();
+      assertThat(
+              simple
+                  .find("kafkafim.batch.flush")
+                  .tags(with(base, "es_cluster", "search-eu", "reason", "age"))
+                  .counter()
+                  .count())
+          .isEqualTo(1);
+      assertThat(simple.find("kafkafim.in.flight.bytes").tags(base).gauge()).isNotNull();
+      assertThat(simple.find("kafkafim.assigned.partitions").tags(base).gauge()).isNotNull();
+      assertThat(simple.find("kafkafim.kafka.connected").tags(base).gauge()).isNotNull();
+      assertThat(
+              simple
+                  .find("kafkafim.pipeline.pause.reason")
+                  .tags(with(base, "reason", "dlq_blocked"))
+                  .gauge())
+          .isNotNull();
+      assertThat(
+              simple
+                  .find("kafkafim.dlq.records")
+                  .tags(with(base, "error_type", "decode"))
+                  .counter()
+                  .count())
+          .isEqualTo(1);
+      assertThat(simple.getMeters().stream().map(m -> m.getId().getName()))
+          .noneMatch(name -> name.contains("consumer.lag"));
     } finally {
-      prometheus.close();
+      simple.close();
     }
   }
 

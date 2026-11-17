@@ -473,6 +473,59 @@ tests:
           path: spec.template.spec.tolerations
         documentIndex: 0
 
+  - it: a group's empty nodeSelector, tolerations, affinity and resources replace the top-level values
+    values:
+      - ../ci/minimal-values.yaml
+    set:
+      nodeSelector: { pool: ingest }
+      tolerations: [{ key: dedicated, operator: Exists }]
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions: [{ key: pool, operator: In, values: [ingest] }]
+      groups:
+        orders:
+          nodeSelector: {}
+          tolerations: []
+          affinity: {}
+          resources: {}
+    asserts:
+      - notExists:
+          path: spec.template.spec.nodeSelector
+      - notExists:
+          path: spec.template.spec.tolerations
+      - notExists:
+          path: spec.template.spec.containers[0].resources
+      - notExists:
+          path: spec.template.spec.affinity.nodeAffinity
+      - exists:
+          path: spec.template.spec.affinity.podAntiAffinity
+
+  - it: a group without its own nodeSelector, tolerations, affinity and resources inherits the top-level values
+    values:
+      - ../ci/minimal-values.yaml
+    set:
+      nodeSelector: { pool: ingest }
+      tolerations: [{ key: dedicated, operator: Exists }]
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions: [{ key: pool, operator: In, values: [ingest] }]
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value: { pool: ingest }
+      - equal:
+          path: spec.template.spec.tolerations
+          value: [{ key: dedicated, operator: Exists }]
+      - exists:
+          path: spec.template.spec.affinity.nodeAffinity
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.memory
+          value: 1536Mi
+
   - it: selects only its own group's pods
     values:
       - ../ci/two-groups-values.yaml
@@ -484,3 +537,74 @@ tests:
             app.kubernetes.io/instance: kafkafim
             app.kubernetes.io/component: small
         documentIndex: 1
+
+  - it: a group's podAnnotations win over the top-level ones key by key
+    values:
+      - ../ci/minimal-values.yaml
+    set:
+      podAnnotations:
+        team: platform
+        owner: top
+      groups:
+        orders:
+          podAnnotations:
+            team: orders
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations.team
+          value: orders
+      - equal:
+          path: spec.template.metadata.annotations.owner
+          value: top
+      - equal:
+          path: spec.template.metadata.annotations["prometheus.io/scrape"]
+          value: "true"
+
+  - it: podLabels are added to the pod template next to the selector labels
+    values:
+      - ../ci/minimal-values.yaml
+    set:
+      podLabels:
+        team: platform
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels
+          value:
+            app.kubernetes.io/name: kafkafim
+            app.kubernetes.io/instance: kafkafim
+            app.kubernetes.io/component: orders
+            team: platform
+      - notExists:
+          path: spec.selector.matchLabels.team
+
+  - it: topology spread keys on pod-template-hash and honours maxSkew and whenUnsatisfiable overrides
+    values:
+      - ../ci/minimal-values.yaml
+    set:
+      topologySpread:
+        maxSkew: 2
+        whenUnsatisfiable: DoNotSchedule
+    asserts:
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0].matchLabelKeys
+          value: [pod-template-hash]
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0].maxSkew
+          value: 2
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0].whenUnsatisfiable
+          value: DoNotSchedule
+
+  - it: a group with autoscaling disabled renders its replicas
+    values:
+      - ../ci/minimal-values.yaml
+    set:
+      groups:
+        orders:
+          replicas: 4
+          autoscaling:
+            enabled: false
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 4
