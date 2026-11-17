@@ -4,9 +4,9 @@ import io.github.matabar.kafkafim.config.Pipeline;
 import java.util.Map;
 
 /**
- * Meter names and label keys of DESIGN §10. Micrometer names are dotted; the Prometheus registry
- * renders them with underscores and the usual suffixes ({@code _total} for counters, {@code
- * _seconds} for timers), e.g. {@code kafkafim.docs} as {@code kafkafim_docs_total}.
+ * Meter names and label keys of DESIGN §10. Micrometer names are dotted; Prometheus' OTLP
+ * translation renders them with underscores and the usual suffixes ({@code _total} for counters,
+ * {@code _seconds} for timers), e.g. {@code kafkafim.docs} as {@code kafkafim_docs_total}.
  */
 public final class TelemetryNames {
 

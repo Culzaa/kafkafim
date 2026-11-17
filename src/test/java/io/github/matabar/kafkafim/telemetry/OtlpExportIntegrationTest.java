@@ -67,7 +67,7 @@ import org.junit.jupiter.api.io.TempDir;
  *   <li>log records leave over OTLP, the ones logged before the OpenTelemetry SDK existed included
  *       (DESIGN §10 Logs);
  *   <li>timers export in seconds (unit {@code seconds}, bucket bounds in seconds), so the OTLP
- *       names match {@code /actuator/prometheus} and the PromQL in deploy/grafana/ (DESIGN §10).
+ *       names match the PromQL in deploy/grafana/ (DESIGN §10).
  * </ul>
  *
  * <p>A fifth test, {@code batchSpanNumericAttributesAreExportedAsInts}, does not start the

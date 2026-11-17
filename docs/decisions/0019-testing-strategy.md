@@ -1,6 +1,7 @@
 # ADR-0019: Testing: unit tests for classification and routing, Testcontainers for end-to-end, explicit chaos cases
 
-Status: accepted · Date: 2026-11-07
+Status: accepted; the load test bullet is amended below: the generator is `loadtest/`, not
+Testcontainers, and results are in `docs/LOADTEST.md` · Date: 2026-11-07
 
 ## Decision
 
@@ -14,6 +15,10 @@ Status: accepted · Date: 2026-11-07
   ES credential → pipeline paused with auth-failure metric, SCRAM-SHA-256 and basic
   auth identities against secured containers.
 - Load: a Testcontainers-based generator against the compose stack; results recorded in `docs/perf.md`.
+  *(Amended 2026-11-17: neither exists. The load test is the hand-run harness in
+  [`loadtest/`](../../loadtest/README.md) (`run.sh`, `Produce.java`, `compose.yaml`, issue
+  #184), outside `./mvnw verify` and CI, with no Testcontainers; results are recorded in
+  [`docs/LOADTEST.md`](../LOADTEST.md).)*
 
 ## Consequences
 
