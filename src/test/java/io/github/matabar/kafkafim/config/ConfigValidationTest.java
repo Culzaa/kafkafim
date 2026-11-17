@@ -7,6 +7,7 @@ import static io.github.matabar.kafkafim.config.ConfigTestSupport.pipeline;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -168,6 +169,64 @@ class ConfigValidationTest {
           K + ".security-protocol=SASL_SSL",
           K + ".identities.reader.sasl.mechanism=SCRAM-SHA-256",
           K + ".identities.reader.sasl.username=u");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512", "GSSAPI", "OAUTHBEARER"})
+    void acceptsEveryKnownMechanism(String mechanism) {
+      boolean password = mechanism.equals("PLAIN") || mechanism.startsWith("SCRAM");
+      List<String> overrides = new java.util.ArrayList<>();
+      overrides.add(K + ".security-protocol=SASL_SSL");
+      overrides.add(K + ".identities.r.sasl.mechanism=" + mechanism);
+      if (password) {
+        overrides.add(K + ".identities.r.sasl.username=u");
+        overrides.add(K + ".identities.r.sasl.password=p");
+      }
+      overrides.add(K + ".default-identity=r");
+      assertThat(ConfigTestSupport.errors(MINIMAL, overrides.toArray(String[]::new)))
+          .noneMatch(e -> e.contains("mechanism"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"plain", "Scram-Sha-256", "scram-sha-512", "gssapi", "OAuthBearer"})
+    void rejectsMisCasedMechanismWithAHint(String mechanism) {
+      List<String> errors =
+          ConfigTestSupport.errors(
+              MINIMAL,
+              K + ".security-protocol=SASL_SSL",
+              K + ".identities.r.sasl.mechanism=" + mechanism,
+              K + ".identities.r.sasl.username=u",
+              K + ".identities.r.sasl.password=p");
+      assertThat(errors)
+          .anyMatch(e ->
+              e.startsWith(K + ".identities.r.sasl.mechanism: '" + mechanism + "'")
+                  && e.contains("did you mean '" + mechanism.toUpperCase(Locale.ROOT) + "'"));
+    }
+
+    @Test
+    void rejectsUnknownMechanismWithoutAHint() {
+      List<String> errors =
+          ConfigTestSupport.errors(
+              MINIMAL, K + ".security-protocol=SASL_SSL", K + ".identities.r.sasl.mechanism=NTLM");
+      assertThat(errors)
+          .anyMatch(e ->
+              e.startsWith(K + ".identities.r.sasl.mechanism: 'NTLM' is not a supported")
+                  && !e.contains("did you mean"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"GSSAPI", "OAUTHBEARER"})
+    void rejectsUsernameAndPasswordOnPropertiesDrivenMechanisms(String mechanism) {
+      List<String> errors =
+          ConfigTestSupport.errors(
+              MINIMAL,
+              K + ".security-protocol=SASL_SSL",
+              K + ".identities.r.sasl.mechanism=" + mechanism,
+              K + ".identities.r.sasl.username=u",
+              K + ".identities.r.sasl.password=p");
+      assertThat(errors)
+          .anyMatch(e -> e.startsWith(K + ".identities.r.sasl.username: " + mechanism))
+          .anyMatch(e -> e.startsWith(K + ".identities.r.sasl.password: " + mechanism));
     }
 
     @Test

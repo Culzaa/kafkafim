@@ -164,6 +164,7 @@ public final class ConfigValidator {
       if (!protocol.requiresSasl()) {
         error(path + ".sasl", "sasl is set but security-protocol " + protocol + " is not SASL_*");
       }
+      checkSaslMechanism(path, identity.sasl());
       if (identity.sasl().needsUsernameAndPassword()) {
         if (isBlank(identity.sasl().username())) {
           error(path + ".sasl.username", identity.sasl().mechanism() + " needs a username");
@@ -177,6 +178,41 @@ public final class ConfigValidator {
       error(
           path + ".ssl",
           "a client keystore is set but security-protocol " + protocol + " does not use TLS");
+    }
+  }
+
+  /**
+   * The mechanism must be spelled exactly as kafka-clients expects it; a mis-cased one would skip
+   * the credential check and build no JAAS config, failing only at runtime. GSSAPI and OAUTHBEARER
+   * take their settings from the cluster's {@code properties}, so a username or password is a
+   * mistake there.
+   */
+  private void checkSaslMechanism(String path, KafkaCluster.Sasl sasl) {
+    String mechanism = sasl.mechanism();
+    if (isBlank(mechanism)) {
+      return; // reported by @NotBlank
+    }
+    if (!KafkaCluster.Sasl.MECHANISMS.contains(mechanism)) {
+      String hint =
+          KafkaCluster.Sasl.MECHANISMS.stream()
+              .filter(known -> known.equalsIgnoreCase(mechanism.trim()))
+              .findFirst()
+              .map(known -> "; did you mean '" + known + "'? The name is case-sensitive")
+              .orElse("");
+      error(
+          path + ".sasl.mechanism",
+          "'"
+              + mechanism
+              + "' is not a supported mechanism (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, GSSAPI,"
+              + " OAUTHBEARER)"
+              + hint);
+    } else if (!sasl.needsUsernameAndPassword()) {
+      if (sasl.username() != null) {
+        error(path + ".sasl.username", mechanism + " takes no username; use cluster properties");
+      }
+      if (sasl.password() != null) {
+        error(path + ".sasl.password", mechanism + " takes no password; use cluster properties");
+      }
     }
   }
 
