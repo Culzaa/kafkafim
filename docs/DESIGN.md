@@ -1428,11 +1428,11 @@ Each pipeline consumer's series carry `pipeline` and `kafka_cluster`, plus kafka
 per-node families, `topic` or `node-id`. The DLQ producer is shared by the pipelines of a
 cluster, so its series carry `kafka_cluster` and `dlq_instance` (a counter per `DlqProducers`
 instance: a reload keeps the old instance next to the new one, and their producers must not
-share series ids). Binding lives as long as the client: a
-stopped pipeline, a reload that removes it or a replaced DLQ producer leaves no series
-(ADR-0028). The lag and lead series (`records.lag*`, `records.lead*`, per partition and client-wide) are denied
-(ADR-0034). The count is clients (consumer threads plus one producer per cluster) times
-kafka-clients' metric set, a function of the configuration, not of traffic.
+share series ids). Binding lives as long as the client: a stopped pipeline, a reload that
+removes it or a replaced DLQ producer leaves no series (ADR-0028). The lag and lead series
+(`records.lag*`, `records.lead*`, per partition and client-wide) are denied (ADR-0034). The
+count is clients (consumer threads plus one producer per cluster) times kafka-clients' metric
+set, a function of the configuration, not of traffic.
 
 ### Traces
 
