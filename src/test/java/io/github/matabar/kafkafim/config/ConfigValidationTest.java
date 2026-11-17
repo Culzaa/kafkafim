@@ -1596,14 +1596,14 @@ class ConfigValidationTest {
     void rejectsUnknownOpWithRouteAndStepPosition() {
       assertInvalid(
           route("[ { op: bogus, field: /a } ]"),
-          P + ".routes[0].transform[0].op: unknown op 'bogus'; known ops: none");
+          P + ".routes[0].transform[0].op: unknown op 'bogus'; known ops: remove");
     }
 
     @Test
     void rejectsMissingOp() {
       assertInvalid(
           route("[ { field: /a } ]"),
-          P + ".routes[0].transform[0].op: is required; known ops: none");
+          P + ".routes[0].transform[0].op: is required; known ops: remove");
     }
 
     @Test
@@ -1615,6 +1615,36 @@ class ConfigValidationTest {
     void rejectsMoreThanThirtyTwoSteps() {
       String steps = "[" + "{ op: bogus },".repeat(33) + "]";
       assertInvalid(route(steps), P + ".routes[0].transform: at most 32 steps per route, found 33");
+    }
+
+    @Test
+    void acceptsRemoveOfAnObjectMember() {
+      assertValid(route("[ { op: remove, field: /card/number } ]"));
+    }
+
+    @Test
+    void rejectsRemoveWithoutFieldOrWithFieldsItDoesNotTake() {
+      assertInvalid(
+          route("[ { op: remove } ]"),
+          P + ".routes[0].transform[0].field: op 'remove' needs 'field'");
+      assertInvalid(
+          route("[ { op: remove, field: /a, to: /b } ]"),
+          P + ".routes[0].transform[0].to: op 'remove' takes no 'to'");
+      assertInvalid(
+          route("[ { op: remove, field: /a, value: x } ]"),
+          P + ".routes[0].transform[0].value: op 'remove' takes no 'value'");
+    }
+
+    @Test
+    void rejectsRemoveOfTheRootOrOfMalformedPointers() {
+      assertInvalid(
+          route("[ { op: remove, field: '' } ]"),
+          P + ".routes[0].transform[0].field: JSON pointer is empty");
+      assertInvalid(
+          route("[ { op: remove, field: a/b } ]"),
+          P
+              + ".routes[0].transform[0].field: 'a/b' is not a JSON pointer (must start with"
+              + " '/')");
     }
 
     @Test

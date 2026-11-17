@@ -28,7 +28,8 @@ public final class StepRegistry {
   }
 
   /** The production ops. */
-  public static final StepRegistry BUILT_IN = new StepRegistry(Map.of());
+  public static final StepRegistry BUILT_IN =
+      new StepRegistry(Map.of("remove", RemoveStep.FACTORY));
 
   private final Map<String, Factory> factories;
 

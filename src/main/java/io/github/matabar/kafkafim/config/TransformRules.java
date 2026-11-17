@@ -61,7 +61,7 @@ public final class TransformRules {
   }
 
   /** The production ops: one entry each, added with the op (ADR-0047). */
-  static final Map<String, Op> BUILT_IN = Map.of();
+  static final Map<String, Op> BUILT_IN = Map.of("remove", Op.of(Set.of("field"), Set.of()));
 
   private TransformRules() {}
 
