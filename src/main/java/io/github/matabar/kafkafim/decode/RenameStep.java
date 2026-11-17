@@ -1,6 +1,5 @@
 package io.github.matabar.kafkafim.decode;
 
-import java.util.Map;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
@@ -76,7 +75,7 @@ final class RenameStep implements TransformStep {
    */
   private ObjectNode write(ObjectNode node, int depth, JsonNode value) throws TransformException {
     String key = toKeys[depth];
-    ObjectNode copy = shallowCopy(node);
+    ObjectNode copy = Pointers.shallowCopy(node);
     if (depth == toKeys.length - 1) {
       copy.set(key, value); // replacing keeps the position, a new key goes last
       return copy;
@@ -91,14 +90,6 @@ final class RenameStep implements TransformStep {
       throw new TransformException("a parent of the target is not an object");
     }
     copy.set(key, write(parent, depth + 1, value));
-    return copy;
-  }
-
-  private static ObjectNode shallowCopy(ObjectNode node) {
-    ObjectNode copy = JsonNodeFactory.instance.objectNode();
-    for (Map.Entry<String, JsonNode> member : node.properties()) {
-      copy.set(member.getKey(), member.getValue());
-    }
     return copy;
   }
 }

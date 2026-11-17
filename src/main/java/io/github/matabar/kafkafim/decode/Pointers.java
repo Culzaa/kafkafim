@@ -1,5 +1,10 @@
 package io.github.matabar.kafkafim.decode;
 
+import java.util.Map;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.JsonNodeFactory;
+import tools.jackson.databind.node.ObjectNode;
+
 /** JSON pointer parsing shared by the ops (DESIGN §8, ADR-0047): every token is an object key. */
 final class Pointers {
 
@@ -21,5 +26,14 @@ final class Pointers {
       tokens[i] = tokens[i].replace("~1", "/").replace("~0", "~");
     }
     return tokens;
+  }
+
+  /** A new object with the same members in the same order; the member nodes are shared. */
+  static ObjectNode shallowCopy(ObjectNode node) {
+    ObjectNode copy = JsonNodeFactory.instance.objectNode();
+    for (Map.Entry<String, JsonNode> member : node.properties()) {
+      copy.set(member.getKey(), member.getValue());
+    }
+    return copy;
   }
 }
