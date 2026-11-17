@@ -1,6 +1,8 @@
 # ADR-0020: MVP scope — no transformations, no expressions, no CLI
 
-Status: accepted · Date: 2026-11-07
+Status: accepted; "transformations of any kind" and "none changes the data path" are superseded
+by [ADR-0047](0047-route-transforms-remove-rename-set.md) (the expression-language and CLI
+exclusions stand) · Date: 2026-11-07
 
 ## Decision
 
@@ -22,4 +24,5 @@ and none changes the data path.
 ## Consequences
 
 Pipelines that today use Logstash filters are migrated by first moving the filter to
-an ES ingest pipeline and naming it on the route.
+an ES ingest pipeline and naming it on the route. (ADR-0047: filters that only remove,
+rename, or set fields become route `transform` steps instead.)

@@ -32,7 +32,8 @@ Versions are the ones pinned at project creation (2026-11-07). Everything marked
 
 ## Explicitly not used
 
-- **CEL / SpEL / any expression language**: routing is rules (ADR-0009, ADR-0020).
+- **CEL / SpEL / any expression language**: routing is rules (ADR-0009, ADR-0020), and route
+  transforms are three fixed ops (ADR-0047).
 - **picocli / CLI subcommands**: one run mode plus a `validate` profile (ADR-0018).
 - **Own YAML loader + JSON Schema**: Spring's binder and Bean Validation are the
   config system (ADR-0012).
