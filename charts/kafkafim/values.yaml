@@ -90,7 +90,7 @@ secrets: []
 groups: {}
 
 # Defaults for every group (a group's own value replaces these, it is not merged; an
-# empty group value such as tolerations: [] replaces too, and an absent or null one inherits).
+# empty group value such as tolerations: [] replaces too, and an absent one inherits).
 # Memory sizing (docs/HELM.md "Sizing memory"; measured in docs/LOADTEST.md):
 #   heap       >= about 3 x the sum of max-in-flight-bytes over the group's pipelines
 #   limit      >= heap / 0.75 (MaxRAMPercentage) + 250 to 300 MiB headroom (metaspace,
