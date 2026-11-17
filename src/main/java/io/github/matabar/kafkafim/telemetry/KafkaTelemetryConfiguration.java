@@ -1,7 +1,10 @@
 package io.github.matabar.kafkafim.telemetry;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.instrumentation.kafkaclients.v2_6.KafkaTelemetry;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -23,5 +26,15 @@ public class KafkaTelemetryConfiguration {
   @Bean
   KafkaTelemetry kafkafimKafkaTelemetry(OpenTelemetry openTelemetry) {
     return KafkaTelemetry.create(openTelemetry);
+  }
+
+  /**
+   * The one binder of the Kafka clients' metrics: Micrometer's, on the registry of the {@code
+   * kafkafim_*} series. Spring Boot's {@link OpenTelemetry} has no exporting meter provider, so the
+   * library's own metrics reporter is not used.
+   */
+  @Bean
+  KafkaClientMeters kafkafimKafkaClientMeters(ObjectProvider<MeterRegistry> registry) {
+    return new KafkaClientMeters(registry.getIfAvailable(SimpleMeterRegistry::new));
   }
 }

@@ -1419,6 +1419,19 @@ pipeline every 10s. kafkafim's own "is it keeping up" signals are
 connection (kafka-clients' `connection-count`); a stopped pipeline reads 0, as do its
 in-flight bytes and assigned partitions.
 
+The Kafka clients' own metrics (`kafka_consumer_*`, `kafka_producer_*` on Prometheus;
+`kafka.consumer.*`, `kafka.producer.*` over OTLP) come from Micrometer's `KafkaClientMetrics`,
+the one binder (ADR-0013): Spring Boot's OpenTelemetry bean has no exporting meter provider,
+so the OpenTelemetry library's metrics reporter is not configured and nothing is duplicated.
+Each pipeline consumer's series carry `pipeline` and `kafka_cluster`, plus kafka-clients' own
+`client-id` (`kafkafim-<pipeline>-<n>`, one per consumer thread) and, for the per-topic and
+per-node families, `topic` or `node-id`. The DLQ producer is shared by the pipelines of a
+cluster, so its series carry `kafka_cluster` only. Binding lives as long as the client: a
+stopped pipeline, a reload that removes it or a replaced DLQ producer leaves no series
+(ADR-0028). The per-partition lag and lead series (`records.lag*`, `records.lead*`) are denied
+(ADR-0034). The count is clients (consumer threads plus one producer per cluster) times
+kafka-clients' metric set, a function of the configuration, not of traffic.
+
 ### Traces
 
 Kafka client spans (consumer process, one per record; receive spans are off by default; DLQ

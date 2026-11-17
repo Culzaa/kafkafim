@@ -2,6 +2,7 @@ package io.github.matabar.kafkafim.source.kafka;
 
 import io.github.matabar.kafkafim.config.KafkaCluster;
 import io.github.matabar.kafkafim.config.KafkafimProperties;
+import io.github.matabar.kafkafim.telemetry.KafkaClientMeters;
 import io.opentelemetry.instrumentation.kafkaclients.v2_6.KafkaTelemetry;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -25,11 +26,15 @@ import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
  * factory and is therefore wrapped too, but it never polls, so it exports nothing. The process
  * spans are microseconds long: kafkafim hands records off after the poll and processes them
  * asynchronously, so a span marks delivery from the broker, not processing time.
+ *
+ * <p>Metrics: when a {@link KafkaClientMeters} is given, each pipeline consumer's Kafka metrics are
+ * bound while it lives ({@link ConsumerMetricsListener}); a stopped pipeline leaves no series.
  */
 public final class ConsumerFactories {
 
   private final KafkafimProperties properties;
   private final @Nullable KafkaTelemetry telemetry;
+  private final @Nullable KafkaClientMeters meters;
   private final Map<Key, ConsumerFactory<byte[], byte[]>> factories = new ConcurrentHashMap<>();
 
   /**
@@ -48,8 +53,23 @@ public final class ConsumerFactories {
    * @param telemetry wraps every consumer, or {@code null} for untraced consumers
    */
   public ConsumerFactories(KafkafimProperties properties, @Nullable KafkaTelemetry telemetry) {
+    this(properties, telemetry, null);
+  }
+
+  /**
+   * Creates an empty cache whose consumers are traced and whose Kafka client metrics are bound.
+   *
+   * @param properties the validated configuration
+   * @param telemetry wraps every consumer, or {@code null} for untraced consumers
+   * @param meters binds every pipeline consumer's Kafka metrics, or {@code null} for none
+   */
+  public ConsumerFactories(
+      KafkafimProperties properties,
+      @Nullable KafkaTelemetry telemetry,
+      @Nullable KafkaClientMeters meters) {
     this.properties = properties;
     this.telemetry = telemetry;
+    this.meters = meters;
   }
 
   /**
@@ -87,6 +107,9 @@ public final class ConsumerFactories {
         new DefaultKafkaConsumerFactory<>(ConsumerSettings.forIdentity(cluster, identity));
     if (telemetry != null) {
       factory.addPostProcessor(telemetry::wrap);
+    }
+    if (meters != null) {
+      factory.addListener(new ConsumerMetricsListener(meters, properties, key.cluster()));
     }
     return factory;
   }

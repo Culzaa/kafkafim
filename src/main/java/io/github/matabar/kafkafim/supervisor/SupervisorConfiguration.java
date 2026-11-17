@@ -6,6 +6,7 @@ import io.github.matabar.kafkafim.dlq.DlqProducers;
 import io.github.matabar.kafkafim.sink.es.ElasticsearchSinks;
 import io.github.matabar.kafkafim.sink.es.SinkListener;
 import io.github.matabar.kafkafim.telemetry.BatchTracer;
+import io.github.matabar.kafkafim.telemetry.KafkaClientMeters;
 import io.github.matabar.kafkafim.telemetry.KafkaHealthIndicator;
 import io.github.matabar.kafkafim.telemetry.KafkafimMeters;
 import io.github.matabar.kafkafim.telemetry.SupervisorHealthIndicator;
@@ -54,12 +55,14 @@ public class SupervisorConfiguration {
   }
 
   @Bean(destroyMethod = "close")
-  PipelineResources kafkafimPipelineResources(ListenerRelay relay, KafkaTelemetry kafkaTelemetry) {
+  PipelineResources kafkafimPipelineResources(
+      ListenerRelay relay, KafkaTelemetry kafkaTelemetry, KafkaClientMeters kafkaClientMeters) {
     return new PipelineResources(
         relay,
         properties -> new ElasticsearchAuthCheck(properties.elasticsearch().clusters()),
         PipelineResources.Settings.DEFAULTS,
-        kafkaTelemetry);
+        kafkaTelemetry,
+        kafkaClientMeters);
   }
 
   @Bean
