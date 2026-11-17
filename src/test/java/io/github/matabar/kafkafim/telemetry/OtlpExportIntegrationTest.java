@@ -6,9 +6,13 @@ import static org.awaitility.Awaitility.await;
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpServer;
 import io.github.matabar.kafkafim.KafkafimApplication;
+import io.micrometer.tracing.otel.bridge.OtelCurrentTraceContext;
+import io.micrometer.tracing.otel.bridge.OtelTracer;
+import io.opentelemetry.exporter.otlp.http.trace.OtlpHttpSpanExporter;
 import io.opentelemetry.proto.collector.logs.v1.ExportLogsServiceRequest;
 import io.opentelemetry.proto.collector.metrics.v1.ExportMetricsServiceRequest;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
+import io.opentelemetry.proto.common.v1.AnyValue;
 import io.opentelemetry.proto.common.v1.KeyValue;
 import io.opentelemetry.proto.logs.v1.LogRecord;
 import io.opentelemetry.proto.logs.v1.ResourceLogs;
@@ -17,6 +21,9 @@ import io.opentelemetry.proto.metrics.v1.ResourceMetrics;
 import io.opentelemetry.proto.metrics.v1.ScopeMetrics;
 import io.opentelemetry.proto.resource.v1.Resource;
 import io.opentelemetry.proto.trace.v1.ResourceSpans;
+import io.opentelemetry.proto.trace.v1.Span;
+import io.opentelemetry.sdk.trace.SdkTracerProvider;
+import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetAddress;
@@ -29,6 +36,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -283,6 +291,88 @@ class OtlpExportIntegrationTest {
               .isNotEmpty()
               .allSatisfy(p -> assertThat(p.getExplicitBoundsList()).contains(0.05, 3600.0));
         });
+  }
+
+  /**
+   * {@link BatchTracer} sets numeric values through Micrometer's {@code tag(String, long)}; this
+   * decodes the OTLP wire bytes of the real bridge and exporter and asserts each numeric attribute
+   * arrives as an int, not a string (ADR-0029).
+   */
+  @Test
+  void batchSpanNumericAttributesAreExportedAsInts() throws Exception {
+    SdkTracerProvider provider =
+        SdkTracerProvider.builder()
+            .addSpanProcessor(
+                SimpleSpanProcessor.create(
+                    OtlpHttpSpanExporter.builder()
+                        .setEndpoint(
+                            "http://127.0.0.1:" + collector.getAddress().getPort() + "/v1/traces")
+                        .build()))
+            .build();
+    try {
+      Instant t0 = Instant.parse("2026-01-01T00:00:00Z");
+      BatchTrace.BulkRequest failed =
+          new BatchTrace.BulkRequest(t0.plusMillis(10), t0.plusMillis(30), 3, 900, 503, null, 2, 1);
+      new BatchTracer(
+              new OtelTracer(
+                  provider.get("kafkafim-test"), new OtelCurrentTraceContext(), event -> {}))
+          .record(
+              new BatchTrace(
+                  "p",
+                  "k",
+                  "e",
+                  null,
+                  "docs",
+                  3,
+                  900,
+                  t0,
+                  t0.plusMillis(80),
+                  List.of(failed),
+                  List.of()));
+    } finally {
+      provider.shutdown().join(10, TimeUnit.SECONDS);
+    }
+
+    Map<String, Span> spans = new HashMap<>();
+    for (Captured c : captured) {
+      if (c.path().equals("/v1/traces")) {
+        ExportTraceServiceRequest.parseFrom(c.body()).getResourceSpansList().stream()
+            .flatMap(r -> r.getScopeSpansList().stream())
+            .flatMap(scope -> scope.getSpansList().stream())
+            .forEach(span -> spans.put(span.getName(), span));
+      }
+    }
+    assertThat(spans).containsKeys(BatchTracer.BATCH_SPAN, BatchTracer.BULK_SPAN);
+    Map<String, AnyValue> batch = values(spans.get(BatchTracer.BATCH_SPAN));
+    Map<String, AnyValue> bulk = values(spans.get(BatchTracer.BULK_SPAN));
+    assertThat(batch.get("kafkafim.pipeline").getValueCase())
+        .isEqualTo(AnyValue.ValueCase.STRING_VALUE);
+    for (String key : List.of("kafkafim.docs", "kafkafim.bytes", "kafkafim.requests")) {
+      assertThat(batch.get(key).getValueCase())
+          .as("batch %s", key)
+          .isEqualTo(AnyValue.ValueCase.INT_VALUE);
+    }
+    for (String key :
+        List.of(
+            "kafkafim.docs",
+            "kafkafim.bytes",
+            "kafkafim.retries",
+            "kafkafim.item_errors",
+            "http.response.status_code")) {
+      assertThat(bulk.get(key).getValueCase())
+          .as("bulk %s", key)
+          .isEqualTo(AnyValue.ValueCase.INT_VALUE);
+    }
+    assertThat(bulk.get("http.response.status_code").getIntValue()).isEqualTo(503);
+    assertThat(bulk.get("kafkafim.retries").getIntValue()).isEqualTo(2);
+  }
+
+  private static Map<String, AnyValue> values(Span span) {
+    Map<String, AnyValue> values = new HashMap<>();
+    for (KeyValue kv : span.getAttributesList()) {
+      values.put(kv.getKey(), kv.getValue());
+    }
+    return values;
   }
 
   private List<ExportMetricsServiceRequest> parsedMetrics() throws IOException {
