@@ -97,7 +97,9 @@ public final class DocumentTransform {
   public static JsonNode parseExact(DocumentSource original) throws TransformException {
     try {
       return EXACT.readTree(original.toByteArray());
-    } catch (JacksonException e) {
+    } catch (JacksonException | NumberFormatException e) {
+      // NumberFormatException: a literal the routing parse reads as a double (1e99999999999)
+      // but that has no exact BigDecimal.
       throw new TransformException("the document could not be parsed again for its transform");
     }
   }

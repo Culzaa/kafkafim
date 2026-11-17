@@ -259,7 +259,12 @@ final class RecordProcessor {
           } else {
             try {
               if (exact == null) {
-                exact = DocumentTransform.parseExact(doc.source());
+                try {
+                  exact = DocumentTransform.parseExact(doc.source());
+                } catch (TransformException e) {
+                  // Names no step: it failed before any ran.
+                  throw new TransformException("route " + target.label() + ": " + e.getMessage());
+                }
               }
               bytes = target.transform().apply(exact).toByteArray();
             } catch (TransformException e) {
