@@ -13,7 +13,12 @@ public enum ErrorType {
   /** The {@code _id} pointer resolves to nothing usable and {@code id-missing} is {@code dlq}. */
   MISSING_ID("missing_id"),
   /** The timestamp is missing or unparsable and {@code on-bad-timestamp} is {@code dlq}. */
-  BAD_TIMESTAMP("bad_timestamp");
+  BAD_TIMESTAMP("bad_timestamp"),
+  /**
+   * A route's {@code transform} step cannot apply to the document, e.g. a parent that is not an
+   * object (ADR-0047). Raised for one routed copy, never by the decoder itself.
+   */
+  TRANSFORM("transform");
 
   private final String wireName;
 
