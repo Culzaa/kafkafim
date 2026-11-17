@@ -74,6 +74,7 @@ pdb: { minAvailable: 1 }
 topologySpread: { enabled: true, topologyKey: topology.kubernetes.io/zone }
 networkPolicy: { enabled: false }
 serviceMonitor: { enabled: false }   # needs the Prometheus Operator CRD
+extraObjects: []                     # extra manifests shipped with the release: strings (tpl) or maps; not schema-validated
 podAnnotations: { prometheus.io/scrape: "true", prometheus.io/path: /actuator/prometheus, prometheus.io/port: "8080" }
 ```
 
