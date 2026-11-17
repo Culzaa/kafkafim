@@ -328,7 +328,7 @@ element, `kafkafim.doc-index`.
     value). So the peak is about one `max-record-bytes` record × 28 per consumer
     thread, whatever the budget.
   - *Held in flight.* Until a record completes, kafkafim keeps the record (its raw
-    bytes, which the budget counts) and one copy of each indexed document's bytes
+    bytes, which the budget counts with an overhead estimate) and one copy of each indexed document's bytes
     (shared by its routes, so at most the value again; a route with `transform` steps holds
     its own serialized copy, §8). Per indexed copy it also keeps
     a bulk action (index name, id, completion handle) and the sink's queue entry with

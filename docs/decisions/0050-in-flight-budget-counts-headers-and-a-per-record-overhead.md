@@ -17,7 +17,7 @@ times per-record heap, not `max-in-flight-bytes` (ADR-0010).
 Each pending record is charged `key + value + header bytes (key and value of each header) +
 256` bytes against the budget. The 256 is a fixed estimate of the record object, its
 coordinates, the completion handle and the tracker's bookkeeping; it is not configurable.
-`SourceRecord.sizeBytes()` stays key + value (it feeds `kafkafim_consumed_bytes`), and
+`SourceRecord.sizeBytes()` stays key + value (it feeds `kafkafim_bytes_consumed_total`), and
 `SourceRecord.budgetBytes()` is the charged amount, acquired when the record is tracked and
 released once when it completes or is abandoned. `kafkafim_in_flight_bytes` reports the
 budget's sum.
