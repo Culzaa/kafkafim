@@ -430,12 +430,15 @@ class HotReloadIntegrationTest {
     assertThat(supervisor.state("pa")).isEqualTo(PipelineState.PAUSED);
     assertThat(gauge(meters, "pa", "paused")).isEqualTo(1);
     assertThat(gauge(meters, "pa", "running")).isZero();
-    // The kind of the reason, not its cluster and identity (#191).
+    // The kind of the reason with the cluster and identity it names, from the configuration
+    // (#191, #328).
     assertThat(
             meters
                 .get(TelemetryNames.PAUSE_REASON)
                 .tag("pipeline", "pa")
                 .tag("reason", "es_auth")
+                .tag("es_cluster", "local")
+                .tag("identity", "writer-a")
                 .gauge()
                 .value())
         .isEqualTo(1);

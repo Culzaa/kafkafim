@@ -7,7 +7,8 @@ import io.github.matabar.kafkafim.config.Pipeline;
 import io.github.matabar.kafkafim.sink.es.SinkKey;
 import io.github.matabar.kafkafim.telemetry.BatchTracer;
 import io.github.matabar.kafkafim.telemetry.KafkafimMeters;
-import io.github.matabar.kafkafim.telemetry.PauseReason;
+import io.github.matabar.kafkafim.telemetry.PauseCause;
+import io.github.matabar.kafkafim.telemetry.PipelineSpec;
 import io.github.matabar.kafkafim.telemetry.TelemetryNames;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -95,29 +96,35 @@ class TelemetryBinderTest {
   }
 
   @Test
-  void pauseReasonKindsDropWhatTheReasonNames() {
+  void pauseCausesNameOnlyConfiguredClustersAndIdentities() {
+    Set<String> clusters = Set.of("es", "es2");
+    Set<PipelineSpec.EsStream> streams =
+        Set.of(new PipelineSpec.EsStream("es", "writer"), new PipelineSpec.EsStream("es2", null));
     Set<String> reasons =
         Set.of(
             PipelineRuntime.BREAKER_REASON_PREFIX + "es",
-            PipelineRuntime.BREAKER_REASON_PREFIX + "es2",
-            PipelineRuntime.AUTH_REASON_PREFIX + "es/writer",
+            PipelineRuntime.BREAKER_REASON_PREFIX + "elsewhere",
+            PipelineRuntime.authReason("es", "writer"),
+            PipelineRuntime.authReason("es2", null),
             PipelineRuntime.DLQ_BLOCKED_REASON);
 
-    assertThat(TelemetryBinder.kinds(PipelineState.PAUSED, reasons))
-        .containsExactlyInAnyOrder(PauseReason.values());
-    assertThat(
-            TelemetryBinder.kinds(
-                PipelineState.PAUSED, Set.of(PipelineRuntime.AUTH_REASON_PREFIX + "es/none")))
-        .containsExactly(PauseReason.ES_AUTH);
-    assertThat(TelemetryBinder.kinds(PipelineState.PAUSED, Set.of())).isEmpty();
+    assertThat(TelemetryBinder.causes(PipelineState.PAUSED, reasons, clusters, streams))
+        .containsExactlyInAnyOrder(
+            PauseCause.breaker("es"),
+            PauseCause.auth("es", "writer"),
+            PauseCause.auth("es2", null),
+            PauseCause.dlqBlocked());
+    assertThat(TelemetryBinder.causes(PipelineState.PAUSED, Set.of(), clusters, streams)).isEmpty();
   }
 
   @Test
-  void onlyPausedPipelinesHavePauseReasonKinds() {
+  void onlyPausedPipelinesHavePauseCauses() {
     Set<String> reasons = Set.of(PipelineRuntime.DLQ_BLOCKED_REASON);
     for (PipelineState state : PipelineState.values()) {
       if (state != PipelineState.PAUSED) {
-        assertThat(TelemetryBinder.kinds(state, reasons)).as(state.name()).isEmpty();
+        assertThat(TelemetryBinder.causes(state, reasons, Set.of(), Set.of()))
+            .as(state.name())
+            .isEmpty();
       }
     }
   }
@@ -143,7 +150,8 @@ class TelemetryBinderTest {
               registry.find(TelemetryNames.PAUSE_REASON).gauges().stream()
                   .map(g -> g.getId().getTag("reason") + "=" + (int) g.value())
                   .toList())
-          .containsExactlyInAnyOrder("es_breaker=0", "es_auth=0", "dlq_blocked=0");
+          .allMatch(series -> series.endsWith("=0"))
+          .hasSize(5); // breaker and auth per configured cluster and identity, one DLQ
     } finally {
       held.close();
     }
