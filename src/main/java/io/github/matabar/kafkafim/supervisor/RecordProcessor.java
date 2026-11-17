@@ -361,10 +361,10 @@ final class RecordProcessor {
       sent = deadLetters.send(request);
     } catch (RuntimeException e) {
       LOG.warn(
-          "Pipeline '{}': DLQ send for {} refused; the record will be re-delivered: {}",
+          "Pipeline '{}': DLQ send for {} refused; the record will be re-delivered",
           pipeline.name(),
           request,
-          e.toString());
+          e);
       return;
     }
     sent.whenComplete((ignored, error) -> {
@@ -381,10 +381,10 @@ final class RecordProcessor {
         LOG.debug("Pipeline '{}': {} not dead-lettered before shutdown", pipeline.name(), request);
       } else {
         LOG.warn(
-            "Pipeline '{}': DLQ send for {} failed; the record will be re-delivered: {}",
+            "Pipeline '{}': DLQ send for {} failed; the record will be re-delivered",
             pipeline.name(),
             request,
-            cause.toString());
+            cause);
       }
     });
   }

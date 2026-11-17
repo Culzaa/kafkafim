@@ -1488,6 +1488,16 @@ record landed; never the reason or the record);
 one INFO or ERROR line per reload (§5.6). Document bodies are never
 logged by default.
 
+Exceptions in log lines: a failure nobody planned for passes the exception as the last
+argument, so the log keeps its type and stack trace (`LOG.warn("…", name, e)`, never only
+`e.getMessage()`, which can be null). A failure the code expects (a validation error, a
+commit that is retried at the next interval, a shutdown race) logs one line with the type
+and the message (`e.toString()`, or `ConfigReloader.firstLine` for the first line only) and
+no stack trace. A line that is already limited to once per outage, such as a blocked DLQ
+produce, may carry the stack trace.
+Neither form adds record contents: a message that can quote a document (an Elasticsearch
+reason, a response body) stays out of the line, as above.
+
 ### Health
 
 - `/actuator/health/liveness`: `livenessState` and `supervisor` (up while the pipeline

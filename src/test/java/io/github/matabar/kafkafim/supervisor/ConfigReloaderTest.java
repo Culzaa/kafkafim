@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
+import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
@@ -414,15 +415,33 @@ class ConfigReloaderTest {
     awaitSettled();
     supervisor.stop();
 
-    List<String> messages = watcherLog(reloader::reloadFromWatcher);
+    List<ILoggingEvent> events = watcherEvents(reloader::reloadFromWatcher);
 
-    assertThat(messages)
-        .containsExactly(
-            "Configuration change not applied, the supervisor is shutting down: The pipeline"
-                + " supervisor is not running");
+    // An expected race, not a fault: the type and first line, no stack trace (DESIGN §10).
+    assertThat(events)
+        .singleElement()
+        .satisfies(event -> {
+          assertThat(event.getLevel()).isEqualTo(Level.INFO);
+          assertThat(event.getFormattedMessage())
+              .isEqualTo(
+                  "Configuration change not applied, the supervisor is shutting down:"
+                      + " IllegalStateException: The pipeline supervisor is not running");
+          assertThat(event.getThrowableProxy()).isNull();
+        });
+  }
+
+  /** A null message must not log as "null": the exception type still says what happened. */
+  @Test
+  void firstLineNamesTheTypeWhenThereIsNoMessage() {
+    assertThat(ConfigReloader.firstLine(new IllegalStateException()))
+        .isEqualTo("IllegalStateException");
   }
 
   private static List<String> watcherLog(Runnable action) {
+    return watcherEvents(action).stream().map(ILoggingEvent::getFormattedMessage).toList();
+  }
+
+  private static List<ILoggingEvent> watcherEvents(Runnable action) {
     Logger logger = (Logger) LoggerFactory.getLogger(ConfigReloader.class);
     ListAppender<ILoggingEvent> appender = new ListAppender<>();
     appender.start();
@@ -430,7 +449,7 @@ class ConfigReloaderTest {
     try {
       action.run();
       synchronized (appender) {
-        return appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
+        return List.copyOf(appender.list);
       }
     } finally {
       logger.detachAppender(appender);
