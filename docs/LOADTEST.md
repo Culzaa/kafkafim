@@ -56,9 +56,10 @@ splits the same throughput; it does not add to it. No effect of the budget
 
 `kafkafim_e2e_latency_seconds` (Elasticsearch ack time minus the Kafka record timestamp,
 which the load generator sets at send time). The histogram's buckets are fixed
-(0.05 s … 3600 s), so percentiles are bucket upper bounds, not interpolated values. These percentiles come from
-the Prometheus endpoint that no longer exists; `loadtest/run.sh` now reads `/actuator/metrics`,
-which has no buckets, and reports only the mean and maximum.
+(0.05 s … 3600 s), so percentiles are bucket upper bounds, not interpolated values.
+The percentiles below are historical: they were read from the Prometheus endpoint that no
+longer exists. `loadtest/run.sh` now reads `/actuator/metrics`, which has no buckets, and
+reports only the mean and maximum.
 Steady rate, topics with 3 partitions, 600,000 documents per run:
 
 | Load | Mean | p50 | p95 | p99 | Max (last window) |

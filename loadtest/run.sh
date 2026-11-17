@@ -372,7 +372,7 @@ main() {
       wait_total 1800 || log "TIMEOUT waiting for the backlog"
       finish
       ;;
-    latency) # steady rate: the e2e histogram is the result
+    latency) # steady rate: the e2e latency mean and max are the result
       up
       gen_config
       start_app a 8080 $((PIPELINES * PARTITIONS))
