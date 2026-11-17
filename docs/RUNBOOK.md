@@ -204,7 +204,8 @@ Where to read it:
   close or cleanup that failed (`Closing ... failed`, `Dropping the DLQ writer ...
   failed`: the resource is released with the process at the latest), records that will be
   re-delivered. INFO is routine, including the watcher falling back to polling and an
-  interrupted DLQ producer close. Alert on ERROR; use the metrics for WARN conditions.
+  interrupted DLQ producer close. A telemetry listener that threw is WARN. Alert on ERROR
+  (except the harmless one below); use the metrics for WARN conditions.
 - **Harmless ERROR after a stop or reload**: a stop or reload that interrupts an Elasticsearch
   preflight check within milliseconds of its start can log `ERROR
   org.apache.hc.client5.http.impl.async` with a
