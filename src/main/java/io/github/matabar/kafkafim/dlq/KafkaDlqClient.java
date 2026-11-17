@@ -96,10 +96,11 @@ final class KafkaDlqClient implements DlqClient {
   }
 
   /**
-   * A client whose every producer, the first and each replacement, goes through {@code
-   * instrumentation} right after it is created; the raw {@link KafkaProducer} stays the one this
-   * class replaces and closes the wrapper of. Each {@code send} still reaches exactly one wrapped
-   * producer, so a retry or a replacement adds an attempt (one publish span), never a duplicate.
+   * A client whose every producer, the first and each replacement, is wrapped by {@code
+   * instrumentation} right after creation; closing the wrapper closes the raw {@link
+   * KafkaProducer}, so the replacement logic is unchanged. Each {@code send} reaches exactly one
+   * wrapped producer, so a retry or a replacement adds an attempt (one publish span), never a
+   * duplicate.
    */
   static KafkaDlqClient instrumented(
       Map<String, Object> producerSettings,
