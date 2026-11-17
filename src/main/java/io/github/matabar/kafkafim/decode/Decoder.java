@@ -338,6 +338,24 @@ public final class Decoder {
     return null;
   }
 
+  /**
+   * Whether the string holds a high or low surrogate without its partner. JSON accepts the escape
+   * {@code \ud800}, but such a string has no UTF-8 form and cannot be written into a bulk body.
+   */
+  private static boolean hasUnpairedSurrogate(String value) {
+    for (int i = 0; i < value.length(); i++) {
+      char c = value.charAt(i);
+      if (Character.isHighSurrogate(c)
+          && i + 1 < value.length()
+          && Character.isLowSurrogate(value.charAt(i + 1))) {
+        i++;
+      } else if (Character.isSurrogate(c)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /** Why a present, non-null id node is unusable, or {@code null}. */
   private static @Nullable String idError(JsonNode idNode) {
     if (idNode.isString()) {
@@ -349,6 +367,9 @@ public final class Decoder {
       if (id.length() * 3 > MAX_ID_BYTES
           && id.getBytes(StandardCharsets.UTF_8).length > MAX_ID_BYTES) {
         return "is longer than " + MAX_ID_BYTES + " bytes";
+      }
+      if (hasUnpairedSurrogate(id)) {
+        return "contains an unpaired UTF-16 surrogate";
       }
       return null;
     }
