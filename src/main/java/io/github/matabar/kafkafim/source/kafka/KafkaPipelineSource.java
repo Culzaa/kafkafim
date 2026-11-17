@@ -12,6 +12,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -86,6 +87,7 @@ public final class KafkaPipelineSource implements SmartLifecycle {
   private final ByteBudget budget;
   private final OffsetTracker tracker;
   private final Map<Consumer<?, ?>, Long> lastCommitNanos = new ConcurrentHashMap<>();
+  private final LongSupplier nanoClock;
   private final Object lifecycle = new Object();
   private volatile @Nullable ConcurrentMessageListenerContainer<byte[], byte[]> container;
   // Counted down when every consumer thread of the current container has finished.
@@ -108,6 +110,18 @@ public final class KafkaPipelineSource implements SmartLifecycle {
       ConsumerFactory<byte[], byte[]> consumerFactory,
       SourceRecordHandler handler,
       SourceOptions options) {
+    this(pipeline, source, consumerFactory, handler, options, System::nanoTime);
+  }
+
+  /** As the public constructor, with the clock that gates {@code commit-interval} (for tests). */
+  KafkaPipelineSource(
+      String pipeline,
+      Pipeline.Source source,
+      ConsumerFactory<byte[], byte[]> consumerFactory,
+      SourceRecordHandler handler,
+      SourceOptions options,
+      LongSupplier nanoClock) {
+    this.nanoClock = nanoClock;
     this.pipeline = pipeline;
     this.source = source;
     this.consumerFactory = consumerFactory;
@@ -527,7 +541,7 @@ public final class KafkaPipelineSource implements SmartLifecycle {
 
   /** Commits what advanced, if {@code commit-interval} elapsed for this consumer. */
   private void commitIfDue(Consumer<?, ?> consumer) {
-    long now = System.nanoTime();
+    long now = nanoClock.getAsLong();
     Long last = lastCommitNanos.get(consumer);
     if (last != null && now - last < source.commitInterval().toNanos()) {
       return;
@@ -570,7 +584,7 @@ public final class KafkaPipelineSource implements SmartLifecycle {
     }
   }
 
-  private final class Listener implements BatchConsumerAwareMessageListener<byte[], byte[]> {
+  final class Listener implements BatchConsumerAwareMessageListener<byte[], byte[]> {
 
     @Override
     public void onMessage(
@@ -594,7 +608,7 @@ public final class KafkaPipelineSource implements SmartLifecycle {
     }
   }
 
-  private final class Rebalance implements ConsumerAwareRebalanceListener {
+  final class Rebalance implements ConsumerAwareRebalanceListener {
 
     @Override
     public void onPartitionsAssigned(Consumer<?, ?> consumer, Collection<TopicPartition> assigned) {
@@ -643,7 +657,7 @@ public final class KafkaPipelineSource implements SmartLifecycle {
   }
 
   /** Runs before every poll on each consumer thread, including while paused or idle. */
-  private final class CommitBeforePoll implements BatchInterceptor<byte[], byte[]> {
+  final class CommitBeforePoll implements BatchInterceptor<byte[], byte[]> {
 
     @Override
     public ConsumerRecords<byte[], byte[]> intercept(
