@@ -201,7 +201,8 @@ Where to read it:
   `java.nio.channels.ClosedSelectorException` (from `SingleCoreIOReactor.closeOpenChannels`).
   The check's short-lived client was closed by force; it held one connection and nothing is
   lost. Ignore it unless it repeats without any stop or reload ([#202](https://github.com/matabar/kafkafim/issues/202)).
-- **Why it is paused**: `kafkafim_pipeline_pause_reason{pipeline,reason,es_cluster,identity} == 1`, with
+- **Why it is paused**: `kafkafim_pipeline_pause_reason{pipeline,reason,es_cluster,identity} == 1`,
+  with
   `reason` one of `es_breaker`
   ([Elasticsearch outage, circuit breaker open (§5.1)](#51-elasticsearch-outage-circuit-breaker-open)),
   `es_auth`
