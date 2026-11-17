@@ -852,7 +852,7 @@ application properties live under `kafkafim.*`. Cluster trust settings and ident
 definitions reference those properties with `${...}` placeholders, so the rendered
 ConfigMap never contains a secret. Startup validation refuses literal values in `password`,
 `api-key` and `*-password` fields (and in passthrough `properties` keys ending in
-`password`, containing `secret`, `sasl.jaas.config`, `ssl.keystore.key` or
+`password` or `passphrase`, containing `secret`, `sasl.jaas.config`, `ssl.keystore.key` or
 `user.info`) unless `kafkafim.allow-inline-secrets=true`. That switch is for local
 development outside Kubernetes (`./mvnw spring-boot:run` with Compose): on
 `CloudPlatform.KUBERNETES` the flag itself stops startup (§5.4), so the local Kubernetes
