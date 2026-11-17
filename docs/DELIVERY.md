@@ -84,6 +84,12 @@ anything. The run measured on 2026-11-17 generated 511 mutants and killed 489 of
 about 30 seconds on a developer machine, with the same result in two runs. The job fails when the
 score drops below 95 %. Raise the floor when the score rises; never lower it to make a change pass.
 
+New code in `route` and `decode` is mutated from the day it lands, so a pull request that adds a
+transform op (for example `remove`, `rename` or `set`) must kill its own mutants in the op's tests
+and keep the score at or above the floor. After merging `remove` the score was 96.4 % (507 of 526
+mutants). If a change dips below the floor, add tests for the surviving mutants in the same pull
+request; do not lower the floor.
+
 The surviving mutants that are left are mostly equivalent or not worth a test: boundary changes
 in checks whose two sides behave the same, and calls to the validation helper that a second check
 repeats further down. Read them in the report before adding a test.
