@@ -39,7 +39,7 @@ class KafkafimMetersTest {
     final AtomicLong inFlight = new AtomicLong();
     final AtomicInteger assigned = new AtomicInteger();
     volatile boolean connected;
-    volatile Set<PauseReason> pauseReasons = Set.of();
+    volatile Set<PauseCause> pauseReasons = Set.of();
 
     @Override
     public long inFlightBytes() {
@@ -57,7 +57,7 @@ class KafkafimMetersTest {
     }
 
     @Override
-    public Set<PauseReason> pauseReasons() {
+    public Set<PauseCause> pauseReasons() {
       return pauseReasons;
     }
   }
@@ -335,28 +335,62 @@ class KafkafimMetersTest {
   }
 
   @Test
-  void pauseReasonGaugesExistPerKindAndReadTheProbe() {
+  void pauseReasonGaugesExistPerConfiguredCauseAndReadTheProbe() {
     Probe probe = new Probe();
-    sync(Map.of("orders", spec("prod-a", List.of("t"), probe)));
-    final String[] base = {"pipeline", "orders", "kafka_cluster", "prod-a"};
+    sync(
+        Map.of(
+            "orders",
+            new PipelineSpec(
+                "prod-a",
+                List.of("t"),
+                List.of("0"),
+                Set.of("es", "es2"),
+                Set.of(
+                    new PipelineSpec.EsStream("es", "writer"),
+                    new PipelineSpec.EsStream("es2", null)),
+                probe)));
 
     assertThat(
             registry.find(TelemetryNames.PAUSE_REASON).gauges().stream()
-                .map(g -> g.getId().getTag("reason"))
+                .map(g ->
+                    g.getId().getTag("reason")
+                        + "/"
+                        + g.getId().getTag("es_cluster")
+                        + "/"
+                        + g.getId().getTag("identity"))
                 .toList())
-        .containsExactlyInAnyOrder("es_breaker", "es_auth", "dlq_blocked");
-    for (PauseReason reason : PauseReason.values()) {
-      assertThat(gauge(TelemetryNames.PAUSE_REASON, with(base, "reason", reason.label()))).isZero();
-    }
+        .containsExactlyInAnyOrder(
+            "es_breaker/es/none",
+            "es_breaker/es2/none",
+            "es_auth/es/writer",
+            "es_auth/es2/none",
+            "dlq_blocked/none/none");
+    assertThat(pauseGauge("es_breaker", "es", "none")).isZero();
 
-    probe.pauseReasons = Set.of(PauseReason.ES_BREAKER, PauseReason.DLQ_BLOCKED);
-    assertThat(gauge(TelemetryNames.PAUSE_REASON, with(base, "reason", "es_breaker"))).isOne();
-    assertThat(gauge(TelemetryNames.PAUSE_REASON, with(base, "reason", "dlq_blocked"))).isOne();
-    assertThat(gauge(TelemetryNames.PAUSE_REASON, with(base, "reason", "es_auth"))).isZero();
+    probe.pauseReasons = Set.of(PauseCause.breaker("es"), PauseCause.dlqBlocked());
+    assertThat(pauseGauge("es_breaker", "es", "none")).isOne();
+    assertThat(pauseGauge("es_breaker", "es2", "none")).isZero();
+    assertThat(pauseGauge("dlq_blocked", "none", "none")).isOne();
+    assertThat(pauseGauge("es_auth", "es", "writer")).isZero();
 
-    // A reload that keeps the series reads the new probe.
-    sync(Map.of("orders", spec("prod-a", List.of("t"), new Probe())));
-    assertThat(gauge(TelemetryNames.PAUSE_REASON, with(base, "reason", "es_breaker"))).isZero();
+    probe.pauseReasons = Set.of(PauseCause.auth("es2", null));
+    assertThat(pauseGauge("es_auth", "es2", "none")).isOne();
+    assertThat(pauseGauge("es_breaker", "es", "none")).isZero();
+  }
+
+  private double pauseGauge(String reason, String esCluster, String identity) {
+    return gauge(
+        TelemetryNames.PAUSE_REASON,
+        "pipeline",
+        "orders",
+        "kafka_cluster",
+        "prod-a",
+        "reason",
+        reason,
+        "es_cluster",
+        esCluster,
+        "identity",
+        identity);
   }
 
   @Test
@@ -479,8 +513,8 @@ class KafkafimMetersTest {
               "kafkafim_in_flight_bytes{kafka_cluster=\"prod-a\",pipeline=\"orders\"} 0.0",
               "kafkafim_assigned_partitions{kafka_cluster=\"prod-a\",pipeline=\"orders\"} 0.0",
               "kafkafim_kafka_connected{kafka_cluster=\"prod-a\",pipeline=\"orders\"} 0.0",
-              "kafkafim_pipeline_pause_reason{kafka_cluster=\"prod-a\",pipeline=\"orders\","
-                  + "reason=\"dlq_blocked\"} 0.0",
+              "kafkafim_pipeline_pause_reason{es_cluster=\"none\",identity=\"none\","
+                  + "kafka_cluster=\"prod-a\",pipeline=\"orders\",reason=\"dlq_blocked\"} 0.0",
               "kafkafim_dlq_records_total{error_type=\"decode\",kafka_cluster=\"prod-a\","
                   + "pipeline=\"orders\"} 1.0")
           .doesNotContain(

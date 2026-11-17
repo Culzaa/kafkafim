@@ -11,6 +11,7 @@ import io.micrometer.core.instrument.config.MeterFilter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -86,12 +87,18 @@ public final class PipelineMeters {
     gauge(
         TelemetryNames.ASSIGNED_PARTITIONS, null, m -> m.probe.assignedPartitions(), Tags.empty());
     gauge(TelemetryNames.KAFKA_CONNECTED, null, m -> m.probe.connected() ? 1 : 0, Tags.empty());
-    for (PauseReason reason : PauseReason.values()) {
+    for (PauseCause cause : pauseCauses(spec)) {
       gauge(
           TelemetryNames.PAUSE_REASON,
           null,
-          m -> m.probe.pauseReasons().contains(reason) ? 1 : 0,
-          Tags.of("reason", reason.label()));
+          m -> m.probe.pauseReasons().contains(cause) ? 1 : 0,
+          Tags.of(
+              "reason",
+              cause.reason().label(),
+              TelemetryNames.ES_CLUSTER,
+              cause.esCluster(),
+              "identity",
+              cause.identity()));
     }
     for (String topic : spec.topics()) {
       counter(TelemetryNames.RECORDS_CONSUMED, topic(topic));
@@ -115,6 +122,15 @@ public final class PipelineMeters {
       authFailures(stream.esCluster(), stream.identityLabel());
     }
     this.e2e = timer(TelemetryNames.E2E_LATENCY, E2E_SLOS_SECONDS, Tags.empty());
+  }
+
+  /** Every cause the configuration allows: the label values are config names, never content. */
+  private static Set<PauseCause> pauseCauses(PipelineSpec spec) {
+    Set<PauseCause> causes = new LinkedHashSet<>();
+    spec.esClusters().forEach(cluster -> causes.add(PauseCause.breaker(cluster)));
+    spec.esStreams().forEach(s -> causes.add(PauseCause.auth(s.esCluster(), s.identity())));
+    causes.add(PauseCause.dlqBlocked());
+    return causes;
   }
 
   /** The pipeline name. */

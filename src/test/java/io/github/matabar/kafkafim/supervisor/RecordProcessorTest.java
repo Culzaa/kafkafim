@@ -243,6 +243,68 @@ class RecordProcessorTest {
     }
   }
 
+  /**
+   * Cardinality bound (#328, DESIGN §10): tag values come from the configuration, never from a
+   * document. The routes here name an index from a document field ({@code copy-%{tenant}}); however
+   * many distinct documents come in, the {@code route} labels stay the configured ones.
+   */
+  @Test
+  void documentContentNeverReachesTagValues() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    try (KafkafimMeters meters = new KafkafimMeters(registry)) {
+      meters.sync(
+          Map.of(
+              "p",
+              new PipelineSpec(
+                  "k", List.of("t"), List.of("0", "1"), Set.of("es", "es2"), SourceProbe.NONE)),
+          Set.of("es", "es2"),
+          cluster -> null);
+      processor = processor(FAN_OUT, meters.pipeline("p"));
+
+      List<FakeRecord> records = new ArrayList<>();
+      for (int i = 0; i < 25; i++) {
+        records.add(
+            record(
+                "{\"id\":\"doc-%d\",\"region\":\"eu\",\"copy\":%d,\"tenant\":\"tenant-%d\"}"
+                    .formatted(i, i, i)));
+        records.add(record("not json " + i));
+      }
+      processor.process(records);
+      sinks.values().forEach(sink -> sink.actions.forEach(this::ack));
+      dlq.forEach(Sent::ack);
+
+      Map<String, Set<String>> values = new LinkedHashMap<>();
+      registry
+          .getMeters()
+          .forEach(meter ->
+              meter
+                  .getId()
+                  .getTags()
+                  .forEach(tag ->
+                      values
+                          .computeIfAbsent(tag.getKey(), k -> new java.util.TreeSet<>())
+                          .add(tag.getValue())));
+      assertThat(values.get("route")).containsExactlyInAnyOrder("0", "1", "none");
+      assertThat(values.get("topic")).containsExactly("t");
+      assertThat(values.get("pipeline")).containsExactly("p");
+      assertThat(values.get("kafka_cluster")).containsExactly("k");
+      assertThat(values.get("es_cluster")).isSubsetOf("es", "es2", "none");
+      assertThat(values.get("identity")).isSubsetOf("none", "writer");
+      assertThat(values.keySet())
+          .as("a new tag key needs its value source audited (DESIGN §10)")
+          .isSubsetOf(
+              "pipeline",
+              "kafka_cluster",
+              "topic",
+              "route",
+              "outcome",
+              "es_cluster",
+              "identity",
+              "reason",
+              "le"); // the bucket bound of a histogram, not a value of ours
+    }
+  }
+
   private static double docs(SimpleMeterRegistry registry, String route, String outcome) {
     return registry
         .get(TelemetryNames.DOCS)

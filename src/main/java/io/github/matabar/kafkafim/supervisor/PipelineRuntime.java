@@ -76,7 +76,7 @@ final class PipelineRuntime {
   private static final Logger LOG = LoggerFactory.getLogger(PipelineRuntime.class);
 
   // A new pause reason must also get a kind in telemetry.PauseReason and a branch in
-  // TelemetryBinder.kinds(): the pause_reason gauge ignores a reason string it does not know, so
+  // TelemetryBinder.causes(): the pause_reason gauge ignores a reason string it does not know, so
   // nothing else would tell the author (#191).
 
   /** Pause reason prefix while an Elasticsearch cluster's breaker is open. */

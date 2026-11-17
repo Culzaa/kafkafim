@@ -318,6 +318,8 @@ class PipelineSupervisorIntegrationTest {
       assertThat(gauge(meters, "g", "running")).isZero();
       // The reason is the kind of the supervisor's reason, and only that one is 1 (#191).
       assertThat(pauseReasonGauge(meters, "g", "es_breaker")).isEqualTo(1);
+      // It names the cluster the breaker belongs to, from the configuration (#328).
+      assertThat(pauseReasonGauge(meters, "g", "es_breaker", "local", "none")).isEqualTo(1);
       assertThat(pauseReasonGauge(meters, "g", "es_auth")).isZero();
       assertThat(pauseReasonGauge(meters, "g", "dlq_blocked")).isZero();
       // Open, or half-open while a probe is out; never closed while the node is paused.
@@ -536,11 +538,26 @@ class PipelineSupervisorIntegrationTest {
         .value();
   }
 
+  /** The sum over the reason's series: one per configured cluster and identity. */
   private static double pauseReasonGauge(MeterRegistry meters, String pipeline, String reason) {
+    return meters
+        .find(TelemetryNames.PAUSE_REASON)
+        .tag("pipeline", pipeline)
+        .tag("reason", reason)
+        .gauges()
+        .stream()
+        .mapToDouble(io.micrometer.core.instrument.Gauge::value)
+        .sum();
+  }
+
+  private static double pauseReasonGauge(
+      MeterRegistry meters, String pipeline, String reason, String esCluster, String identity) {
     return meters
         .get(TelemetryNames.PAUSE_REASON)
         .tag("pipeline", pipeline)
         .tag("reason", reason)
+        .tag("es_cluster", esCluster)
+        .tag("identity", identity)
         .gauge()
         .value();
   }
