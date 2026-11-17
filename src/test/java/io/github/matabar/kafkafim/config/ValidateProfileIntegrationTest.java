@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.github.matabar.kafkafim.KafkafimApplication;
 import io.github.matabar.kafkafim.supervisor.PipelineSupervisor;
 import io.github.matabar.kafkafim.telemetry.KafkafimMeters;
+import io.opentelemetry.instrumentation.kafkaclients.v2_6.KafkaTelemetry;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -53,6 +54,7 @@ class ValidateProfileIntegrationTest {
       assertThat(context).isNotInstanceOf(WebApplicationContext.class);
       assertThat(context.getBeanNamesForType(PipelineSupervisor.class)).isEmpty();
       assertThat(context.getBeanNamesForType(KafkafimMeters.class)).isEmpty();
+      assertThat(context.getBeanNamesForType(KafkaTelemetry.class)).isEmpty();
       assertThat(context.getBean(ValidateProfile.Summary.class).text())
           .contains(
               "1 pipeline(s)",
