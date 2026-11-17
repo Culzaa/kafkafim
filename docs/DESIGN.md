@@ -1239,7 +1239,8 @@ is rejected as an unknown `op` at validation (§5.7).
   parent that exists but is not an object, or the result would nest deeper than 500.
   The DLQ record carries the original bytes. `kafkafim.error.reason` names the route,
   step position, op, and pointer, never a value. In `route-mode: all` only that copy
-  is dead-lettered. Counted in `kafkafim_dlq_records_total{error_type="transform"}`;
+  is dead-lettered. If the document cannot be parsed again for the steps, the reason names
+  the route only. Counted in `kafkafim_dlq_records_total{error_type="transform"}`;
   there is no new metric.
 
 ## 9. DLQ

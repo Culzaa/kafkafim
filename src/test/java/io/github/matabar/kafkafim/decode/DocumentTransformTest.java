@@ -82,6 +82,14 @@ class DocumentTransformTest {
   }
 
   @Test
+  void numberWithoutExactDecimalIsTransformFailureNotCrash() {
+    // The routing parse reads this literal as a double (infinity); BigDecimal cannot hold it.
+    assertThatThrownBy(() -> DocumentTransform.parseExact(source("{\"n\":1e99999999999}")))
+        .isInstanceOf(TransformException.class)
+        .hasMessage("the document could not be parsed again for its transform");
+  }
+
+  @Test
   void stepsRunInOrderAndDoNotMutateTheSharedTree() throws Exception {
     DocumentTransform transform =
         DocumentTransform.compile("r", List.of(append("x", "1"), append("y", "2")), REGISTRY);
