@@ -159,6 +159,40 @@ class DlqWriterTelemetryIntegrationTest {
         .isEqualTo("decode");
   }
 
+  @Test
+  void publishSpanIsParentedOnTheSourceRecordsProcessSpan() throws Exception {
+    DlqWriter writer = writer("orders-" + UUID.randomUUID());
+    KafkaTopics.create(admin, List.of(new NewTopic(writer.topic(), 1, (short) 1)));
+    String processSpan = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+    DlqRequest request =
+        new DlqRequest(
+            "orders.v2",
+            0,
+            2,
+            null,
+            null,
+            "{\"broken\"".getBytes(StandardCharsets.UTF_8),
+            List.of(),
+            "decode",
+            null,
+            null,
+            null,
+            1,
+            Instant.now(),
+            null,
+            processSpan);
+
+    writer.send(request).get(60, TimeUnit.SECONDS);
+
+    assertThat(spans)
+        .singleElement()
+        .satisfies(s -> {
+          assertThat(s.getTraceId()).isEqualTo("4bf92f3577b34da6a3ce929d0e0e4736");
+          assertThat(s.getParentSpanId()).isEqualTo("00f067aa0ba902b7");
+          assertThat(s.getKind()).isEqualTo(SpanKind.PRODUCER);
+        });
+  }
+
   private static ConsumerRecord<byte[], byte[]> readOne(String topic, long offset) {
     try (KafkaConsumer<byte[], byte[]> consumer =
         new KafkaConsumer<>(

@@ -20,6 +20,9 @@ import org.jspecify.annotations.Nullable;
  * @param requests its bulk requests, in order; each becomes an {@code es.bulk} child span
  * @param traceParents W3C {@code traceparent} values of the batch's source records; each valid one
  *     becomes a span link (duplicates and anything past the link limit are dropped)
+ * @param parentTraceParent {@code traceparent} of the Kafka process span of the batch's first
+ *     record, which becomes the batch span's parent; {@code null} for a root span (no Kafka
+ *     tracing, or none of the records carried a context)
  */
 public record BatchTrace(
     String pipeline,
@@ -32,7 +35,8 @@ public record BatchTrace(
     Instant started,
     Instant ended,
     List<BulkRequest> requests,
-    List<String> traceParents) {
+    List<String> traceParents,
+    @Nullable String parentTraceParent) {
 
   /** Copies the lists. */
   public BatchTrace {
@@ -41,6 +45,34 @@ public record BatchTrace(
     Objects.requireNonNull(ended, "ended");
     requests = List.copyOf(requests);
     traceParents = List.copyOf(traceParents);
+  }
+
+  /** A batch without a parent: its span is a root span. */
+  public BatchTrace(
+      String pipeline,
+      String kafkaCluster,
+      String esCluster,
+      @Nullable String identity,
+      String flushReason,
+      int docs,
+      long bytes,
+      Instant started,
+      Instant ended,
+      List<BulkRequest> requests,
+      List<String> traceParents) {
+    this(
+        pipeline,
+        kafkaCluster,
+        esCluster,
+        identity,
+        flushReason,
+        docs,
+        bytes,
+        started,
+        ended,
+        requests,
+        traceParents,
+        null);
   }
 
   /**

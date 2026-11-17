@@ -34,6 +34,8 @@ import org.jspecify.annotations.Nullable;
  * @param attempts indexing attempts made, at least 1
  * @param firstFailure when the document first failed
  * @param docIndex position inside a JSON array record; {@code null} for a whole-record failure
+ * @param processTraceParent {@code traceparent} of the Kafka {@code process} span of the source
+ *     record, which becomes the parent of the DLQ publish span; {@code null} for none
  */
 public record DlqRequest(
     String sourceTopic,
@@ -49,7 +51,8 @@ public record DlqRequest(
     @Nullable String targetIndex,
     int attempts,
     Instant firstFailure,
-    @Nullable Integer docIndex) {
+    @Nullable Integer docIndex,
+    @Nullable String processTraceParent) {
 
   /**
    * Validates the request and snapshots the headers.
@@ -75,6 +78,40 @@ public record DlqRequest(
       throw new IllegalArgumentException("docIndex must not be negative: " + docIndex);
     }
     headers = headers == null ? List.of() : Collections.unmodifiableList(copyNonNull(headers));
+  }
+
+  /** A request without a parent span context: the DLQ publish span is a root span. */
+  public DlqRequest(
+      String sourceTopic,
+      int sourcePartition,
+      long sourceOffset,
+      @Nullable Instant sourceTimestamp,
+      byte @Nullable [] key,
+      byte @Nullable [] value,
+      List<Header> headers,
+      String errorType,
+      @Nullable String reason,
+      @Nullable String targetCluster,
+      @Nullable String targetIndex,
+      int attempts,
+      Instant firstFailure,
+      @Nullable Integer docIndex) {
+    this(
+        sourceTopic,
+        sourcePartition,
+        sourceOffset,
+        sourceTimestamp,
+        key,
+        value,
+        headers,
+        errorType,
+        reason,
+        targetCluster,
+        targetIndex,
+        attempts,
+        firstFailure,
+        docIndex,
+        null);
   }
 
   private static List<Header> copyNonNull(List<Header> headers) {

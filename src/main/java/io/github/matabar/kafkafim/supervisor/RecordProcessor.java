@@ -461,7 +461,8 @@ final class RecordProcessor {
         targetIndex,
         attempts,
         firstFailure,
-        docIndex);
+        docIndex,
+        inbound.processTraceParent());
   }
 
   private static String reason(DecodeResult.RecordFailure failure) {
