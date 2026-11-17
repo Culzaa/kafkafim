@@ -177,6 +177,22 @@ class ConsumerTracingIntegrationTest {
     List<SpanData> process = spansOf("process");
     assertThat(spansOf("receive")).as("receive spans are off by default").isEmpty();
     assertThat(process).allMatch(s -> s.getKind() == SpanKind.CONSUMER);
+    // Not just the right count: each delivery has its own span (no duplicate hiding a missing one).
+    assertThat(
+            process.stream()
+                .map(s ->
+                    s.getAttributes().asMap().entrySet().stream()
+                        .filter(e ->
+                            e.getKey().getKey().equals("messaging.destination.partition.id")
+                                || e.getKey().getKey().equals("messaging.kafka.message.offset"))
+                        .map(e -> e.getKey().getKey() + "=" + e.getValue())
+                        .sorted()
+                        .toList()
+                        .toString())
+                .distinct()
+                .count())
+        .as("distinct (partition, offset) among the process spans")
+        .isEqualTo(distinct(recorder));
     assertThat(process)
         .allSatisfy(span -> {
           Map<String, Object> attributes = new HashMap<>();
@@ -190,6 +206,14 @@ class ConsumerTracingIntegrationTest {
 
   @Test
   void theInstrumentationAddsNoLogOutput() throws Exception {
+    // Positive control: both captures really see a record logged under io.opentelemetry.
+    otelJul.info("probe");
+    LoggerFactory.getLogger("io.opentelemetry.probe").info("probe");
+    assertThat(jul).hasSize(1);
+    assertThat(logback.list).hasSize(1);
+    jul.clear();
+    logback.list.clear();
+
     String topic = createTopic(1);
     produce(topic, 0, 10);
     Recorder recorder = new Recorder();
