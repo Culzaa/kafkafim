@@ -1431,6 +1431,11 @@ Every log event goes to two places (ADR-0044):
   `management.logging.export.otlp.enabled=false` switches it off, as
   `management.otlp.metrics.export.enabled` and `management.tracing.export.otlp.enabled`
   do for the other two.
+  MDC keys are opt-in: `captureMdcAttributes` in `logback-spring.xml` names the keys to
+  export, never `*` (ADR-0048). The list names `pipeline`, which no code sets yet; a key
+  someone adds to the MDC later stays out of the backend until a reviewed change adds it
+  to the list, and Micrometer's `traceId` and `spanId` MDC entries are not repeated as
+  attributes (the record's own trace and span id remain). `MdcAllowlistTest` pins it.
 - **stdout**, readable text for a person (`kubectl logs`, a local run): Spring Boot's
   console line with time, level, thread, trace and span id, logger, and message. It is
   never JSON and nothing parses it. It is also the only place for what OTLP cannot
