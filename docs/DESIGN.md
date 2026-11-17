@@ -1420,7 +1420,7 @@ Every log event goes to two places (ADR-0044):
 - **OTLP**, the structured copy, for the backend. OpenTelemetry's Logback appender
   (`logback-spring.xml`) feeds the logger provider Spring Boot auto-configures; records
   are batched off the logging thread and sent to `/v1/logs`. A record carries the
-  severity, the logger name (its instrumentation scope), `thread.name`, MDC entries and
+  severity, the logger name (its instrumentation scope), `thread.name`, the allowlisted MDC entries and
   key-value pairs as attributes, an exception's type, message, and stack trace, the trace
   and span id of the span in scope, and the resource attributes above. Lines logged
   before the OpenTelemetry SDK exists (Spring Boot's startup lines, configuration
@@ -1429,6 +1429,9 @@ Every log event goes to two places (ADR-0044):
   `management.logging.export.otlp.enabled=false` switches it off, as
   `management.otlp.metrics.export.enabled` and `management.tracing.export.otlp.enabled`
   do for the other two.
+  MDC keys are opt-in: `captureMdcAttributes` in `logback-spring.xml` names the keys to
+  export (today `pipeline`), never `*`, so a key someone adds to the MDC later stays out of
+  the backend until it is added to that list in a reviewed change. `MdcAllowlistTest` pins it.
 - **stdout**, readable text for a person (`kubectl logs`, a local run): Spring Boot's
   console line with time, level, thread, trace and span id, logger, and message. It is
   never JSON and nothing parses it. It is also the only place for what OTLP cannot
