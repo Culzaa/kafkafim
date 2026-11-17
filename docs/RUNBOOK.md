@@ -195,6 +195,16 @@ Where to read it:
 - **Logs**: every transition is logged at INFO as `Pipeline '<name>': <from> -> <to>`;
   a pause as WARN `Pipeline '<name>': pausing (<reason>)` and its end as INFO
   `Pipeline '<name>': <reason> cleared`.
+- **Which log levels need action**: ERROR always needs a look: a pipeline `failed` or
+  `failed_preflight`, a reload that failed or was rejected, a pipeline that
+  `could not be started again` after a rolled-back reload, a `stopping the half-started
+  container failed` (a consumer may still hold partitions: restart the pod if the group
+  does not settle), a callback or handler that threw. WARN is informational unless it
+  repeats or the matching metric stays bad: a pause, a retried request, DLQ records, a
+  close or cleanup that failed (`Closing ... failed`, `Dropping the DLQ writer ...
+  failed`: the resource is released with the process at the latest), records that will be
+  re-delivered. INFO is routine, including the watcher falling back to polling and an
+  interrupted DLQ producer close. Alert on ERROR; use the metrics for WARN conditions.
 - **Harmless ERROR after a stop or reload**: a stop or reload that interrupts an Elasticsearch
   preflight check within milliseconds of its start can log `ERROR
   org.apache.hc.client5.http.impl.async` with a

@@ -1488,6 +1488,14 @@ record landed; never the reason or the record);
 one INFO or ERROR line per reload (§5.6). Document bodies are never
 logged by default.
 
+Log levels: ERROR means a pipeline or a resource is left in a bad state and someone should
+act (a reload that failed, a pipeline that failed or could not start again, a consumer
+that may still be running after a failed stop); WARN means degraded or self-healing, or a
+cleanup that failed at shutdown and dies with the process (a retried request, a pause, a
+record that is re-delivered, a close that failed); INFO is expected, including the
+fallbacks and races of a shutdown. Expected shutdown noise is never ERROR
+(the one exception is a third-party logger, RUNBOOK §3.1).
+
 Exceptions in log lines: a failure nobody planned for passes the exception as the last
 argument, so the log keeps its type and stack trace (`LOG.warn("…", name, e)`, never only
 `e.getMessage()`, which can be null). A failure the code expects (a validation error, a
