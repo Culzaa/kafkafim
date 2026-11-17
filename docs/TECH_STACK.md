@@ -1,6 +1,6 @@
 # Tech stack
 
-Versions are the ones pinned at project creation (2026-11-07). Everything marked
+Versions are the ones pinned in `pom.xml`, the Dockerfile, and `compose.yaml`. Everything marked
 *BOM* is managed by the Spring Boot parent; do not pin it in `pom.xml`.
 
 | Area | Choice | Version | Why | ADR |
@@ -15,7 +15,7 @@ Versions are the ones pinned at project creation (2026-11-07). Everything marked
 | Elasticsearch | `co.elastic.clients:elasticsearch-rest5-client` (low-level, HttpClient 5) | BOM (9.4.x). HTTP-only, no compatibility headers, works with 8.x | Version-agnostic; own bulk builder and per-item parsing | [ADR-0005](decisions/0005-elasticsearch-low-level-rest-client.md) |
 | JSON | Jackson 3 (`tools.jackson`) | BOM | Record decoding, array explosion, JSON-pointer field extraction, bulk item parsing | — |
 | Routing | Declarative rules + Logstash-style index patterns (own code, `DateTimeFormatter`) | — | No expression language in the MVP | [ADR-0009](decisions/0009-declarative-routing-no-expression-language.md) |
-| Resilience | `resilience4j-circuitbreaker` (brings `resilience4j-core`) | 2.3.0 | Per-ES-cluster circuit breaker and backoff intervals only (`resilience4j-retry` is not used); the bulk retry loop itself is the sink's own | [ADR-0016](decisions/0016-resilience4j-for-breaker-and-retry.md), [ADR-0026](decisions/0026-bulk-retry-loop-in-the-sink.md) |
+| Resilience | `resilience4j-circuitbreaker` (brings `resilience4j-core`) | 2.4.0 | Per-ES-cluster circuit breaker and backoff intervals only (`resilience4j-retry` is not used); the bulk retry loop itself is the sink's own | [ADR-0016](decisions/0016-resilience4j-for-breaker-and-retry.md), [ADR-0026](decisions/0026-bulk-retry-loop-in-the-sink.md) |
 | Metrics | Micrometer → OTLP + Prometheus registry | BOM | OTLP to Elastic APM Server; `/actuator/prometheus` for free | [ADR-0013](decisions/0013-observability-otel-via-spring-boot.md) |
 | Tracing | Micrometer Tracing + OpenTelemetry bridge → OTLP | BOM (OTel 1.62) | Bulk-level spans, span links from Kafka headers | [ADR-0013](decisions/0013-observability-otel-via-spring-boot.md) |
 | Logs | Logback → OpenTelemetry Logback appender → OTLP (Spring Boot's auto-configured exporter); plain text on stdout | BOM; appender 2.28.1-alpha | Logs travel with metrics and traces; stdout is for people | [ADR-0044](decisions/0044-logs-over-otlp-stdout-is-readable-text.md) |
@@ -44,16 +44,18 @@ Versions are the ones pinned at project creation (2026-11-07). Everything marked
 - **Spring Cloud (Kubernetes, Circuit Breaker)**: extra BOM, no benefit (ADR-0012, ADR-0016).
 - **Kotlin, Gradle, GraalVM native**: not now; none is precluded.
 
-## Source layout (planned)
+## Source layout
 
 ```text
 io.github.matabar.kafkafim
-├── config/         @ConfigurationProperties model, validators, watcher, Binder reload, diff
-├── supervisor/     pipeline lifecycle, hot reload orchestration, reload endpoint (ADR-0028)
-├── source/kafka/   consumer factories per cluster, container per pipeline, offset tracker
+├── config/         @ConfigurationProperties model, validators, watcher, Binder reload, diff, secret checks
+├── supervisor/     pipeline lifecycle, preflight checks, hot reload orchestration, reload endpoint (ADR-0028)
+├── source/kafka/   consumer factories per cluster, pipeline source with pause/resume, offset tracker, byte budget
 ├── decode/         object / array-of-objects decoding, JSON-pointer field extraction, timestamp parsing
 ├── route/          condition evaluation, index pattern resolution
-├── sink/es/        Rest5Client per (cluster, identity), batcher + bulk sender, NDJSON body builder, item parser, error table, breaker per cluster
-├── dlq/            producer, record format
-└── telemetry/      meters, spans, health indicators
+├── sink/es/        Rest5Client per (cluster, identity), batcher + bulk sender, NDJSON body builder, item parser, error classifier, breaker per cluster
+├── dlq/            shared producers, writer, record format
+└── telemetry/      meters, spans, health indicators, OTLP log export
 ```
+
+Tests mirror this tree under `src/test/java`. Integration tests are named `*IntegrationTest`.
