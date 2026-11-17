@@ -24,6 +24,9 @@ COPY --from=extract /build/extracted/dependencies/ ./
 COPY --from=extract /build/extracted/spring-boot-loader/ ./
 COPY --from=extract /build/extracted/snapshot-dependencies/ ./
 COPY --from=extract /build/extracted/application/ ./
+# Do NOT attach the OpenTelemetry Java agent (no -javaagent in JAVA_TOOL_OPTIONS) and do not
+# enable Spring Kafka observation: the opentelemetry-kafka-clients library inside the jar is
+# the one tracing mechanism for the Kafka clients, and a second one would trace each twice.
 ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError" \
     SPRING_CONFIG_ADDITIONAL_LOCATION=optional:/etc/kafkafim/config/
 USER 65532:65532
