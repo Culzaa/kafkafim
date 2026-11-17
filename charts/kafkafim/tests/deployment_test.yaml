@@ -31,6 +31,14 @@ tests:
             name: SPRING_PROFILES_ACTIVE
             value: kafkafim
 
+  - it: no Deployment injects Service link env vars into the pod
+    values:
+      - ../ci/two-groups-values.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.enableServiceLinks
+          value: false
+
   - it: every Deployment sets the non-optional config location
     values:
       - ../ci/two-groups-values.yaml
