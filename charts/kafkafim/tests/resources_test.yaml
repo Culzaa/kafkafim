@@ -235,3 +235,17 @@ tests:
       - equal:
           path: spec.minAvailable
           value: 1
+
+  - it: puts serviceAccount.annotations on the ServiceAccount
+    values:
+      - ../ci/minimal-values.yaml
+    template: templates/serviceaccount.yaml
+    set:
+      serviceAccount:
+        annotations:
+          example.com/role: kafkafim
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            example.com/role: kafkafim
