@@ -162,6 +162,13 @@ class RenameStepTest {
   }
 
   @Test
+  void nonObjectRootIsLeftAlone() throws Exception {
+    JsonNode array = DocumentTransform.parseExact(source("[1]"));
+    TransformStep step = StepRegistry.BUILT_IN.factory("rename").compile(rename("/a", "/b"));
+    assertThat(step.apply(array)).isSameAs(array);
+  }
+
+  @Test
   void declaresThatItCanDeepenTheDocument() {
     assertThat(StepRegistry.BUILT_IN.factory("rename").compile(rename("/a", "/b")).deepens())
         .isTrue();

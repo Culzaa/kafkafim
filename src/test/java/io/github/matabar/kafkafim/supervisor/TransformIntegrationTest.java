@@ -257,14 +257,14 @@ class TransformIntegrationTest {
 
     String doc =
         "{ \"id\": \"r-1\", \"region\": \"eu\", \"kind\": \"k\", \"usr\": null,"
-            + " \"big\": 123456789012345678901234567890 }";
+            + " \"ratio\": 0.10 }";
     send(id, doc);
 
     await().atMost(TIMEOUT).untilAsserted(() -> assertThat(count(id + "-*")).isEqualTo(2));
     assertThat(source(id + "-full", "r-1")).isEqualTo(doc);
     assertThat(source(id + "-renamed-k", "r-1"))
         .isEqualTo(
-            "{\"id\":\"r-1\",\"region\":\"eu\",\"big\":123456789012345678901234567890,"
+            "{\"id\":\"r-1\",\"region\":\"eu\",\"ratio\":0.10,"
                 + "\"user\":null,\"meta\":{\"kind\":\"k\"}}");
   }
 
