@@ -37,6 +37,9 @@ spec:
     spec:
       serviceAccountName: {{ include "kafkafim.serviceAccountName" $ }}
       automountServiceAccountToken: false
+      # The per-group Services would inject KAFKAFIM_<GROUP>_PORT=tcp://... env vars that
+      # Boot's relaxed binding maps into kafkafim.<group>.*; the pods never use them.
+      enableServiceLinks: false
       terminationGracePeriodSeconds: {{ $.Values.terminationGracePeriodSeconds }}
       {{- with $.Values.image.pullSecrets }}
       imagePullSecrets:
