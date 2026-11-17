@@ -139,7 +139,10 @@ final class PipelineResources implements SmartLifecycle, AutoCloseable {
     this(relay, authChecks, settings, null);
   }
 
-  /** {@code kafkaTelemetry} instruments the consumers and the DLQ producers; {@code null} leaves them bare. */
+  /**
+   * {@code kafkaTelemetry} instruments the consumers and the DLQ producers; {@code null} leaves
+   * them bare.
+   */
   PipelineResources(
       ListenerRelay relay,
       Function<KafkafimProperties, Preflight.AuthCheck> authChecks,
