@@ -54,13 +54,12 @@ public class SupervisorConfiguration {
   }
 
   @Bean(destroyMethod = "close")
-  PipelineResources kafkafimPipelineResources(
-      ListenerRelay relay, ObjectProvider<KafkaTelemetry> kafkaTelemetry) {
+  PipelineResources kafkafimPipelineResources(ListenerRelay relay, KafkaTelemetry kafkaTelemetry) {
     return new PipelineResources(
         relay,
         properties -> new ElasticsearchAuthCheck(properties.elasticsearch().clusters()),
         PipelineResources.Settings.DEFAULTS,
-        kafkaTelemetry.getIfAvailable());
+        kafkaTelemetry);
   }
 
   @Bean

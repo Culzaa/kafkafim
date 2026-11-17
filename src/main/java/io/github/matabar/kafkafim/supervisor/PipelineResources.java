@@ -139,16 +139,16 @@ final class PipelineResources implements SmartLifecycle, AutoCloseable {
     this(relay, authChecks, settings, null);
   }
 
-  /** {@code kafkaTelemetry} instruments the DLQ producers; {@code null} leaves them bare. */
+  /** {@code kafkaTelemetry} instruments the consumers and the DLQ producers; {@code null} leaves them bare. */
   PipelineResources(
       ListenerRelay relay,
       Function<KafkafimProperties, Preflight.AuthCheck> authChecks,
       Settings settings,
       @Nullable KafkaTelemetry kafkaTelemetry) {
-    this.kafkaTelemetry = kafkaTelemetry;
     this.relay = relay;
     this.authChecks = authChecks;
     this.settings = settings;
+    this.kafkaTelemetry = kafkaTelemetry;
   }
 
   /**
@@ -507,7 +507,7 @@ final class PipelineResources implements SmartLifecycle, AutoCloseable {
       super(cluster);
       this.definition = definition;
       this.properties = properties;
-      this.consumerFactories = new ConsumerFactories(properties);
+      this.consumerFactories = new ConsumerFactories(properties, kafkaTelemetry);
       AtomicReference<Object> owner = new AtomicReference<>();
       DlqListener dlqListener = relay.dlqListener(owner::get);
       this.dlq =
