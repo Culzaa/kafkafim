@@ -3,11 +3,33 @@ on:
   push:
     tags: ['v*']
 permissions:
-  contents: write     # GitHub Release
-  packages: write     # GHCR image + chart
-  id-token: write     # Cosign keyless
+  contents: read      # default for every job; the publish job below raises what it needs
 jobs:
+  # Runs the tests (and so Maven plugins and dependency code) at the tag with a read-only token:
+  # no write, packages or id-token permission is available to it. `release` needs it to pass.
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash   # -eo pipefail
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '27'
+          cache: maven
+      - name: Build and test at the tag
+        run: ./mvnw -B -ntp -Drevision="${GITHUB_REF_NAME#v}" verify
+  # Publishes and signs; runs no Maven.
   release:
+    needs: verify
+    permissions:
+      contents: write     # GitHub Release
+      packages: write     # GHCR image + chart
+      id-token: write     # Cosign keyless
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -35,13 +57,6 @@ jobs:
           # runbook_url points at this tag's RUNBOOK, not main; the bundle carries a copy for the air gap
           sed -i "s#/blob/main/docs/RUNBOOK.md#/blob/v${V}/docs/RUNBOOK.md#" "$out/alerts/kafkafim-alerts.yaml"
           cp docs/RUNBOOK.md "$out/"
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: '27'
-          cache: maven
-      - name: Build and test at the tag
-        run: ./mvnw -B -ntp -Drevision=${{ steps.ver.outputs.version }} verify
 
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4

@@ -151,7 +151,10 @@ against the Spring Boot BOM's OpenTelemetry SDK (instrumentation 2.N pairs with 
 
 ## CD (`.github/workflows/release.yml`) on tag `v*`
 
-1. `./mvnw -Drevision=<ver> verify` (tests run again on the exact tagged commit).
+1. Job `verify` (token: `contents: read` only): `./mvnw -Drevision=<ver> verify` (tests run again on
+   the exact tagged commit). Job `release` needs it, so nothing below runs or publishes unless it
+   passes, and the write, `packages` and `id-token` permissions are held by a job that runs no
+   Maven; steps 2 onward are that job.
 2. Multi-arch image (`linux/amd64`, `linux/arm64`) built with Buildx and pushed to
    GHCR with the tags above and BuildKit provenance attestations.
 3. Image signed with Cosign (keyless, GitHub OIDC) in the classic `.sig`-tag format
