@@ -473,6 +473,59 @@ tests:
           path: spec.template.spec.tolerations
         documentIndex: 0
 
+  - it: a group's empty nodeSelector, tolerations, affinity and resources replace the top-level values
+    values:
+      - ../ci/minimal-values.yaml
+    set:
+      nodeSelector: { pool: ingest }
+      tolerations: [{ key: dedicated, operator: Exists }]
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions: [{ key: pool, operator: In, values: [ingest] }]
+      groups:
+        orders:
+          nodeSelector: {}
+          tolerations: []
+          affinity: {}
+          resources: {}
+    asserts:
+      - notExists:
+          path: spec.template.spec.nodeSelector
+      - notExists:
+          path: spec.template.spec.tolerations
+      - notExists:
+          path: spec.template.spec.containers[0].resources
+      - notExists:
+          path: spec.template.spec.affinity.nodeAffinity
+      - exists:
+          path: spec.template.spec.affinity.podAntiAffinity
+
+  - it: a group without its own nodeSelector, tolerations, affinity and resources inherits the top-level values
+    values:
+      - ../ci/minimal-values.yaml
+    set:
+      nodeSelector: { pool: ingest }
+      tolerations: [{ key: dedicated, operator: Exists }]
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions: [{ key: pool, operator: In, values: [ingest] }]
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value: { pool: ingest }
+      - equal:
+          path: spec.template.spec.tolerations
+          value: [{ key: dedicated, operator: Exists }]
+      - exists:
+          path: spec.template.spec.affinity.nodeAffinity
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.memory
+          value: 1536Mi
+
   - it: selects only its own group's pods
     values:
       - ../ci/two-groups-values.yaml
