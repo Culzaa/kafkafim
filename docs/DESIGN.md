@@ -444,7 +444,7 @@ fetch then succeeds, a topic without `Read` still shows `running`.
 After a successful start, a pipeline whose source cannot go on (the record handler
 threw, or a consumer of the listener container stopped on its own: any
 `ConsumerStoppedEvent` reason but `NORMAL`) goes to **`failed`** and is stopped like
-any other stop: drained, committed, out of the group, sinks closed (ADR-0036). Like
+any other stop: committed what completed, out of the group, sinks closed (ADR-0036). Like
 `failed_preflight`, it stays stopped until the next accepted reload or a restart;
 nothing restarts it on its own.
 
