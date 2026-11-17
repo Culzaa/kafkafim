@@ -12,10 +12,11 @@ import io.github.matabar.kafkafim.KafkaTopics;
 import io.github.matabar.kafkafim.config.KafkaCluster;
 import io.github.matabar.kafkafim.config.KafkafimProperties;
 import io.github.matabar.kafkafim.config.Pipeline;
+import io.github.matabar.kafkafim.telemetry.KafkaTelemetryConfiguration;
+import io.github.matabar.kafkafim.telemetry.TraceParent;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
 import io.opentelemetry.context.propagation.ContextPropagators;
-import io.opentelemetry.instrumentation.kafkaclients.v2_6.KafkaTelemetry;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
 import io.opentelemetry.sdk.common.CompletableResultCode;
 import io.opentelemetry.sdk.trace.SdkTracerProvider;
@@ -129,7 +130,7 @@ class ConsumerTracingIntegrationTest {
         new ConsumerFactories(
             new KafkafimProperties(
                 false, new KafkafimProperties.Kafka(Map.of("local", local)), null, null),
-            KafkaTelemetry.create(sdk));
+            KafkaTelemetryConfiguration.create(sdk));
   }
 
   @AfterEach
@@ -202,6 +203,35 @@ class ConsumerTracingIntegrationTest {
               .containsEntry("messaging.kafka.consumer.group", "kafkafim." + topic)
               .containsKeys("messaging.destination.partition.id", "messaging.client_id");
         });
+  }
+
+  @Test
+  void everySourceRecordCarriesItsProcessSpanContext() throws Exception {
+    String topic = createTopic(2);
+    produce(topic, 0, 6);
+    produce(topic, 1, 6);
+    Recorder recorder = new Recorder();
+    start("ctx", topic, recorder, 2);
+    await().atMost(TIMEOUT).until(() -> recorder.records.size() == 12);
+    await().atMost(TIMEOUT).until(() -> spansOf("process").size() == 12);
+
+    // The context captured at poll time is the span's own, found by partition and offset.
+    assertThat(recorder.records)
+        .allSatisfy(record -> {
+          TraceParent parent = TraceParent.parse(record.processTraceParent());
+          assertThat(parent).as("process context of %s", record).isNotNull();
+          SpanData span =
+              spansOf("process").stream()
+                  .filter(s -> s.getSpanContext().getSpanId().equals(parent.spanId()))
+                  .findFirst()
+                  .orElseThrow();
+          assertThat(span.getTraceId()).isEqualTo(parent.traceId());
+          assertThat(span.getAttributes().asMap().values())
+              .contains(Long.toString(record.topicPartition().partition()), record.offset());
+        });
+    assertThat(recorder.records.stream().map(SourceRecord::processTraceParent).distinct().count())
+        .as("one context per record")
+        .isEqualTo(12);
   }
 
   @Test

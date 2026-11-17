@@ -3,6 +3,7 @@ package io.github.matabar.kafkafim.source.kafka;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
+import org.jspecify.annotations.Nullable;
 
 /**
  * One Kafka record handed to the {@link SourceRecordHandler}, with its completion handle.
@@ -27,6 +28,7 @@ public final class SourceRecord {
   private final long sizeBytes;
   private final PartitionOffsets owner;
   private final OffsetTracker tracker;
+  private final @Nullable String processTraceParent;
   private final AtomicInteger remaining = new AtomicInteger(UNDECLARED);
 
   SourceRecord(
@@ -34,12 +36,14 @@ public final class SourceRecord {
       boolean oversize,
       long sizeBytes,
       PartitionOffsets owner,
-      OffsetTracker tracker) {
+      OffsetTracker tracker,
+      @Nullable String processTraceParent) {
     this.record = record;
     this.oversize = oversize;
     this.sizeBytes = sizeBytes;
     this.owner = owner;
     this.tracker = tracker;
+    this.processTraceParent = processTraceParent;
   }
 
   /** The raw record: byte-array key and value, headers, timestamp, coordinates. */
@@ -53,6 +57,14 @@ public final class SourceRecord {
    */
   public boolean oversize() {
     return oversize;
+  }
+
+  /**
+   * The {@code traceparent} of this record's Kafka {@code process} span, captured when the record
+   * was polled (ADR-0013); {@code null} when the consumer is not traced.
+   */
+  public @Nullable String processTraceParent() {
+    return processTraceParent;
   }
 
   /** Bytes this record counts against the in-flight budget: key plus value length. */

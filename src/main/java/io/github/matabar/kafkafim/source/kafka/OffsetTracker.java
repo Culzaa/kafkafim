@@ -1,5 +1,6 @@
 package io.github.matabar.kafkafim.source.kafka;
 
+import io.github.matabar.kafkafim.telemetry.ProcessSpanContexts;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -108,7 +109,12 @@ final class OffsetTracker {
     }
     SourceRecord handle =
         new SourceRecord(
-            record, valueBytes > maxRecordBytes, (long) valueBytes + keyBytes, owner, this);
+            record,
+            valueBytes > maxRecordBytes,
+            (long) valueBytes + keyBytes,
+            owner,
+            this,
+            ProcessSpanContexts.take(record));
     synchronized (idle) {
       pending++;
     }

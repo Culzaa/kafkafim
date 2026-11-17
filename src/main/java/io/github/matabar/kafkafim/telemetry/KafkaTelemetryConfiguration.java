@@ -22,6 +22,16 @@ public class KafkaTelemetryConfiguration {
 
   @Bean
   KafkaTelemetry kafkafimKafkaTelemetry(OpenTelemetry openTelemetry) {
-    return KafkaTelemetry.create(openTelemetry);
+    return create(openTelemetry);
+  }
+
+  /**
+   * The telemetry as the bean builds it, also for tests: the consumers' process spans are recorded
+   * in {@link ProcessSpanContexts}, so the batch and DLQ spans can be their children.
+   */
+  public static KafkaTelemetry create(OpenTelemetry openTelemetry) {
+    return KafkaTelemetry.builder(openTelemetry)
+        .addConsumerProcessAttributesExtractors(ProcessSpanContexts.extractor())
+        .build();
   }
 }

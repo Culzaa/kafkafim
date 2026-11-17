@@ -88,6 +88,14 @@
 			<version>${opentelemetry-logback-appender.version}</version>
 		</dependency>
 		<dependency>
+			<!-- Brings KafkaProcessRequest, the type of the one hook the library offers to see a
+			     consumer process span (ProcessSpanContexts); runtime-only through the artifact above.
+			     Same release, same property. -->
+			<groupId>io.opentelemetry.instrumentation</groupId>
+			<artifactId>opentelemetry-kafka-clients-common-0.11</artifactId>
+			<version>${opentelemetry-logback-appender.version}</version>
+		</dependency>
+		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-validation</artifactId>
 		</dependency>

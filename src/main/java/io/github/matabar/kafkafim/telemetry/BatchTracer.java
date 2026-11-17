@@ -9,13 +9,17 @@ import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import org.jspecify.annotations.Nullable;
 
 /**
- * Turns finished batches into spans (DESIGN §10, ADR-0029): one {@code pipeline.batch} root span
- * per batch, from sealing to the end of its last request, with one {@code es.bulk} child per bulk
- * request (retries and 413 halves included). Each distinct valid {@code traceparent} of the batch's
- * source records becomes a span <em>link</em>, never a parent, because a batch mixes documents of
- * many traces. There are no per-document spans.
+ * Turns finished batches into spans (DESIGN §10, ADR-0029): one {@code pipeline.batch} span per
+ * batch, from sealing to the end of its last request, with one {@code es.bulk} child per bulk
+ * request (retries and 413 halves included). The span is a child of the Kafka {@code process} span
+ * of the batch's first record when there is one ({@link BatchTrace#parentTraceParent()}), so a
+ * trace reads Kafka process, {@code pipeline.batch}, {@code es.bulk}; without one it is a root
+ * span. A span has one parent, so every other source record's trace is a span <em>link</em>: each
+ * distinct valid {@code traceparent} of the batch's source records, because a batch mixes documents
+ * of many traces. There are no per-document spans.
  *
  * <p>The spans are recorded after the fact with their real timestamps, so the sampler sees at the
  * start of the root span whether the batch failed: {@link BatchSampler} keeps every failed batch
@@ -53,7 +57,6 @@ public final class BatchTracer {
         tracer
             .spanBuilder()
             .name(BATCH_SPAN)
-            .setNoParent()
             .kind(Span.Kind.CONSUMER)
             .startTimestamp(micros(batch.started()), TimeUnit.MICROSECONDS)
             .tag("kafkafim.pipeline", batch.pipeline())
@@ -68,6 +71,12 @@ public final class BatchTracer {
     }
     if (errorType != null) {
       builder.tag(ERROR_TYPE, errorType);
+    }
+    TraceContext parent = parent(batch);
+    if (parent != null) {
+      builder.setParent(parent);
+    } else {
+      builder.setNoParent();
     }
     for (TraceContext link : links(batch)) {
       builder.addLink(new Link(link));
@@ -109,6 +118,19 @@ public final class BatchTracer {
               request.error() != null ? request.error() : "bulk request: " + errorType));
     }
     span.end(micros(request.ended()), TimeUnit.MICROSECONDS);
+  }
+
+  private @Nullable TraceContext parent(BatchTrace batch) {
+    TraceParent parent = TraceParent.parse(batch.parentTraceParent());
+    if (parent == null) {
+      return null;
+    }
+    return tracer
+        .traceContextBuilder()
+        .traceId(parent.traceId())
+        .spanId(parent.spanId())
+        .sampled(parent.sampled())
+        .build();
   }
 
   private Set<TraceContext> links(BatchTrace batch) {
