@@ -1718,6 +1718,20 @@ class ConfigValidationTest {
     }
 
     @Test
+    void rejectsSetJsonConstantThatCannotFitUnderTheNestingLimit() {
+      assertValid(
+          route("[ { op: set, field: /a, json: '" + "[".repeat(499) + "]".repeat(499) + "' } ]"));
+      assertInvalid(
+          route("[ { op: set, field: /a, json: '" + "[".repeat(500) + "]".repeat(500) + "' } ]"),
+          P
+              + ".routes[0].transform[0].json: nests 500 deep, which at the field's position"
+              + " would nest the document deeper than 500");
+      assertInvalid(
+          route("[ { op: set, field: /a, json: '" + "[".repeat(501) + "]".repeat(501) + "' } ]"),
+          P + ".routes[0].transform[0].json: nests deeper than 500");
+    }
+
+    @Test
     void rejectsRemoveOfTheRootOrOfMalformedPointers() {
       assertInvalid(
           route("[ { op: remove, field: '' } ]"),
