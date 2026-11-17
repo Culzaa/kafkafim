@@ -5,6 +5,7 @@ import io.github.matabar.kafkafim.config.KafkaCluster;
 import io.github.matabar.kafkafim.config.KafkafimProperties;
 import io.github.matabar.kafkafim.config.Pipeline;
 import io.github.matabar.kafkafim.decode.StepRegistry;
+import io.github.matabar.kafkafim.dlq.DlqListener;
 import io.github.matabar.kafkafim.dlq.DlqOptions;
 import io.github.matabar.kafkafim.dlq.DlqProducers;
 import io.github.matabar.kafkafim.sink.es.BreakerSettings;
@@ -138,6 +139,10 @@ final class PipelineResources implements SmartLifecycle, AutoCloseable {
     this(relay, authChecks, settings, null);
   }
 
+  /**
+   * {@code kafkaTelemetry} instruments the consumers and the DLQ producers; {@code null} leaves
+   * them bare.
+   */
   PipelineResources(
       ListenerRelay relay,
       Function<KafkafimProperties, Preflight.AuthCheck> authChecks,
@@ -507,7 +512,11 @@ final class PipelineResources implements SmartLifecycle, AutoCloseable {
       this.properties = properties;
       this.consumerFactories = new ConsumerFactories(properties, kafkaTelemetry);
       AtomicReference<Object> owner = new AtomicReference<>();
-      this.dlq = new DlqProducers(properties, relay.dlqListener(owner::get), settings.dlqOptions());
+      DlqListener dlqListener = relay.dlqListener(owner::get);
+      this.dlq =
+          kafkaTelemetry == null
+              ? new DlqProducers(properties, dlqListener, settings.dlqOptions())
+              : new DlqProducers(properties, dlqListener, settings.dlqOptions(), kafkaTelemetry);
       owner.set(dlq);
     }
 
