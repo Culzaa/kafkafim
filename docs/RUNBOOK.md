@@ -199,7 +199,7 @@ Where to read it:
   `failed_preflight`, a reload that failed or was rejected, a pipeline that
   `could not be started again` after a rolled-back reload, a `stopping the half-started
   container failed` (a consumer may still hold partitions: restart the pod if the group
-  does not settle), a callback or handler that threw. WARN is informational unless it
+  does not settle), a sink outcome callback or a record, revoke or lost-partitions handler that threw. WARN is informational unless it
   repeats or the matching metric stays bad: a pause, a retried request, DLQ records, a
   close or cleanup that failed (`Closing ... failed`, `Dropping the DLQ writer ...
   failed`: the resource is released with the process at the latest), records that will be
