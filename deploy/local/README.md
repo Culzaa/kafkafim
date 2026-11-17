@@ -115,7 +115,7 @@ kubectl --context kind-kafkafim-demo -n kafkafim-demo port-forward svc/kafkafim-
 ```
 
 With the port-forward running, `curl -s localhost:8080/actuator/health` and
-`curl -s localhost:8080/actuator/prometheus | grep kafkafim_pipeline_state` show the
+`curl -s localhost:8080/actuator/metrics/kafkafim.pipeline.state` show the
 pipeline. Hot reload works as in production: edit the pipeline under `kafkafim.config`
 in `deploy/local/kafkafim-demo/values.yaml` (for example a route's `index`), run the
 `helm upgrade --install` above again, and the pod reloads within about a minute without

@@ -1,5 +1,7 @@
 # promtool test rules deploy/grafana/alerts/kafkafim-alerts.test.yaml
-# Series use the label sets of /actuator/prometheus (DESIGN §10) plus job and instance.
+# Series use the names and label sets the OTLP-fed backend stores (checked against grafana/otel-lgtm,
+# #342): job is service.namespace/service.name (kafkafim/kafkafim), instance is service.instance.id,
+# and histogram bounds are written without a trailing .0 (le="10").
 rule_files:
   - kafkafim-alerts.yaml
 evaluation_interval: 30s
@@ -8,23 +10,23 @@ tests:
   - name: pipeline state
     interval: 30s
     input_series:
-      - series: 'kafkafim_pipeline_state{job="kafkafim",instance="pod-a",pipeline="orders",state="failed_preflight"}'
+      - series: 'kafkafim_pipeline_state{job="kafkafim/kafkafim",instance="pod-a",pipeline="orders",state="failed_preflight"}'
         values: '0 1x10'
-      - series: 'kafkafim_pipeline_state{job="kafkafim",instance="pod-a",pipeline="clicks",state="paused"}'
+      - series: 'kafkafim_pipeline_state{job="kafkafim/kafkafim",instance="pod-a",pipeline="clicks",state="paused"}'
         values: '1x6 0x10'   # 3m paused: below the 5m for
-      - series: 'kafkafim_pipeline_state{job="kafkafim",instance="pod-b",pipeline="logs",state="paused"}'
+      - series: 'kafkafim_pipeline_state{job="kafkafim/kafkafim",instance="pod-b",pipeline="logs",state="paused"}'
         values: '1x20'
-      - series: 'kafkafim_pipeline_state{job="kafkafim",instance="pod-a",pipeline="slow",state="starting"}'
+      - series: 'kafkafim_pipeline_state{job="kafkafim/kafkafim",instance="pod-a",pipeline="slow",state="starting"}'
         values: '1x30'
-      - series: 'kafkafim_pipeline_state{job="kafkafim",instance="pod-a",pipeline="quick",state="starting"}'
+      - series: 'kafkafim_pipeline_state{job="kafkafim/kafkafim",instance="pod-a",pipeline="quick",state="starting"}'
         values: '1x4 0x26'   # 2m in starting: normal
       # failed on pod-a only; pod-b keeps running it.
-      - series: 'kafkafim_pipeline_state{job="kafkafim",instance="pod-a",pipeline="events",state="failed"}'
+      - series: 'kafkafim_pipeline_state{job="kafkafim/kafkafim",instance="pod-a",pipeline="events",state="failed"}'
         values: '0 1x10'
-      - series: 'kafkafim_pipeline_state{job="kafkafim",instance="pod-b",pipeline="events",state="failed"}'
+      - series: 'kafkafim_pipeline_state{job="kafkafim/kafkafim",instance="pod-b",pipeline="events",state="failed"}'
         values: '0x11'
       # failed at 30s and 1m, then a reload retried it: pending at 1m, never 1m long.
-      - series: 'kafkafim_pipeline_state{job="kafkafim",instance="pod-a",pipeline="retried",state="failed"}'
+      - series: 'kafkafim_pipeline_state{job="kafkafim/kafkafim",instance="pod-a",pipeline="retried",state="failed"}'
         values: '0 1 1 0x8'
     alert_rule_test:
       # failed is its own alert: failed_preflight fires only for orders.
@@ -34,7 +36,7 @@ tests:
       - eval_time: 3m
         alertname: KafkafimPipelineFailed
         exp_alerts:
-          - exp_labels: { severity: critical, job: kafkafim, instance: pod-a, pipeline: events }
+          - exp_labels: { severity: critical, job: kafkafim/kafkafim, instance: pod-a, pipeline: events }
             exp_annotations:
               summary: "Pipeline events failed while running on pod-a"
               description: "The record handler threw or a Kafka consumer stopped on its own. The pipeline is stopped on this pod until an accepted reload retries it or the pod restarts; the ERROR \"Pipeline '<name>': failed while running\" line names the cause."
@@ -68,16 +70,16 @@ tests:
     interval: 30s
     input_series:
       # Every document takes between 30s and 60s.
-      - series: 'kafkafim_e2e_latency_seconds_bucket{pipeline="orders",kafka_cluster="main",le="10.0"}'
+      - series: 'kafkafim_e2e_latency_seconds_bucket{pipeline="orders",kafka_cluster="main",le="10"}'
         values: '0x40'
-      - series: 'kafkafim_e2e_latency_seconds_bucket{pipeline="orders",kafka_cluster="main",le="30.0"}'
+      - series: 'kafkafim_e2e_latency_seconds_bucket{pipeline="orders",kafka_cluster="main",le="30"}'
         values: '0x40'
-      - series: 'kafkafim_e2e_latency_seconds_bucket{pipeline="orders",kafka_cluster="main",le="60.0"}'
+      - series: 'kafkafim_e2e_latency_seconds_bucket{pipeline="orders",kafka_cluster="main",le="60"}'
         values: '0+100x40'
       - series: 'kafkafim_e2e_latency_seconds_bucket{pipeline="orders",kafka_cluster="main",le="+Inf"}'
         values: '0+100x40'
       # Fast pipeline: everything under 1s.
-      - series: 'kafkafim_e2e_latency_seconds_bucket{pipeline="fast",kafka_cluster="main",le="1.0"}'
+      - series: 'kafkafim_e2e_latency_seconds_bucket{pipeline="fast",kafka_cluster="main",le="1"}'
         values: '0+100x40'
       - series: 'kafkafim_e2e_latency_seconds_bucket{pipeline="fast",kafka_cluster="main",le="+Inf"}'
         values: '0+100x40'
@@ -113,32 +115,32 @@ tests:
   - name: pods without partitions and Kafka disconnects
     interval: 1m
     input_series:
-      - series: 'kafkafim_assigned_partitions{job="kafkafim",instance="pod-a",pipeline="orders",kafka_cluster="main"}'
+      - series: 'kafkafim_assigned_partitions{job="kafkafim/kafkafim",instance="pod-a",pipeline="orders",kafka_cluster="main"}'
         values: '0x20'
-      - series: 'kafkafim_assigned_partitions{job="kafkafim",instance="pod-b",pipeline="orders",kafka_cluster="main"}'
+      - series: 'kafkafim_assigned_partitions{job="kafkafim/kafkafim",instance="pod-b",pipeline="orders",kafka_cluster="main"}'
         values: '3x20'
       # Stopped pipelines own nothing and are not connected; neither alert fires for them.
-      - series: 'kafkafim_assigned_partitions{job="kafkafim",instance="pod-a",pipeline="old",kafka_cluster="main"}'
+      - series: 'kafkafim_assigned_partitions{job="kafkafim/kafkafim",instance="pod-a",pipeline="old",kafka_cluster="main"}'
         values: '0x20'
-      - series: 'kafkafim_kafka_connected{job="kafkafim",instance="pod-a",pipeline="old",kafka_cluster="main"}'
+      - series: 'kafkafim_kafka_connected{job="kafkafim/kafkafim",instance="pod-a",pipeline="old",kafka_cluster="main"}'
         values: '0x20'
-      - series: 'kafkafim_kafka_connected{job="kafkafim",instance="pod-a",pipeline="orders",kafka_cluster="main"}'
+      - series: 'kafkafim_kafka_connected{job="kafkafim/kafkafim",instance="pod-a",pipeline="orders",kafka_cluster="main"}'
         values: '0x20'
-      - series: 'kafkafim_kafka_connected{job="kafkafim",instance="pod-b",pipeline="orders",kafka_cluster="main"}'
+      - series: 'kafkafim_kafka_connected{job="kafkafim/kafkafim",instance="pod-b",pipeline="orders",kafka_cluster="main"}'
         values: '1x20'
-      - series: 'kafkafim_pipeline_state{job="kafkafim",instance="pod-a",pipeline="orders",state="running"}'
+      - series: 'kafkafim_pipeline_state{job="kafkafim/kafkafim",instance="pod-a",pipeline="orders",state="running"}'
         values: '1x20'
-      - series: 'kafkafim_pipeline_state{job="kafkafim",instance="pod-b",pipeline="orders",state="running"}'
+      - series: 'kafkafim_pipeline_state{job="kafkafim/kafkafim",instance="pod-b",pipeline="orders",state="running"}'
         values: '1x20'
-      - series: 'kafkafim_pipeline_state{job="kafkafim",instance="pod-a",pipeline="old",state="running"}'
+      - series: 'kafkafim_pipeline_state{job="kafkafim/kafkafim",instance="pod-a",pipeline="old",state="running"}'
         values: '0x20'
-      - series: 'kafkafim_pipeline_state{job="kafkafim",instance="pod-a",pipeline="old",state="stopped"}'
+      - series: 'kafkafim_pipeline_state{job="kafkafim/kafkafim",instance="pod-a",pipeline="old",state="stopped"}'
         values: '1x20'
     alert_rule_test:
       - eval_time: 15m
         alertname: KafkafimNoAssignedPartitions
         exp_alerts:
-          - exp_labels: { severity: info, job: kafkafim, instance: pod-a, pipeline: orders }
+          - exp_labels: { severity: info, job: kafkafim/kafkafim, instance: pod-a, pipeline: orders }
             exp_annotations:
               summary: "pod-a owns no partitions of orders"
               description: "The pipeline runs on this pod but its consumers hold no partitions. Normal only when the group has more pods than partitions."
@@ -146,7 +148,7 @@ tests:
       - eval_time: 5m
         alertname: KafkafimKafkaDisconnected
         exp_alerts:
-          - exp_labels: { severity: critical, job: kafkafim, instance: pod-a, pipeline: orders, kafka_cluster: main }
+          - exp_labels: { severity: critical, job: kafkafim/kafkafim, instance: pod-a, pipeline: orders, kafka_cluster: main }
             exp_annotations:
               summary: "pod-a lost Kafka main for orders"
               description: "A consumer of the pipeline holds no broker connection; kafka-clients reconnects with backoff."
@@ -191,7 +193,7 @@ tests:
   - name: auth failures, including the first one
     interval: 1m
     input_series:
-      # A 401 before the first scrape: the first sample is 1; increase() alone would miss it.
+      # A 401 before the first export: the first sample is 1; increase() alone would miss it.
       - series: 'kafkafim_auth_failures_total{instance="pod-a",pipeline="orders",kafka_cluster="main",es_cluster="logs",identity="writer"}'
         values: '_x3 1x20'
     alert_rule_test:
@@ -233,17 +235,18 @@ tests:
         alertname: KafkafimEsAuthFailures
         exp_alerts: []
 
-  - name: auth failures, one failed scrape is not a new series (#134)
+  - name: auth failures, a gap in the series is not a new series (#134)
     interval: 30s
     input_series:
-      # An old non-zero total; the scrape at 10m30s failed and wrote a stale marker.
+      # An old non-zero total; the series has no sample at 10m30s (a stale marker here, a missed
+      # export interval over OTLP).
       - series: 'kafkafim_auth_failures_total{instance="pod-a",pipeline="orders",kafka_cluster="main",es_cluster="logs",identity="writer"}'
         values: '3x20 stale 3x20'
     alert_rule_test:
       - eval_time: 12m
         alertname: KafkafimEsAuthFailures
         exp_alerts: []
-      # 'x offset 5m' at 15m30s hits the stale marker; a range lookback skips it.
+      # 'x offset 5m' at 15m30s hits the gap; a range lookback skips it.
       - eval_time: 15m30s
         alertname: KafkafimEsAuthFailures
         exp_alerts: []
@@ -252,15 +255,15 @@ tests:
     interval: 1m
     input_series:
       # Registered at startup with 0 (ConfigReloader).
-      - series: 'kafkafim_config_reload_total{job="kafkafim",instance="pod-a",result="failure"}'
+      - series: 'kafkafim_config_reload_total{job="kafkafim/kafkafim",instance="pod-a",result="failure"}'
         values: '0x3 1x20'
-      - series: 'kafkafim_config_reload_total{job="kafkafim",instance="pod-a",result="success"}'
+      - series: 'kafkafim_config_reload_total{job="kafkafim/kafkafim",instance="pod-a",result="success"}'
         values: '0+1x20'
     alert_rule_test:
       - eval_time: 5m
         alertname: KafkafimConfigReloadFailed
         exp_alerts:
-          - exp_labels: { severity: warning, job: kafkafim, instance: pod-a }
+          - exp_labels: { severity: warning, job: kafkafim/kafkafim, instance: pod-a }
             exp_annotations:
               summary: "Configuration reload rejected on pod-a"
               description: "The pod keeps running the previous generation, and new pods fail to start with this configuration. The ERROR \"Configuration reload (...) rejected\" line lists the violations."
