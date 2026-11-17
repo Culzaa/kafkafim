@@ -286,7 +286,7 @@ public final class KafkaPipelineSource implements SmartLifecycle {
     try {
       stopContainer(created);
     } catch (RuntimeException e) {
-      LOG.warn("Pipeline '{}': stopping the half-started container failed", pipeline, e);
+      LOG.error("Pipeline '{}': stopping the half-started container failed", pipeline, e);
     }
   }
 
