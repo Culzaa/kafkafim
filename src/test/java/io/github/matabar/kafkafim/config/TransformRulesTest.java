@@ -127,6 +127,7 @@ class TransformRulesTest {
         .singleElement()
         .asString()
         .isEqualTo("p.routes[0].transform[0].json: nests deeper than 500");
+    assertThat(check(step("write", "/a/b/c/d", null, null, "5"))).isEmpty();
     // A scalar adds no level; escaped slashes are one token.
     assertThat(check(step("write", "/a~1b", null, null, nested(499)))).isEmpty();
   }
