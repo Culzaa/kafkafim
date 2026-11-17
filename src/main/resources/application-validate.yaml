@@ -13,7 +13,7 @@ management:
   defaults:
     metrics:
       export:
-        enabled: false              # no OTLP metrics push, no Prometheus registry
+        enabled: false              # no OTLP metrics push
   tracing:
     export:
       enabled: false                # no OTLP span export

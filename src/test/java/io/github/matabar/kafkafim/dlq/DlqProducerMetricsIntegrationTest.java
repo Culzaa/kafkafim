@@ -11,8 +11,6 @@ import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.composite.CompositeMeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.micrometer.prometheusmetrics.PrometheusConfig;
-import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.instrumentation.kafkaclients.v2_6.KafkaTelemetry;
 import java.util.List;
@@ -28,9 +26,9 @@ import org.testcontainers.kafka.KafkaContainer;
 
 /**
  * The DLQ producer's Kafka metrics (ADR-0013, ADR-0028) against a real broker, on the registry
- * shape the application has (Prometheus next to another registry): {@code kafka.producer.*} series
- * tagged {@code kafka_cluster} only (the producer is shared by the cluster's pipelines), next to
- * the consumers' series without a Prometheus tag-key conflict, and gone once the producers close.
+ * shape the application has (a composite registry): {@code kafka.producer.*} series tagged {@code
+ * kafka_cluster} only (the producer is shared by the cluster's pipelines), next to the consumers'
+ * series, and gone once the producers close.
  */
 @Testcontainers
 class DlqProducerMetricsIntegrationTest {
@@ -42,10 +40,8 @@ class DlqProducerMetricsIntegrationTest {
   @Test
   void producerSeriesCarryTheClusterAndLeaveWithTheProducer() {
     SimpleMeterRegistry simple = new SimpleMeterRegistry();
-    PrometheusMeterRegistry prometheus = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
     CompositeMeterRegistry registry = new CompositeMeterRegistry();
     registry.add(simple);
-    registry.add(prometheus);
     KafkaClientMeters meters = new KafkaClientMeters(registry);
     KafkaCluster local =
         new KafkaCluster(List.of(KAFKA.getBootstrapServers()), null, null, null, null, null);
@@ -72,7 +68,7 @@ class DlqProducerMetricsIntegrationTest {
     producers.writer("orders");
     producers.writer("billing"); // the same shared producer
 
-    // A consumer's series next to it, with its own tag keys: Prometheus must accept both.
+    // A consumer's series next to it, with its own tag keys.
     KafkaConsumer<byte[], byte[]> consumer =
         new KafkaConsumer<>(
             Map.of(
@@ -99,8 +95,8 @@ class DlqProducerMetricsIntegrationTest {
         .hasSize(1);
     assertThat(producerMeters.stream().map(m -> m.getId().toString()).distinct())
         .hasSameSizeAs(producerMeters);
-    String scrape = prometheus.scrape();
-    assertThat(scrape).contains("kafka_producer_").contains("kafka_consumer_");
+    assertThat(simple.getMeters().stream().map(m -> m.getId().getName()))
+        .anyMatch(name -> name.startsWith("kafka.consumer."));
 
     consumerBinding.close();
     consumer.close();
