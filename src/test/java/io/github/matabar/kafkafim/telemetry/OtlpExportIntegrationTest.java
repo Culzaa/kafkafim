@@ -70,6 +70,10 @@ import org.junit.jupiter.api.io.TempDir;
  *       names match {@code /actuator/prometheus} and the PromQL in deploy/grafana/ (DESIGN §10).
  * </ul>
  *
+ * <p>A fifth test, {@code batchSpanNumericAttributesAreExportedAsInts}, does not start the
+ * application: it runs {@link BatchTracer} through the real OpenTelemetry bridge and exporter
+ * in-process and decodes the exported span, reusing only the local capture.
+ *
  * <p>The application runs in a child JVM because Spring Boot maps {@code OTEL_*} variables from the
  * real process environment only, which a test cannot set in its own JVM. The child gets exactly the
  * environment a pod gets from the chart, with the secret header files laid out as the chart's
@@ -296,7 +300,7 @@ class OtlpExportIntegrationTest {
   /**
    * {@link BatchTracer} sets numeric values through Micrometer's {@code tag(String, long)}; this
    * decodes the OTLP wire bytes of the real bridge and exporter and asserts each numeric attribute
-   * arrives as an int, not a string (ADR-0029).
+   * arrives as an int, not a string.
    */
   @Test
   void batchSpanNumericAttributesAreExportedAsInts() throws Exception {
