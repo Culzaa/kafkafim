@@ -38,7 +38,7 @@ tests:
           value: kafkafim-from-string
         documentIndex: 1
 
-  - it: rejects an entry that is neither a string nor a map
+  - it: the schema rejects an entry that is neither a string nor a map
     values:
       - ../ci/minimal-values.yaml
     set:

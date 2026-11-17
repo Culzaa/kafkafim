@@ -21,7 +21,7 @@ Requires Kubernetes 1.27+ (`matchLabelKeys` in the zone topology spread). Develo
 
 `extraObjects` deploys additional Kubernetes resources with the release, for example an
 ExternalSecret that creates a Secret listed under `secrets`. Each entry is a string, rendered
-through `tpl` (so it can use release values), or a map:
+through `tpl` (so it can use release values; a literal `{{` in a string is evaluated), or a map:
 
 ```yaml
 extraObjects:
