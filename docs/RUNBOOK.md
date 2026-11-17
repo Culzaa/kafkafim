@@ -740,9 +740,10 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
   after a `java.lang.OutOfMemoryError` (`-XX:+ExitOnOutOfMemoryError` makes the JVM
   exit rather than limp on). Either way, records not yet committed are re-delivered;
   nothing is lost.
-- **Check**: per pipeline, `source.max-in-flight-bytes` (default 64MB) bounds the raw
-  key + value bytes delivered and not yet completed; the source pauses at the budget
-  and resumes at half of it. That bound is **per pipeline and in raw bytes**:
+- **Check**: per pipeline, `source.max-in-flight-bytes` (default 64MB) bounds the key, value
+  and header bytes plus a fixed 256-byte per-record overhead estimate of the records delivered
+  and not yet completed; the source pauses at the budget and resumes at half of it. That
+  bound is **per pipeline and in payload bytes plus the overhead estimate**:
   - a pod's in-flight memory is the sum over all its pipelines;
   - a poll that crosses the budget is delivered whole, so the overshoot is up to one
     poll per consumer (`max-poll-records` records);
