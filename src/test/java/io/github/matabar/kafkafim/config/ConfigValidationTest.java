@@ -1576,6 +1576,62 @@ class ConfigValidationTest {
     }
   }
 
+  @Nested
+  class Transforms {
+
+    private static String route(String transform) {
+      return pipeline(
+          "routes:\n  - { default: true, cluster: es, index: idx, transform: "
+              + transform
+              + " }\n");
+    }
+
+    @Test
+    void emptyOrAbsentTransformIsValid() {
+      assertValid(MINIMAL);
+      assertValid(route("[]"));
+    }
+
+    @Test
+    void rejectsUnknownOpWithRouteAndStepPosition() {
+      assertInvalid(
+          route("[ { op: bogus, field: /a } ]"),
+          P + ".routes[0].transform[0].op: unknown op 'bogus'; known ops: none");
+    }
+
+    @Test
+    void rejectsMissingOp() {
+      assertInvalid(
+          route("[ { field: /a } ]"),
+          P + ".routes[0].transform[0].op: is required; known ops: none");
+    }
+
+    @Test
+    void rejectsUnknownStepKeyAtBind() {
+      assertThat(ConfigTestSupport.errors(route("[ { op: noop, filed: /a } ]"))).isNotEmpty();
+    }
+
+    @Test
+    void rejectsMoreThanThirtyTwoSteps() {
+      String steps = "[" + "{ op: bogus },".repeat(33) + "]";
+      assertInvalid(route(steps), P + ".routes[0].transform: at most 32 steps per route, found 33");
+    }
+
+    @Test
+    void rejectsTransformOnDropRoute() {
+      assertInvalid(
+          pipeline(
+              """
+              routes:
+                - { when: [ { field: /a, exists: true } ], drop: true, transform: [ { op: bogus } ] }
+                - { default: true, cluster: es, index: idx }
+              """),
+          P
+              + ".routes[0].transform: a drop: true route discards its documents, so there is no"
+              + " copy to transform; remove transform or drop: true");
+    }
+  }
+
   private static String sasl(String identity) {
     return K + ".identities." + identity + ".sasl.mechanism=GSSAPI";
   }
