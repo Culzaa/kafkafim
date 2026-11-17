@@ -1,8 +1,6 @@
 package io.github.matabar.kafkafim.decode;
 
-import java.util.Map;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
 
 /**
@@ -43,7 +41,8 @@ final class RenameStep implements TransformStep {
       return root;
     }
     JsonNode removed = remove.apply(root);
-    return write((ObjectNode) removed, 0, value);
+    return Pointers.write(
+        (ObjectNode) removed, toKeys, 0, value, "a parent of the target is not an object");
   }
 
   @Override
@@ -69,36 +68,5 @@ final class RenameStep implements TransformStep {
       }
     }
     return node;
-  }
-
-  /**
-   * A copy of {@code node} with {@code value} written at the target; never mutates {@code node}.
-   */
-  private ObjectNode write(ObjectNode node, int depth, JsonNode value) throws TransformException {
-    String key = toKeys[depth];
-    ObjectNode copy = shallowCopy(node);
-    if (depth == toKeys.length - 1) {
-      copy.set(key, value); // replacing keeps the position, a new key goes last
-      return copy;
-    }
-    JsonNode child = node.get(key);
-    ObjectNode parent;
-    if (child == null) {
-      parent = JsonNodeFactory.instance.objectNode();
-    } else if (child instanceof ObjectNode childObject) {
-      parent = childObject;
-    } else {
-      throw new TransformException("a parent of the target is not an object");
-    }
-    copy.set(key, write(parent, depth + 1, value));
-    return copy;
-  }
-
-  private static ObjectNode shallowCopy(ObjectNode node) {
-    ObjectNode copy = JsonNodeFactory.instance.objectNode();
-    for (Map.Entry<String, JsonNode> member : node.properties()) {
-      copy.set(member.getKey(), member.getValue());
-    }
-    return copy;
   }
 }

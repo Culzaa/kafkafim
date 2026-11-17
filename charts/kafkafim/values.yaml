@@ -43,6 +43,17 @@ image:
 #         - default: true
 #           cluster: search-eu
 #           index: "logs-%{+yyyy.MM.dd}"
+# A route's transform lists steps (remove, rename, set) applied in order to that route's own
+# copy of the document, after routing and _id extraction (DESIGN §8, ADR-0047). set takes
+# exactly one of value (a JSON string) or json (the text of one JSON value):
+#         - name: eu
+#           cluster: search-eu
+#           index: "orders-eu-%{+yyyy.MM}"
+#           transform:
+#             - { op: remove, field: /card/number }
+#             - { op: rename, field: /usr, to: /user }
+#             - { op: set, field: /event/dataset, value: orders }
+#             - { op: set, field: /event/version, json: "2" }
 config:
   kafkafim:
     kafka:

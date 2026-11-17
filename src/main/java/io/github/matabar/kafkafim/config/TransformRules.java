@@ -66,7 +66,9 @@ public final class TransformRules {
           "remove",
           Op.of(Set.of("field"), Set.of()),
           "rename",
-          new Op(Set.of("field", "to"), Set.of(), TransformRules::checkRename));
+          new Op(Set.of("field", "to"), Set.of(), TransformRules::checkRename),
+          "set",
+          new Op(Set.of("field"), Set.of("value", "json"), TransformRules::checkSet));
 
   private TransformRules() {}
 
@@ -78,6 +80,16 @@ public final class TransformRules {
       problem.accept("op 'rename' needs 'field' and 'to' to differ");
     } else if (to.startsWith(from + "/") || from.startsWith(to + "/")) {
       problem.accept("op 'rename' needs neither of 'field' and 'to' to be a prefix of the other");
+    }
+  }
+
+  /**
+   * {@code set} writes one constant: a JSON string ({@code value}) or any JSON value ({@code
+   * json}).
+   */
+  private static void checkSet(Step step, Consumer<String> problem) {
+    if ((step.value() == null) == (step.json() == null)) {
+      problem.accept("op 'set' needs exactly one of 'value' and 'json'");
     }
   }
 

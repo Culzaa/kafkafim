@@ -30,7 +30,7 @@ import tools.jackson.databind.json.JsonMapper;
 public final class DocumentTransform {
 
   /** The mapper for the second, exact parse and the serialization. */
-  private static final JsonMapper EXACT =
+  static final JsonMapper EXACT =
       JsonMapper.builder(
               JsonFactory.builder()
                   .streamReadConstraints(

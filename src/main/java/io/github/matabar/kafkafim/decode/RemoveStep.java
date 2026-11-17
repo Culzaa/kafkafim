@@ -1,8 +1,6 @@
 package io.github.matabar.kafkafim.decode;
 
-import java.util.Map;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.node.JsonNodeFactory;
 import tools.jackson.databind.node.ObjectNode;
 
 /**
@@ -41,7 +39,7 @@ final class RemoveStep implements TransformStep {
       return node;
     }
     if (depth == keys.length - 1) {
-      ObjectNode copy = shallowCopy(node);
+      ObjectNode copy = Pointers.shallowCopy(node);
       copy.remove(key);
       return copy;
     }
@@ -52,16 +50,8 @@ final class RemoveStep implements TransformStep {
     if (changed == child) {
       return node;
     }
-    ObjectNode copy = shallowCopy(node);
+    ObjectNode copy = Pointers.shallowCopy(node);
     copy.set(key, changed); // replacing keeps the member's position
-    return copy;
-  }
-
-  private static ObjectNode shallowCopy(ObjectNode node) {
-    ObjectNode copy = JsonNodeFactory.instance.objectNode();
-    for (Map.Entry<String, JsonNode> member : node.properties()) {
-      copy.set(member.getKey(), member.getValue());
-    }
     return copy;
   }
 }

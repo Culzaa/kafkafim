@@ -1596,14 +1596,14 @@ class ConfigValidationTest {
     void rejectsUnknownOpWithRouteAndStepPosition() {
       assertInvalid(
           route("[ { op: bogus, field: /a } ]"),
-          P + ".routes[0].transform[0].op: unknown op 'bogus'; known ops: remove, rename");
+          P + ".routes[0].transform[0].op: unknown op 'bogus'; known ops: remove, rename, set");
     }
 
     @Test
     void rejectsMissingOp() {
       assertInvalid(
           route("[ { field: /a } ]"),
-          P + ".routes[0].transform[0].op: is required; known ops: remove, rename");
+          P + ".routes[0].transform[0].op: is required; known ops: remove, rename, set");
     }
 
     @Test
@@ -1681,6 +1681,40 @@ class ConfigValidationTest {
       assertInvalid(route("[ { op: rename, field: /a/b, to: /a/b } ]"), equal);
       assertInvalid(route("[ { op: rename, field: /a, to: /a/b } ]"), prefix);
       assertInvalid(route("[ { op: rename, field: /a/b, to: /a } ]"), prefix);
+    }
+
+    @Test
+    void acceptsSetOfStringOrAnyJsonValue() {
+      assertValid(route("[ { op: set, field: /event/dataset, value: orders } ]"));
+      assertValid(route("[ { op: set, field: /event/version, json: '2' } ]"));
+      assertValid(route("[ { op: set, field: /a, json: 'null' } ]"));
+      assertValid(route("[ { op: set, field: /a, json: '{\"k\":[1,true]}' } ]"));
+    }
+
+    @Test
+    void rejectsSetWithBothOrNeitherOfValueAndJson() {
+      String message =
+          P + ".routes[0].transform[0]: op 'set' needs exactly one of 'value' and 'json'";
+      assertInvalid(route("[ { op: set, field: /a, value: x, json: '1' } ]"), message);
+      assertInvalid(route("[ { op: set, field: /a } ]"), message);
+    }
+
+    @Test
+    void rejectsSetWithoutFieldOrWithToOrBadJson() {
+      assertInvalid(
+          route("[ { op: set, value: x } ]"),
+          P + ".routes[0].transform[0].field: op 'set' needs 'field'");
+      assertInvalid(
+          route("[ { op: set, field: /a, to: /b, value: x } ]"),
+          P + ".routes[0].transform[0].to: op 'set' takes no 'to'");
+      assertInvalid(
+          route("[ { op: set, field: '', value: x } ]"),
+          P + ".routes[0].transform[0].field: JSON pointer is empty");
+      assertInvalid(
+          route("[ { op: set, field: /a, json: '{\"k\":1,\"k\":2}' } ]"),
+          P
+              + ".routes[0].transform[0].json: is not exactly one JSON value (invalid syntax,"
+              + " trailing text or a duplicate key)");
     }
 
     @Test

@@ -268,6 +268,52 @@ class TransformIntegrationTest {
                 + "\"user\":null,\"meta\":{\"kind\":\"k\"}}");
   }
 
+  @Test
+  void removeRenameAndSetRunInOrderOnOneRoute() throws Exception {
+    String id = "all" + UUID.randomUUID().toString().substring(0, 8);
+    KafkaTopics.create(
+        admin,
+        List.of(new NewTopic(id, 1, (short) 1), new NewTopic(id + ".kafkafim-dlq", 1, (short) 1)));
+    start(
+        TestConfigs.bind(
+            """
+            kafkafim:
+              kafka:
+                clusters:
+                  k: { bootstrap-servers: ["%s"] }
+              elasticsearch:
+                clusters:
+                  es: { uris: ["http://%s"] }
+              pipelines:
+                p:
+                  source: { cluster: k, topics: [%s], offset-reset: earliest }
+                  routes:
+                    - name: eu
+                      when: [ { field: /region, equals: eu } ]
+                      cluster: es
+                      index: "%s-%%{region}"
+                      transform:
+                        - { op: remove, field: /card/number }
+                        - { op: rename, field: /usr, to: /user }
+                        - { op: set, field: /event/dataset, value: orders }
+                        - { op: set, field: /event/version, json: "2" }
+                        - { op: rename, field: /event/version, to: /event/v }
+            """
+                .formatted(KAFKA.getBootstrapServers(), ES.getHttpHostAddress(), id, id)),
+        StepRegistry.BUILT_IN);
+
+    send(
+        id,
+        "{ \"id\": \"o-1\", \"region\": \"eu\", \"usr\": \"ann\","
+            + " \"card\": { \"number\": \"4111\", \"brand\": \"v\" }, \"total\": 12.50 }");
+
+    await().atMost(TIMEOUT).untilAsserted(() -> assertThat(count(id + "-*")).isEqualTo(1));
+    assertThat(source(id + "-eu", "o-1"))
+        .isEqualTo(
+            "{\"id\":\"o-1\",\"region\":\"eu\",\"card\":{\"brand\":\"v\"},\"total\":12.50,"
+                + "\"user\":\"ann\",\"event\":{\"dataset\":\"orders\",\"v\":2}}");
+  }
+
   private void startPipeline(String topic, String id) {
     KafkafimProperties properties =
         TestConfigs.bind(
