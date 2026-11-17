@@ -1421,7 +1421,8 @@ in-flight bytes and assigned partitions.
 
 The Kafka clients' own metrics (`kafka_consumer_*`, `kafka_producer_*` on Prometheus;
 `kafka.consumer.*`, `kafka.producer.*` over OTLP) come from Micrometer's `KafkaClientMetrics`,
-the one binder (ADR-0013): Spring Boot's OpenTelemetry bean has no exporting meter provider,
+the one binder (ADR-0013, ADR-0049): Spring Boot's OpenTelemetry bean has no exporting
+meter provider,
 so the OpenTelemetry library's metrics reporter is not configured and nothing is duplicated.
 Each pipeline consumer's series carry `pipeline` and `kafka_cluster`, plus kafka-clients' own
 `client-id` (`kafkafim-<pipeline>-<n>`, one per consumer thread) and, for the per-topic and
@@ -1436,13 +1437,36 @@ set, a function of the configuration, not of traffic.
 
 ### Traces
 
-Kafka client spans (consumer process, one per record; receive spans are off by default; DLQ
-producer publish) come from the OpenTelemetry `opentelemetry-kafka-clients-2.6` library through
-one `KafkaTelemetry` bean
-(`telemetry/KafkaTelemetryConfiguration`; absent under `validate`). It is the only tracing
-mechanism for the Kafka clients: the OpenTelemetry Java agent must not be attached and
+Kafka client spans (consumer `process`, one per record; DLQ producer `publish`) come from the
+OpenTelemetry `opentelemetry-kafka-clients-2.6` library through one `KafkaTelemetry` bean
+(`telemetry/KafkaTelemetryConfiguration`; absent under `validate`), ADR-0049. It is the only
+tracing mechanism for the Kafka clients: the OpenTelemetry Java agent must not be attached and
 Spring Kafka observation must not be enabled (kafkafim never calls `setObservationEnabled`),
-or each client would be traced twice. The wiring lands with #322 and #323.
+or each client would be traced twice. Each client is instrumented once: consumers by a
+`DefaultKafkaConsumerFactory` post-processor (`source/kafka/ConsumerFactories`), the DLQ
+producer by wrapping every producer `KafkaDlqClient` creates, replacements included; the
+library's interceptor properties are not used. The library adds no log output.
+
+| Span | Kind | Notes |
+|---|---|---|
+| `process` (named `<topic> process`) | consumer | One per delivered record: `messaging.destination.name`, `messaging.destination.partition.id`, `messaging.kafka.consumer.group`, `messaging.client_id`, `messaging.kafka.message.offset`. Parent: the producer's `publish` span, from the record's `traceparent`. Microseconds long (below) |
+| `publish` (named `<topic> publish`) | producer | One per DLQ send, attempts included; injects `traceparent` into the DLQ record, replacing one copied from the source record. Child of the record's process span |
+| `pipeline.batch` | consumer | One per sealed bulk batch; child of the first record's process span |
+| `es.bulk` | client | One per bulk request; child of `pipeline.batch` |
+
+Receive spans are off (the library default): kafkafim processes records after the poll, so
+they would add one span per poll and no information. A `process` span is microseconds long:
+it ends when Spring has iterated the polled records, and kafkafim processes them
+asynchronously after that. It marks delivery, not processing time; the time is in
+`pipeline.batch` and `es.bulk`. Spring iterates the polled records itself, so no span is
+current in the listener: `telemetry/ProcessSpanContexts`, an attribute extractor on the
+`KafkaTelemetry` builder, records each `process` span's context when the library ends it, and
+it travels with the record to the batch and the DLQ writer (`SourceRecord` →
+`InboundRecord` → `BatchTrace`, `DlqRequest`). This hook uses the library's `internal`
+package (`KafkaProcessRequest`) of an alpha artifact, pinned through
+`opentelemetry-logback-appender.version` like the appender, which is not API:
+`ConsumerTracingIntegrationTest` fails when a version bump breaks it, and the fallback is
+links only. Propagation needs a W3C propagator in the `OpenTelemetry` bean (Boot's has one).
 
 One `pipeline.batch` span per sealed bulk batch (kind consumer, from sealing to the end
 of its last request; attributes `kafkafim.pipeline`, `kafkafim.kafka_cluster`,
@@ -1452,11 +1476,17 @@ bulk request, retries and 413 halves included (kind client; `kafkafim.es_cluster
 `kafkafim.docs`, `kafkafim.bytes`, `http.response.status_code` when answered,
 `kafkafim.retries` = failed attempts of that request before it, `kafkafim.item_errors`).
 A failure sets `error.type` (`io_error`, `malformed_response`, the HTTP status, or
-`item_errors`) and the span status. Incoming `traceparent` Kafka headers of the batch's
-records are attached as **span links** (distinct, at most 128), not parents. Head
-sampling: 1% of batches (`management.tracing.sampling.probability`); a failed batch is
-always kept (`telemetry/BatchSampler`), retryable item errors such as a 429 included, so
-trace volume rises while Elasticsearch pushes back. Spans are recorded when the batch ends, with
+`item_errors`) and the span status. The first record of the batch that has a Kafka `process`
+span context parents the batch (a batch with none is a root span); the incoming `traceparent`
+Kafka headers of all the batch's records are attached as **span links** (distinct, at most
+128), so the trace reads Kafka process span → `pipeline.batch` → `es.bulk` (ADR-0049, which
+refines ADR-0029's "links, never parents"). Sampling is parent-based
+(`telemetry/BatchSampler`): a batch with `error.type` is always kept, a retryable item error
+such as a 429 included, so trace volume rises while Elasticsearch pushes back; every other
+span follows its parent's sampled flag, so a healthy batch is kept exactly when its Kafka
+process span is (the producer's sampler decides), and only a batch without a Kafka parent is
+sampled at the ratio (`management.tracing.sampling.probability`, 1%). A failed batch under an
+unsampled parent is exported without its Kafka parent. Spans are recorded when the batch ends, with
 their real timestamps, which is what lets the sampler see the failure (ADR-0029); a
 batch still retrying has no span yet. No per-document spans; no trace context is sent
 to Elasticsearch. Dropped documents (§5.3) never join a batch, so they appear in no span;

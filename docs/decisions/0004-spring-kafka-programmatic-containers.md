@@ -21,6 +21,11 @@ each pipeline names the identity its consumer group authenticates with (ADR-0012
   (startup warns; runtime caps).
 - Pause/resume on the container implements backpressure when a target ES cluster's
   circuit breaker is open.
+- The consumers' `DefaultKafkaConsumerFactory` carries the observability hooks
+  (ADR-0049): a post-processor wraps each consumer with the OpenTelemetry
+  `kafka-clients` library, and a `ConsumerFactory.Listener` binds Micrometer's
+  `KafkaClientMetrics` and unbinds it when Spring removes the consumer. Spring Kafka's
+  own observation stays off.
 
 ## Alternatives
 
