@@ -29,11 +29,14 @@ always. Two things do not fit a plain implementation:
   timestamps (Micrometer Tracing over the OpenTelemetry bridge). A failed batch carries
   `error.type` from its first span attribute on.
 - **Sampler.** `telemetry/BatchSampler` replaces Spring Boot's
-  `parentBased(traceIdRatioBased(p))` with `parentBased(errors-or-ratio)`: a root
-  `pipeline.batch` span with `error.type` is always sampled, every other root span by
-  trace id at `management.tracing.sampling.probability` (0.01 in `application.yaml`),
-  children follow their parent. (ADR-0049: every span now follows its parent, so only a
-  batch without a Kafka parent uses the ratio; the error rule is unchanged.)
+  `parentBased(traceIdRatioBased(p))` with an errors-or-parent-based-ratio rule: a
+  `pipeline.batch` span with `error.type` is always sampled, whatever its parent
+  decided; every other span follows its parent's sampled flag, and a root span is
+  sampled by trace id at `management.tracing.sampling.probability` (0.01 in
+  `application.yaml`). Originally the error rule applied to root spans only; since
+  ADR-0049 parents a batch on a Kafka `process` span, it applies to any batch, so a
+  failed batch under an unsampled parent is exported as an orphan (without its Kafka
+  parent) rather than lost.
 - **Links.** The supervisor turns the handles into the records' distinct
   `traceparent` values (at most 128, the SDK's link limit); invalid values are
   dropped. Links, never parents: a batch mixes documents of many traces. (ADR-0049
@@ -60,6 +63,8 @@ always. Two things do not fit a plain implementation:
 - A retryable item error (for example a 429 `es_rejected_execution_exception`) makes
   a batch "failed", so under sustained Elasticsearch backpressure nearly every batch
   is traced: trace volume rises exactly while Elasticsearch is overloaded.
+- A failed batch whose Kafka parent was not sampled is exported without that parent,
+  so its trace view starts at `pipeline.batch`.
 - The `pipelines` readiness contributor and the existing `kafkafim_pipeline_state` /
   reload meters stay in `supervisor`, which owns the state they read; the new
   `supervisor` and `kafka` contributors are `telemetry` classes fed by supervisor
