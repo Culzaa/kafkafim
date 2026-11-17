@@ -189,6 +189,74 @@ class BatchTracerTest {
     assertThat(capture.all(BatchTracer.BULK_SPAN)).hasSize(2);
   }
 
+  private static BatchTrace parented(
+      List<BatchTrace.BulkRequest> requests, List<String> links, String parent) {
+    BatchTrace plain = batch(requests, links);
+    return new BatchTrace(
+        plain.pipeline(),
+        plain.kafkaCluster(),
+        plain.esCluster(),
+        plain.identity(),
+        plain.flushReason(),
+        plain.docs(),
+        plain.bytes(),
+        plain.started(),
+        plain.ended(),
+        plain.requests(),
+        plain.traceParents(),
+        parent);
+  }
+
+  @Test
+  void batchSpanIsParentedOnTheKafkaProcessSpanAndItsBulkRequestsFollow() {
+    BatchTracer tracer = tracer(0.0);
+    String parent = "00-" + TRACE_A + "-" + SPAN_A + "-01";
+
+    tracer.record(
+        parented(
+            List.of(request(200, 0, 0)),
+            List.of(parent, "00-" + TRACE_B + "-" + SPAN_B + "-01"),
+            parent));
+
+    // Sampled parent: kept although the probability is zero (the process span decided).
+    SpanData batch = capture.named(BatchTracer.BATCH_SPAN);
+    assertThat(batch.getTraceId()).isEqualTo(TRACE_A);
+    assertThat(batch.getParentSpanId()).isEqualTo(SPAN_A);
+    assertThat(batch.getKind()).isEqualTo(SpanKind.CONSUMER);
+    // The other record's trace stays a link; so does the parent's own (harmless duplicate).
+    assertThat(batch.getLinks())
+        .extracting(l -> l.getSpanContext().getTraceId())
+        .containsExactly(TRACE_A, TRACE_B);
+    SpanData bulk = capture.named(BatchTracer.BULK_SPAN);
+    assertThat(bulk.getTraceId()).isEqualTo(TRACE_A);
+    assertThat(bulk.getParentSpanId()).isEqualTo(batch.getSpanId());
+  }
+
+  @Test
+  void unsampledParentDropsHealthyBatchesButFailedOnesAreStillExported() {
+    BatchTracer tracer = tracer(1.0);
+    String unsampled = "00-" + TRACE_A + "-" + SPAN_A + "-00";
+
+    tracer.record(parented(List.of(request(200, 0, 0)), List.of(), unsampled));
+    assertThat(capture.spans).as("parent-based: follows the unsampled parent").isEmpty();
+
+    tracer.record(parented(List.of(request(503, 0, 0)), List.of(), unsampled));
+    SpanData batch = capture.named(BatchTracer.BATCH_SPAN);
+    assertThat(batch.getTraceId()).isEqualTo(TRACE_A);
+    assertThat(batch.getParentSpanId()).isEqualTo(SPAN_A);
+    assertThat(batch.getStatus().getStatusCode()).isEqualTo(StatusCode.ERROR);
+    assertThat(capture.all(BatchTracer.BULK_SPAN)).hasSize(1);
+  }
+
+  @Test
+  void invalidParentLeavesRootSpan() {
+    BatchTracer tracer = tracer(1.0);
+
+    tracer.record(parented(List.of(request(200, 0, 0)), List.of(), "garbage"));
+
+    assertThat(capture.named(BatchTracer.BATCH_SPAN).getParentSpanContext().isValid()).isFalse();
+  }
+
   @Test
   void linksAreCappedAtTheLimit() {
     BatchTracer tracer = tracer(1.0);
