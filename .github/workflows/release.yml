@@ -23,7 +23,14 @@ jobs:
           cache: maven
       - name: Build and test at the tag
         run: ./mvnw -B -ntp -Drevision="${GITHUB_REF_NAME#v}" verify
-  # Publishes and signs; runs no Maven.
+      # The Dockerfile copies target/*.jar into the image: hand the tested jar to `release`.
+      - name: Application jar
+        uses: actions/upload-artifact@v7
+        with:
+          name: jar
+          path: target/*.jar
+          if-no-files-found: error
+  # Publishes and signs; runs no Maven. The image is built from the jar that `verify` tested.
   release:
     needs: verify
     permissions:
@@ -58,6 +65,10 @@ jobs:
           sed -i "s#/blob/main/docs/RUNBOOK.md#/blob/v${V}/docs/RUNBOOK.md#" "$out/alerts/kafkafim-alerts.yaml"
           cp docs/RUNBOOK.md "$out/"
 
+      - uses: actions/download-artifact@v8
+        with:
+          name: jar
+          path: target/
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
