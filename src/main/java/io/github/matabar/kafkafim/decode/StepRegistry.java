@@ -29,7 +29,7 @@ public final class StepRegistry {
 
   /** The production ops. */
   public static final StepRegistry BUILT_IN =
-      new StepRegistry(Map.of("remove", RemoveStep.FACTORY));
+      new StepRegistry(Map.of("remove", RemoveStep.FACTORY, "rename", RenameStep.FACTORY));
 
   private final Map<String, Factory> factories;
 

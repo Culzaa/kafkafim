@@ -218,6 +218,56 @@ class TransformIntegrationTest {
         .isEqualTo("{\"card\":{\"brand\":\"v\"},\"n\":null}");
   }
 
+  @Test
+  void renameMovesFieldsInItsCopyAfterRoutingAndIdWhileTheSiblingKeepsTheRecord() throws Exception {
+    String id = "rn" + UUID.randomUUID().toString().substring(0, 8);
+    KafkaTopics.create(
+        admin,
+        List.of(new NewTopic(id, 1, (short) 1), new NewTopic(id + ".kafkafim-dlq", 1, (short) 1)));
+    start(
+        TestConfigs.bind(
+            """
+            kafkafim:
+              kafka:
+                clusters:
+                  k: { bootstrap-servers: ["%s"] }
+              elasticsearch:
+                clusters:
+                  es: { uris: ["http://%s"] }
+              pipelines:
+                p:
+                  source: { cluster: k, topics: [%s], offset-reset: earliest }
+                  route-mode: all
+                  routes:
+                    - name: full
+                      when: [ { field: /region, equals: eu } ]
+                      cluster: es
+                      index: "%s-full"
+                    - name: renamed
+                      when: [ { field: /region, equals: eu } ]
+                      cluster: es
+                      index: "%s-renamed-%%{kind}"
+                      transform:
+                        - { op: rename, field: /usr, to: /user }
+                        - { op: rename, field: /kind, to: /meta/kind }
+                        - { op: rename, field: /nothing, to: /here }
+            """
+                .formatted(KAFKA.getBootstrapServers(), ES.getHttpHostAddress(), id, id, id)),
+        StepRegistry.BUILT_IN);
+
+    String doc =
+        "{ \"id\": \"r-1\", \"region\": \"eu\", \"kind\": \"k\", \"usr\": null,"
+            + " \"big\": 123456789012345678901234567890 }";
+    send(id, doc);
+
+    await().atMost(TIMEOUT).untilAsserted(() -> assertThat(count(id + "-*")).isEqualTo(2));
+    assertThat(source(id + "-full", "r-1")).isEqualTo(doc);
+    assertThat(source(id + "-renamed-k", "r-1"))
+        .isEqualTo(
+            "{\"id\":\"r-1\",\"region\":\"eu\",\"big\":123456789012345678901234567890,"
+                + "\"user\":null,\"meta\":{\"kind\":\"k\"}}");
+  }
+
   private void startPipeline(String topic, String id) {
     KafkafimProperties properties =
         TestConfigs.bind(

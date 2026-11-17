@@ -1596,14 +1596,14 @@ class ConfigValidationTest {
     void rejectsUnknownOpWithRouteAndStepPosition() {
       assertInvalid(
           route("[ { op: bogus, field: /a } ]"),
-          P + ".routes[0].transform[0].op: unknown op 'bogus'; known ops: remove");
+          P + ".routes[0].transform[0].op: unknown op 'bogus'; known ops: remove, rename");
     }
 
     @Test
     void rejectsMissingOp() {
       assertInvalid(
           route("[ { field: /a } ]"),
-          P + ".routes[0].transform[0].op: is required; known ops: remove");
+          P + ".routes[0].transform[0].op: is required; known ops: remove, rename");
     }
 
     @Test
@@ -1633,6 +1633,54 @@ class ConfigValidationTest {
       assertInvalid(
           route("[ { op: remove, field: /a, value: x } ]"),
           P + ".routes[0].transform[0].value: op 'remove' takes no 'value'");
+    }
+
+    @Test
+    void acceptsRenameOfAnObjectMember() {
+      assertValid(route("[ { op: rename, field: /usr, to: /user } ]"));
+      assertValid(route("[ { op: rename, field: /a, to: /ab } ]"));
+      assertValid(route("[ { op: rename, field: /a/b, to: /a/c/d } ]"));
+    }
+
+    @Test
+    void rejectsRenameWithoutBothPointersOrWithFieldsItDoesNotTake() {
+      assertInvalid(
+          route("[ { op: rename, field: /a } ]"),
+          P + ".routes[0].transform[0].to: op 'rename' needs 'to'");
+      assertInvalid(
+          route("[ { op: rename, to: /a } ]"),
+          P + ".routes[0].transform[0].field: op 'rename' needs 'field'");
+      assertInvalid(
+          route("[ { op: rename, field: /a, to: /b, value: x } ]"),
+          P + ".routes[0].transform[0].value: op 'rename' takes no 'value'");
+      assertInvalid(
+          route("[ { op: rename, field: /a, to: /b, json: '1' } ]"),
+          P + ".routes[0].transform[0].json: op 'rename' takes no 'json'");
+    }
+
+    @Test
+    void rejectsRenameOfTheRootOrToMalformedPointers() {
+      assertInvalid(
+          route("[ { op: rename, field: '', to: /b } ]"),
+          P + ".routes[0].transform[0].field: JSON pointer is empty");
+      assertInvalid(
+          route("[ { op: rename, field: /a, to: '' } ]"),
+          P + ".routes[0].transform[0].to: JSON pointer is empty");
+      assertInvalid(
+          route("[ { op: rename, field: /a, to: b } ]"),
+          P + ".routes[0].transform[0].to: 'b' is not a JSON pointer (must start with '/')");
+    }
+
+    @Test
+    void rejectsRenameOntoItselfOrIntoOrOutOfItself() {
+      String equal = P + ".routes[0].transform[0]: op 'rename' needs 'field' and 'to' to differ";
+      String prefix =
+          P
+              + ".routes[0].transform[0]: op 'rename' needs neither of 'field' and 'to' to be a"
+              + " prefix of the other";
+      assertInvalid(route("[ { op: rename, field: /a/b, to: /a/b } ]"), equal);
+      assertInvalid(route("[ { op: rename, field: /a, to: /a/b } ]"), prefix);
+      assertInvalid(route("[ { op: rename, field: /a/b, to: /a } ]"), prefix);
     }
 
     @Test

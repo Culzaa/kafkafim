@@ -18,16 +18,9 @@ final class RemoveStep implements TransformStep {
   private final String pointer;
   private final String[] keys;
 
-  private RemoveStep(String pointer) {
-    if (pointer == null || !pointer.startsWith("/")) {
-      throw new IllegalArgumentException("remove needs a non-empty JSON pointer in 'field'");
-    }
+  RemoveStep(String pointer) {
     this.pointer = pointer;
-    String[] tokens = pointer.substring(1).split("/", -1);
-    for (int i = 0; i < tokens.length; i++) {
-      tokens[i] = tokens[i].replace("~1", "/").replace("~0", "~");
-    }
-    this.keys = tokens;
+    this.keys = Pointers.keys("remove", pointer);
   }
 
   @Override

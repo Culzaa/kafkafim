@@ -1017,4 +1017,72 @@ class RecordProcessorTest {
                   .doesNotContain("4111", "region"));
     }
   }
+
+  /** The production {@code rename} op in the processor. */
+  @Nested
+  class RenameTransforms {
+
+    private static final String ROUTES =
+        """
+        p:
+          source: { cluster: k, topics: [t], max-record-bytes: 1KB }
+          route-mode: all
+          routes:
+            - name: plain
+              when: [ { field: /region, equals: eu } ]
+              cluster: es
+              index: "plain-%{kind}"
+            - name: renamed
+              when: [ { field: /region, equals: eu } ]
+              cluster: es2
+              index: "renamed-%{kind}"
+              transform:
+                - { op: rename, field: /id, to: /ident }
+                - { op: rename, field: /kind, to: /meta/kind }
+        """;
+
+    private static final String DOC = "{\"id\":\"a\",\"region\":\"eu\",\"kind\":\"k\"}";
+
+    @Test
+    void renamingTheFieldsRoutingAndTheIdAlreadyReadChangesNeitherRouteNorIdNorIndex() {
+      processor = processor(ROUTES, PipelineMeters.NOOP, StepRegistry.BUILT_IN);
+      processor.process(List.of(record(DOC)));
+
+      assertThat(actions(ES2))
+          .singleElement()
+          .satisfies(a -> {
+            assertThat(a.id()).isEqualTo("a");
+            assertThat(a.index()).isEqualTo("renamed-k");
+            assertThat(new String(a.source(), StandardCharsets.UTF_8))
+                .isEqualTo("{\"region\":\"eu\",\"ident\":\"a\",\"meta\":{\"kind\":\"k\"}}");
+          });
+      assertThat(actions(ES))
+          .singleElement()
+          .satisfies(
+              a -> assertThat(new String(a.source(), StandardCharsets.UTF_8)).isEqualTo(DOC));
+      assertThat(dlq).isEmpty();
+    }
+
+    @Test
+    void targetParentThatIsNotAnObjectDeadLettersOnlyThatCopy() {
+      processor = processor(ROUTES, PipelineMeters.NOOP, StepRegistry.BUILT_IN);
+      String doc = "{\"id\":\"a\",\"region\":\"eu\",\"kind\":\"k\",\"meta\":\"secret\"}";
+      processor.process(List.of(record(doc)));
+
+      assertThat(actions(ES)).hasSize(1);
+      assertThat(actions(ES2)).isEmpty();
+      assertThat(dlq)
+          .singleElement()
+          .satisfies(sent -> {
+            DlqRequest request = sent.request();
+            assertThat(request.errorType()).isEqualTo("transform");
+            assertThat(request.reason())
+                .isEqualTo(
+                    "route renamed, step 2 (rename /kind to /meta/kind): "
+                        + "a parent of the target is not an object");
+            assertThat(request.reason()).doesNotContain("secret");
+            assertThat(request.value()).isEqualTo(doc.getBytes(StandardCharsets.UTF_8));
+          });
+    }
+  }
 }
