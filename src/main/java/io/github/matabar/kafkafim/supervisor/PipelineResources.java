@@ -5,6 +5,7 @@ import io.github.matabar.kafkafim.config.KafkaCluster;
 import io.github.matabar.kafkafim.config.KafkafimProperties;
 import io.github.matabar.kafkafim.config.Pipeline;
 import io.github.matabar.kafkafim.decode.StepRegistry;
+import io.github.matabar.kafkafim.dlq.DlqListener;
 import io.github.matabar.kafkafim.dlq.DlqOptions;
 import io.github.matabar.kafkafim.dlq.DlqProducers;
 import io.github.matabar.kafkafim.sink.es.BreakerSettings;
@@ -12,6 +13,7 @@ import io.github.matabar.kafkafim.sink.es.ClientSettings;
 import io.github.matabar.kafkafim.sink.es.ElasticsearchSinks;
 import io.github.matabar.kafkafim.source.kafka.ConsumerFactories;
 import io.github.matabar.kafkafim.source.kafka.SourceOptions;
+import io.opentelemetry.instrumentation.kafkaclients.v2_6.KafkaTelemetry;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -120,6 +122,7 @@ final class PipelineResources implements SmartLifecycle, AutoCloseable {
   private final ListenerRelay relay;
   private final Function<KafkafimProperties, Preflight.AuthCheck> authChecks;
   private final Settings settings;
+  private final @Nullable KafkaTelemetry kafkaTelemetry;
 
   private final Map<String, KafkaHandle> currentKafka = new HashMap<>(); // guarded by this
   private final Map<String, EsHandle> currentEs = new HashMap<>(); // guarded by this
@@ -133,9 +136,22 @@ final class PipelineResources implements SmartLifecycle, AutoCloseable {
       ListenerRelay relay,
       Function<KafkafimProperties, Preflight.AuthCheck> authChecks,
       Settings settings) {
+    this(relay, authChecks, settings, null);
+  }
+
+  /**
+   * {@code kafkaTelemetry} instruments the consumers and the DLQ producers; {@code null} leaves
+   * them bare.
+   */
+  PipelineResources(
+      ListenerRelay relay,
+      Function<KafkafimProperties, Preflight.AuthCheck> authChecks,
+      Settings settings,
+      @Nullable KafkaTelemetry kafkaTelemetry) {
     this.relay = relay;
     this.authChecks = authChecks;
     this.settings = settings;
+    this.kafkaTelemetry = kafkaTelemetry;
   }
 
   /**
@@ -494,9 +510,13 @@ final class PipelineResources implements SmartLifecycle, AutoCloseable {
       super(cluster);
       this.definition = definition;
       this.properties = properties;
-      this.consumerFactories = new ConsumerFactories(properties);
+      this.consumerFactories = new ConsumerFactories(properties, kafkaTelemetry);
       AtomicReference<Object> owner = new AtomicReference<>();
-      this.dlq = new DlqProducers(properties, relay.dlqListener(owner::get), settings.dlqOptions());
+      DlqListener dlqListener = relay.dlqListener(owner::get);
+      this.dlq =
+          kafkaTelemetry == null
+              ? new DlqProducers(properties, dlqListener, settings.dlqOptions())
+              : new DlqProducers(properties, dlqListener, settings.dlqOptions(), kafkaTelemetry);
       owner.set(dlq);
     }
 

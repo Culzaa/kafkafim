@@ -3,6 +3,7 @@ package io.github.matabar.kafkafim.dlq;
 import io.github.matabar.kafkafim.config.KafkaCluster;
 import io.github.matabar.kafkafim.config.KafkafimProperties;
 import io.github.matabar.kafkafim.config.Pipeline;
+import io.opentelemetry.instrumentation.kafkaclients.v2_6.KafkaTelemetry;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -78,6 +79,29 @@ public final class DlqProducers implements SmartLifecycle, AutoCloseable {
    */
   public DlqProducers(KafkafimProperties properties, DlqListener listener, DlqOptions options) {
     this(properties, listener, options, KafkaDlqClient::new);
+  }
+
+  /**
+   * Producers over a bound configuration whose Kafka producers are wrapped by {@code telemetry}
+   * (ADR-0013): one publish span per send attempt, trace context injected into the DLQ record's
+   * headers. Every producer created is wrapped, replacements included.
+   *
+   * @param properties the validated configuration
+   * @param listener metrics and supervisor hook
+   * @param options timings
+   * @param telemetry the process's one OpenTelemetry {@code kafka-clients} instrumentation
+   */
+  public DlqProducers(
+      KafkafimProperties properties,
+      DlqListener listener,
+      DlqOptions options,
+      KafkaTelemetry telemetry) {
+    this(
+        properties,
+        listener,
+        options,
+        (Function<Map<String, Object>, DlqClient>)
+            settings -> KafkaDlqClient.instrumented(settings, telemetry::wrap));
   }
 
   DlqProducers(

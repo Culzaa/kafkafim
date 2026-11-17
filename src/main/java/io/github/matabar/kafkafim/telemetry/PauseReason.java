@@ -2,8 +2,8 @@ package io.github.matabar.kafkafim.telemetry;
 
 /**
  * Why the supervisor paused a pipeline, reduced to its kind: the {@code reason} label of {@code
- * kafkafim_pipeline_pause_reason} (DESIGN §10). The cluster and identity a reason names stay in the
- * logs, so every pipeline has the same three series.
+ * kafkafim_pipeline_pause_reason} (DESIGN §10). The cluster and identity a reason names are the
+ * other labels, see {@link PauseCause}.
  */
 public enum PauseReason {
   /** The circuit breaker of an Elasticsearch cluster the pipeline routes to is not closed. */
