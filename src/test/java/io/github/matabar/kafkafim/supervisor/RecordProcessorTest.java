@@ -862,6 +862,7 @@ class RecordProcessorTest {
         .singleElement()
         .satisfies(event -> {
           assertThat(event.getLevel()).isEqualTo(Level.WARN);
+          assertThat(event.getFormattedMessage()).endsWith("will be re-delivered");
           assertThat(event.getThrowableProxy().getClassName())
               .isEqualTo(IllegalStateException.class.getName());
           assertThat(event.getThrowableProxy().getMessage()).isEqualTo("DLQ producers are closed");
