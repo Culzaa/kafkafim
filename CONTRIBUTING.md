@@ -48,7 +48,8 @@ Testcontainers integration tests, and ArchUnit rules. CI runs the same checks, s
 Dockerfile build and Helm checks. All must pass before merge. `verify` also measures
 JaCoCo coverage of unit and integration tests together and enforces a floor on it (about 94 %
 of lines, 87 % of branches); the report is in `target/site/jacoco/index.html`. CI checks the
-floor in a separate "Coverage" job (see [DELIVERY.md](docs/DELIVERY.md#coverage-floor)). A docs-only change
+floor in a separate "Coverage" job (see [DELIVERY.md](docs/DELIVERY.md#coverage-floor)). A run with `-DskipITs` has only
+unit coverage, so add `-Djacoco.check.skip=true` to it. A docs-only change
 needs only `./mvnw -DskipTests verify`; CI skips the Java and image jobs for it.
 
 Shell scripts follow the [Google Shell Style Guide](https://google.github.io/styleguide/shellguide.html)

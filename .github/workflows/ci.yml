@@ -184,7 +184,7 @@ jobs:
         run: |
           mkdir -p target
           cp coverage-data/jacoco.exec coverage-data/jacoco-it.exec target/
-          ./mvnw -B -ntp -DskipTests compile \
+          ./mvnw -B -ntp -DskipTests -Dspotless.check.skip=true -Dcheckstyle.skip=true compile \
             jacoco:merge@merge jacoco:report@report jacoco:check@check
       - name: Coverage summary
         if: always()
