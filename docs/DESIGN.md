@@ -1395,6 +1395,13 @@ in-flight bytes and assigned partitions.
 
 ### Traces
 
+Kafka client spans (consumer receive/process, DLQ producer publish) come from the
+OpenTelemetry `opentelemetry-kafka-clients-2.6` library through one `KafkaTelemetry` bean
+(`telemetry/KafkaTelemetryConfiguration`; absent under `validate`). It is the only tracing
+mechanism for the Kafka clients: the OpenTelemetry Java agent must not be attached and
+Spring Kafka observation must not be enabled (kafkafim never calls `setObservationEnabled`),
+or each client would be traced twice. The wiring lands with #322 and #323.
+
 One `pipeline.batch` span per sealed bulk batch (kind consumer, from sealing to the end
 of its last request; attributes `kafkafim.pipeline`, `kafkafim.kafka_cluster`,
 `kafkafim.es_cluster`, `kafkafim.es_identity`, `kafkafim.flush_reason`,
