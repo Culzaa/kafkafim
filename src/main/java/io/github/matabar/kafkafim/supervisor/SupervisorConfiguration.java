@@ -11,6 +11,7 @@ import io.github.matabar.kafkafim.telemetry.KafkafimMeters;
 import io.github.matabar.kafkafim.telemetry.SupervisorHealthIndicator;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.opentelemetry.instrumentation.kafkaclients.v2_6.KafkaTelemetry;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -53,11 +54,12 @@ public class SupervisorConfiguration {
   }
 
   @Bean(destroyMethod = "close")
-  PipelineResources kafkafimPipelineResources(ListenerRelay relay) {
+  PipelineResources kafkafimPipelineResources(ListenerRelay relay, KafkaTelemetry kafkaTelemetry) {
     return new PipelineResources(
         relay,
         properties -> new ElasticsearchAuthCheck(properties.elasticsearch().clusters()),
-        PipelineResources.Settings.DEFAULTS);
+        PipelineResources.Settings.DEFAULTS,
+        kafkaTelemetry);
   }
 
   @Bean
