@@ -39,10 +39,11 @@ public interface SourceProbe {
   }
 
   /**
-   * The kinds of supervisor reason the pipeline is paused for right now ({@code
-   * kafkafim_pipeline_pause_reason}); empty unless its state is {@code paused}.
+   * The supervisor reasons the pipeline is paused for right now, each with the cluster and identity
+   * it names ({@code kafkafim_pipeline_pause_reason}); empty unless its state is {@code paused}.
+   * Only causes over the pipeline's configured clusters and identities have a series.
    */
-  default Set<PauseReason> pauseReasons() {
+  default Set<PauseCause> pauseReasons() {
     return Set.of();
   }
 }

@@ -43,8 +43,7 @@ groups:
           summary: "Pipeline {{ $labels.pipeline }} paused for 5m"
           description: >-
             Paused for a supervisor reason: breaker open, identity rejected or DLQ blocked.
-            kafkafim_pipeline_pause_reason says which kind; the cluster or identity is in the
-            pod's WARN "Pipeline '<name>': pausing (<reason>)" line.
+            kafkafim_pipeline_pause_reason says which kind, cluster and identity.
           runbook_url: https://github.com/matabar/kafkafim/blob/main/docs/RUNBOOK.md#31-pipeline-state
 
       - alert: KafkafimPipelineStuckStarting

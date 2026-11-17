@@ -171,8 +171,8 @@ Each pipeline on each pod is in one `PipelineState`
 
 **Alerts**: [`KafkafimPipelinePaused`](../deploy/grafana/alerts/kafkafim-alerts.yaml) (a pipeline
 `paused` for 5m; the
-kind of reason is in `kafkafim_pipeline_pause_reason`, the cluster or identity it names in
-the log lines below, and §5 has a section per reason).
+reason is in `kafkafim_pipeline_pause_reason` with the cluster and identity it names, and §5
+has a section per reason).
 
 Where to read it:
 
@@ -201,14 +201,18 @@ Where to read it:
   `java.nio.channels.ClosedSelectorException` (from `SingleCoreIOReactor.closeOpenChannels`).
   The check's short-lived client was closed by force; it held one connection and nothing is
   lost. Ignore it unless it repeats without any stop or reload ([#202](https://github.com/matabar/kafkafim/issues/202)).
-- **Why it is paused**: `kafkafim_pipeline_pause_reason{pipeline,reason} == 1`, with
+- **Why it is paused**: `kafkafim_pipeline_pause_reason{pipeline,reason,es_cluster,identity} == 1`,
+  with
   `reason` one of `es_breaker`
   ([Elasticsearch outage, circuit breaker open (§5.1)](#51-elasticsearch-outage-circuit-breaker-open)),
   `es_auth`
   ([Elasticsearch authentication failure (pipeline paused) (§5.2)](#52-elasticsearch-authentication-failure-pipeline-paused)),
   and `dlq_blocked` ([DLQ filling, or DLQ blocked (§5.6)](#56-dlq-filling-or-dlq-blocked)); more than
   one can be 1. It is 1
-  only while the state is `paused`. Which cluster or identity is in the log lines above.
+  only while the state is `paused`. `es_cluster` and `identity` name the cluster or identity
+  (`none` where the reason has none: `identity` for a breaker, both for `dlq_blocked`). Since
+  #328 the metric has one series per cluster and identity, not one per kind: a rule that
+  assumed a single series per `(pipeline, reason)` should `max by (pipeline, reason)`.
 - **Health**: `/actuator/health/readiness` includes the `pipelines` component. With
   the packaged `show-details: when-authorized` and no authentication, the response
   shows component statuses only, not the per-pipeline states, so use the metric.
@@ -242,7 +246,7 @@ neither (`kafkafim_config_reload_total` has `result`) ([DESIGN §10](DESIGN.md#1
 | What is going to the DLQ? | `kafkafim_dlq_records_total{error_type}`, `kafkafim_item_errors_total{es_cluster,error_type,retryable}` |
 | What are drop routes discarding? | `rate(kafkafim_docs_total{outcome="dropped"}[5m])` by `route` ([Documents missing from Elasticsearch: dropped or lost? (§5.14)](#514-documents-missing-from-elasticsearch-dropped-or-lost)) |
 | Backpressure / memory? | `kafkafim_in_flight_bytes` against the pipeline's `source.max-in-flight-bytes`; `jvm_memory_used_bytes{area="heap"}` |
-| Why is a pipeline paused? | `kafkafim_pipeline_pause_reason{reason}` (1/0 per kind: `es_breaker`, `es_auth`, `dlq_blocked`) |
+| Why is a pipeline paused? | `kafkafim_pipeline_pause_reason{reason,es_cluster,identity}` (1/0: `es_breaker` per cluster, `es_auth` per cluster and identity, `dlq_blocked`) |
 | Does this pod own partitions? Is Kafka connected? | `kafkafim_assigned_partitions`, `kafkafim_kafka_connected` (1/0) |
 
 Dashboards and alert rules for these metrics ship in `deploy/grafana/`
@@ -843,10 +847,6 @@ Current behaviour that this runbook works around; each is a follow-up, not a fea
 - **Rotated TLS files are not reloaded.** Certificate and keystore files are bound
   by path, so a content change with an unchanged path, password, and type is `unchanged` to
   the reload; restart the pods ([Rotating a secret (§4.3)](#43-rotating-a-secret)).
-- **A pause reason's cluster and identity are only in logs.**
-  `kafkafim_pipeline_pause_reason` gives the kind (`es_breaker`, `es_auth`,
-  `dlq_blocked`); the health endpoint says `paused` without a reason, and its details
-  are hidden by `show-details: when-authorized`.
 - **The `validate` profile does not check secrets or connectivity**
   ([DESIGN §5.6](DESIGN.md#56-validation-and-hot-reload), [HELM.md](HELM.md)): it
   accepts a secret that is not mounted and only lists its name, opens no trust or

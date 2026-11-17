@@ -202,8 +202,9 @@ new sinks report them again if the cluster is still down, and the in-flight budg
 what is fetched meanwhile. `dlq-blocked` stays until the shared DLQ writer's retries
 succeed, unless the restart gives the pipeline a new DLQ writer (§5.6), whose events are
 then the only ones that count. A pipeline that is stopping cannot be started until the stop returns.
-`kafkafim_pipeline_pause_reason` (§10) exports the kinds of reason while the pipeline is
-`paused`; a reason held for a pipeline that is not running pauses nothing yet and reads 0.
+`kafkafim_pipeline_pause_reason` (§10) exports the reasons, with the cluster and identity
+they name, while the pipeline is `paused`; a reason held for a pipeline that is not running
+pauses nothing yet and reads 0.
 
 - **Batching**: a batch is sealed at `bulk.max-docs`, at `bulk.max-bytes` (an action
   that would push it over seals it first, so only a single action larger than
@@ -1365,7 +1366,7 @@ Exact label sets (`telemetry/TelemetryNames`, `telemetry/PipelineMeters`):
 | `kafkafim_batch_flush_total` | `es_cluster`, `reason=docs\|bytes\|age\|explicit` | every sealed batch (`explicit`: revoke, stop) |
 | `kafkafim_e2e_latency_seconds` (histogram) | — | every Elasticsearch ack: ack time minus the Kafka record timestamp (DLQ'd documents are not counted) |
 | `kafkafim_in_flight_bytes`, `kafkafim_assigned_partitions`, `kafkafim_kafka_connected` (1/0) | — | the pipeline's running source, read on scrape |
-| `kafkafim_pipeline_pause_reason` (1/0) | `reason=es_breaker\|es_auth\|dlq_blocked` | the supervisor's pause reasons by kind, read on scrape: 1 while the pipeline is `paused` for a reason of that kind (more than one can be 1), else 0. The cluster and identity a reason names are only in the logs |
+| `kafkafim_pipeline_pause_reason` (1/0) | `reason=es_breaker\|es_auth\|dlq_blocked`, `es_cluster`, `identity` | the supervisor's pause reasons, read on scrape: 1 while the pipeline is `paused` for that reason, else 0 (more than one can be 1). `es_breaker` has one series per cluster the pipeline routes to (`identity=none`), `es_auth` one per `(cluster, identity)` a route writes with (`identity=none` for an unauthenticated cluster), `dlq_blocked` one (`es_cluster=none`, `identity=none`) |
 | `kafkafim_dlq_records_total` | `error_type` | every DLQ record the broker acknowledged |
 | `kafkafim_breaker_state` | only `es_cluster`: 0 closed, 1 half-open, 2 open | the breakers the pipelines send through (the worst one while a reload leaves two generations alive) |
 | `kafkafim_pipeline_state` | only `pipeline`, `state=starting\|running\|paused\|failed_preflight\|failed\|stopped` | 1 for the current state, 0 for the others; `paused` means a supervisor reason: breaker open, identity rejected, or DLQ blocked (`kafkafim_pipeline_pause_reason` says which), not the byte-budget backpressure |
@@ -1383,6 +1384,29 @@ the gauges) exist from startup with 0; status and error-type series appear with 
 event. On a reload (§5.6, ADR-0028) a removed pipeline loses every series, an added one
 gains them, a pipeline whose labels changed (source cluster, topics, routes, clusters,
 identities) gets fresh series, and an unchanged one keeps its counters across a restart.
+
+Cardinality bound (audit, #328): every tag value comes from the configuration or from a
+closed set, never from a document's content.
+
+| Tag | Value source | Bound |
+|---|---|---|
+| `pipeline`, `kafka_cluster` | the pipeline's name and its source cluster | configured pipelines |
+| `topic` | the source topics a pipeline subscribes to (explicit names, no patterns) | configured topics |
+| `route` | the route's `name` or position; `none` | configured routes plus one |
+| `es_cluster`, `identity` | the cluster and identity a route is configured with (`none` for no identity, or for a reason that names none) | configured routes |
+| `outcome`, `reason` (pause), `reason` (flush), `scope`, `retryable` | enums in the code | fixed |
+| `status` | the HTTP status of a bulk response, or `io_error` | HTTP codes |
+| `error_type` | Elasticsearch's `error.type` of a failed item (`status_<n>` without one), and the DLQ record's `kafkafim.error.type` enum | Elasticsearch's own error vocabulary, and a fixed enum |
+
+Of these, only `error_type` and `status` are read from a response at runtime; both are
+chosen by Elasticsearch, not by the document. The total series count per pipeline is
+therefore a function of the configuration (routes x outcomes, clusters x identities, topics)
+plus those small sets, whatever the traffic. `RecordProcessorTest` pushes distinct documents
+(including ones that name their index from a field) and, for the meters the record path
+touches, fails if a `route`, `topic`,
+`es_cluster` or `identity` value outside the configured ones appears, or if a new tag key
+appears without this table being revisited. A new tag whose value is not in this table needs
+a design note first.
 
 Consumer lag is not a kafkafim metric (ADR-0034): the Kafka team's consumer-lag
 monitoring already shows and alerts on it per consumer group (`source.group-id`), and
