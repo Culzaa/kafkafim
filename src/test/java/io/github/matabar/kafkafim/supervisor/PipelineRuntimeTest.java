@@ -268,16 +268,29 @@ class PipelineRuntimeTest {
     final AtomicInteger calls = new AtomicInteger();
     volatile Preflight.Status verdict = Preflight.Status.OK;
 
+    /** Keeps waiting after stop() interrupted it, so its verdict arrives after the stop. */
+    volatile boolean ignoreInterrupt;
+
     @Override
     public Preflight.Status check(String cluster, String identity) {
       calls.incrementAndGet();
       entered.countDown();
-      try {
-        release.await(30, TimeUnit.SECONDS);
-      } catch (InterruptedException e) {
-        // stop() interrupts the checks: answer "unreachable" at once, as the real ones do.
+      boolean interrupted = false;
+      while (true) {
+        try {
+          release.await(30, TimeUnit.SECONDS);
+          break;
+        } catch (InterruptedException e) {
+          if (!ignoreInterrupt) {
+            // stop() interrupts the checks: answer "unreachable" at once, as the real ones do.
+            Thread.currentThread().interrupt();
+            return Preflight.Status.unreachable("interrupted");
+          }
+          interrupted = true;
+        }
+      }
+      if (interrupted) {
         Thread.currentThread().interrupt();
-        return Preflight.Status.unreachable("interrupted");
       }
       return verdict;
     }
@@ -322,26 +335,37 @@ class PipelineRuntimeTest {
     }
   }
 
+  /**
+   * Without the post-preflight signal check, this configuration verdict would fail the pipeline.
+   */
   @Test
   void verdictThatArrivesAfterTheStopMeansNothing() throws Exception {
     ParkedAuthCheck check = new ParkedAuthCheck();
-    // A configuration verdict, which would fail the pipeline, if the stop had not cancelled it.
+    check.ignoreInterrupt = true;
     check.verdict = Preflight.Status.rejected("bad key");
     try (PipelineResources pool = resourcesWith(check)) {
       PipelineRuntime parked = runtimeWith(pool);
       parked.start();
       awaitEntered(check);
+      // stop() cancels the start and waits for the starter, which is still inside the check.
+      Thread stopper = Thread.ofPlatform().name("test-stop").start(parked::stop);
+      await()
+          .atMost(Duration.ofSeconds(30))
+          .until(() ->
+              stopper.getState() == Thread.State.WAITING
+                  || stopper.getState() == Thread.State.TIMED_WAITING);
 
-      parked.stop();
       check.release.countDown();
+      stopper.join(Duration.ofSeconds(30));
 
+      assertThat(stopper.isAlive()).isFalse();
       assertThat(parked.state()).isEqualTo(PipelineState.STOPPED);
       assertThat(parked.failure()).isNull();
     }
   }
 
   @Test
-  void sourceFailedWhileStartingIsIgnoredBecauseThereIsNoSourceYet() throws Exception {
+  void sourceFailedWithNoSourceIsIgnoredWhileStarting() throws Exception {
     ParkedAuthCheck check = new ParkedAuthCheck();
     try (PipelineResources pool = resourcesWith(check)) {
       PipelineRuntime parked = runtimeWith(pool);
@@ -359,14 +383,15 @@ class PipelineRuntimeTest {
   }
 
   @Test
-  void stopDuringTheRetryBackoffCancelsTheStartAtOnce() throws Exception {
+  void stopWhileTheStartIsRetryingEndsStopped() throws Exception {
     ParkedAuthCheck check = new ParkedAuthCheck();
     check.verdict = Preflight.Status.unreachable("es down");
     check.release.countDown();
     try (PipelineResources pool = resourcesWith(check)) {
       PipelineRuntime retrying = runtimeWith(pool);
       retrying.start();
-      awaitEntered(check);
+      // A second attempt means the first one found a transient problem and backed off.
+      await().atMost(Duration.ofSeconds(30)).until(() -> check.calls.get() >= 2);
       assertThat(retrying.state()).isEqualTo(PipelineState.STARTING);
 
       retrying.stop();
@@ -391,6 +416,9 @@ class PipelineRuntimeTest {
 
       assertThat(other.isAlive()).isFalse();
       assertThat(parked.state()).isEqualTo(PipelineState.STOPPED);
+      // Both stops finished: a start is accepted again (it throws while a stop is in progress).
+      parked.start();
+      parked.stop();
     }
   }
 
