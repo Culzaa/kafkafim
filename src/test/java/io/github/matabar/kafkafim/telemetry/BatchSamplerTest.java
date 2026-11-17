@@ -48,6 +48,10 @@ class BatchSamplerTest {
     new ApplicationContextRunner()
         .withUserConfiguration(TelemetryConfiguration.class)
         .withPropertyValues("management.tracing.sampling.probability=1.5")
-        .run(context -> assertThat(context).hasFailed());
+        .run(context ->
+            assertThat(context)
+                .hasFailed()
+                .getFailure()
+                .hasStackTraceContaining("management.tracing.sampling.probability"));
   }
 }
