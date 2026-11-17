@@ -46,6 +46,7 @@ Helm distribution model and is what `helm pull`/`helm push` and `skopeo` underst
 | `build` (check "Build and test") | `./mvnw verify -DskipITs`: Spotless, Checkstyle, compile, unit tests (Surefire defaults minus `*IntegrationTest`), ArchUnit package-boundary tests. Passes `-Djacoco.check.skip=true`, because this job has only unit coverage. Uploads the unit test reports, the unit coverage data and the jar. |
 | `integration` (check "Integration tests") | Failsafe only (`*IntegrationTest`, Testcontainers Kafka + Elasticsearch + LGTM): `./mvnw verify -Dtest=NONE -Dsurefire.failIfNoSpecifiedTests=false -Dspotless.check.skip=true -Dcheckstyle.skip=true -Djacoco.check.skip=true`; the classes run in three parallel JVMs (`it.forkCount` in `pom.xml`). Runs in parallel with `build`, needing only `changes`; one job, not a matrix of shards, to stay well inside the Free plan's 20 concurrent jobs. Its first step starts pulling, in the background, every image named by a `DockerImageName.parse("...")` in `src/test` (so the list cannot drift from the tests), overlapping the pulls with Java setup and compilation; a test that starts a container before its pull finishes joins the daemon's in-flight pull. Uploads the Failsafe reports and the integration coverage data. Also skips the coverage floor. |
 | `coverage` (check "Coverage") | Needs `build` and `integration`. Downloads both jobs' JaCoCo data, merges it, writes the HTML and CSV report (uploaded as `coverage-report`, with line and branch totals in the job summary) and enforces the coverage floor ([Coverage floor](#coverage-floor)). Not a required check. |
+| `mutation` (check "Mutation tests") | Needs only `changes`; skipped on docs-only pull requests. Runs PIT (`./mvnw test-compile org.pitest:pitest-maven:mutationCoverage`) on the `route` and `decode` packages, uploads the HTML and XML report as `mutation-report`, with the count of mutants per status in the job summary, and fails when the mutation score drops below the floor ([Mutation testing](#mutation-testing)). Not a required check. |
 | `image` (check "Container image") | Needs only `build`, so it runs while `integration` is still running. The Dockerfile builds from `build`'s jar (no push); `hadolint` on the Dockerfile; the container starts read-only and answers `/actuator/health/liveness` within 60 s. |
 | `helm` (check "Helm chart") | `helm lint`, `helm template` with every `charts/kafkafim/ci/*-values.yaml`, `kubeconform -strict` (v0.8.0) against Kubernetes schemas, `helm unittest` (helm-unittest 1.2.1) for the group-rendering logic and every template-time `fail`. Helm is pinned (`azure/setup-helm` `version:`, currently v4.3.1, the same in `release.yml`); helm-unittest is installed from its signed release tarball: the tarball and its `.prov` are fetched through the GitHub API asset endpoint (not `releases/download/`), checked against pinned SHA-256s, and Helm verifies the provenance with the release key committed at `.github/keys/helm-unittest-public-key.asc` (fingerprint pinned in `ci.yml`). Both tools are kept in an `actions/cache` keyed on their pins, so once a passing run has warmed it (caches unused for 7 days are evicted) an outage of github.com release downloads or of the Go module proxy cannot fail the job. Checkout, the Actions cache service, `azure/setup-helm` (get.helm.sh), and kubeconform's schemas (raw.githubusercontent.com) are still needed on every run. The local demo's chart ([`deploy/local/kafkafim-demo`](../deploy/local/README.md)) gets `helm lint`, `helm template`, and `kubeconform -strict` too, plus a check that every `deploy/grafana/dashboards/*.json` is in its dashboards ConfigMap and that kafkafim's OTLP endpoint is the `lgtm` Service. The chart steps are skipped until the chart exists, and on pull requests that change none of `charts/**`, `deploy/local/**`, `deploy/grafana/**` (the demo chart renders the dashboards), `.github/workflows/ci.yml` or `.github/keys/**`. The same job also checks [`deploy/grafana/`](../deploy/grafana/README.md), so the required checks stay the same: `jq empty` on every `dashboards/*.json`, `promtool check rules` on every `alerts/*.yaml` and `promtool test rules` on every `alerts/*.test.yaml` (run from `alerts/`, since the tests name their rule files relative to themselves); it fails if any of the three globs is empty. promtool comes from the Prometheus 3.15.1 `linux-amd64` release tarball, fetched through the GitHub API asset endpoint, checked against a pinned SHA-256 on every run and kept in its own `actions/cache`. These steps run on pull requests that change `deploy/grafana/**` or `ci.yml`, and on every push to `main`. The job is skipped on pull requests that change none of `charts/**`, `deploy/local/**`, `.github/keys/**`, `deploy/grafana/**`, and `ci.yml`. |
 | `shell` (check "Shell style") | `shellcheck` v0.11.0 and `shfmt` v3.14.1 (release assets checked against pinned SHA-256s) on every `git ls-files '*.sh'`, and `actionlint` 1.7.12 (also SHA-256 pinned), which runs that shellcheck on the inline `run:` blocks of every workflow; `shfmt` takes its 2-space indent from `.editorconfig` ([ADR-0046](decisions/0046-google-style-guides-for-shell-markdown-prose-and-json-yaml.md)). No `needs`: runs on every pull request and push, docs-only included. Not a required check yet. |
@@ -68,6 +69,30 @@ and 87.3 %). Raise them when coverage rises; never lower them to make a change p
 CI's `build` and `integration` jobs each see only half of the data, so they pass
 `-Djacoco.check.skip=true`. The `coverage` job checks the merged data of both. To reproduce it
 locally, run `./mvnw verify` (needs Docker) and open `target/site/jacoco/index.html`.
+
+### Mutation testing
+
+PIT changes the compiled `route` and `decode` classes one small step at a time (a flipped
+condition, a removed call, a changed return value) and runs the unit tests of those two packages
+against each change. A change no test notices is a surviving mutant, and points at a missing or
+weak assertion. Line coverage cannot show that: the code runs, but nothing checks the result.
+
+The `pitest-maven` plugin (1.30.1) and `pitest-junit5-plugin` (1.2.3) are pinned in `pom.xml`. PIT
+is not part of `verify`; the `mutation` job runs it. The scope is only these two packages, because
+they are pure logic and the unit tests are fast; the other packages need containers to show
+anything. The run measured on 2026-11-17 generated 511 mutants and killed 489 of them (95.7 %) in
+about 30 seconds on a developer machine, with the same result in two runs. The job fails when the
+score drops below 95 %. Raise the floor when the score rises; never lower it to make a change pass.
+
+The surviving mutants that are left are mostly equivalent or not worth a test: boundary changes
+in checks whose two sides behave the same, and calls to the validation helper that a second check
+repeats further down. Read them in the report before adding a test.
+
+To reproduce it locally, run the command below and open `target/pit-reports/index.html`.
+
+```bash
+./mvnw test-compile org.pitest:pitest-maven:mutationCoverage
+```
 
 ### Docs-only pull requests
 
