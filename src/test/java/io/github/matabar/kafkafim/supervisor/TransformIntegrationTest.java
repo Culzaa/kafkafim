@@ -6,6 +6,7 @@ import static org.awaitility.Awaitility.await;
 import io.github.matabar.kafkafim.KafkaTestContainers;
 import io.github.matabar.kafkafim.KafkaTopics;
 import io.github.matabar.kafkafim.config.KafkafimProperties;
+import io.github.matabar.kafkafim.decode.StepRegistry;
 import io.github.matabar.kafkafim.decode.TestSteps;
 import io.github.matabar.kafkafim.dlq.DlqOptions;
 import io.github.matabar.kafkafim.sink.es.BreakerSettings;
@@ -165,6 +166,57 @@ class TransformIntegrationTest {
                 .isEqualTo(4));
   }
 
+  @Test
+  void removeStripsFieldsFromItsCopyAfterRoutingAndIdWhileTheSiblingKeepsTheRecord()
+      throws Exception {
+    String id = "rm" + UUID.randomUUID().toString().substring(0, 8);
+    KafkaTopics.create(
+        admin,
+        List.of(new NewTopic(id, 1, (short) 1), new NewTopic(id + ".kafkafim-dlq", 1, (short) 1)));
+    start(
+        TestConfigs.bind(
+            """
+            kafkafim:
+              kafka:
+                clusters:
+                  k: { bootstrap-servers: ["%s"] }
+              elasticsearch:
+                clusters:
+                  es: { uris: ["http://%s"] }
+              pipelines:
+                p:
+                  source: { cluster: k, topics: [%s], offset-reset: earliest }
+                  route-mode: all
+                  routes:
+                    - name: full
+                      when: [ { field: /region, equals: eu } ]
+                      cluster: es
+                      index: "%s-full"
+                    - name: stripped
+                      when: [ { field: /region, equals: eu } ]
+                      cluster: es
+                      index: "%s-stripped-%%{kind}"
+                      transform:
+                        - { op: remove, field: /card/number }
+                        - { op: remove, field: /id }
+                        - { op: remove, field: /region }
+                        - { op: remove, field: /kind }
+                        - { op: remove, field: /nothing/here }
+            """
+                .formatted(KAFKA.getBootstrapServers(), ES.getHttpHostAddress(), id, id, id)),
+        StepRegistry.BUILT_IN);
+
+    String doc =
+        "{ \"id\": \"r-1\", \"region\": \"eu\", \"kind\": \"k\","
+            + " \"card\": { \"number\": \"4111\", \"brand\": \"v\" }, \"n\": null }";
+    send(id, doc);
+
+    await().atMost(TIMEOUT).untilAsserted(() -> assertThat(count(id + "-*")).isEqualTo(2));
+    assertThat(source(id + "-full", "r-1")).isEqualTo(doc);
+    assertThat(source(id + "-stripped-k", "r-1"))
+        .isEqualTo("{\"card\":{\"brand\":\"v\"},\"n\":null}");
+  }
+
   private void startPipeline(String topic, String id) {
     KafkafimProperties properties =
         TestConfigs.bind(
@@ -194,6 +246,10 @@ class TransformIntegrationTest {
             """
                 .formatted(
                     KAFKA.getBootstrapServers(), ES.getHttpHostAddress(), topic, id, id, id));
+    start(properties, TestSteps.REGISTRY);
+  }
+
+  private void start(KafkafimProperties properties, StepRegistry steps) {
     ListenerRelay relay = new ListenerRelay(List.of(), List.of());
     resources =
         new PipelineResources(
@@ -206,7 +262,7 @@ class TransformIntegrationTest {
                 ClientSettings.DEFAULT,
                 BreakerSettings.DEFAULT,
                 Clock.systemUTC(),
-                TestSteps.REGISTRY));
+                steps));
     supervisor = new PipelineSupervisor(properties, resources, List.of());
     relay.attach(supervisor);
     supervisor.start();
