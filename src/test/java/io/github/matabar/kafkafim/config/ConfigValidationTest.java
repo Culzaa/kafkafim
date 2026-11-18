@@ -1611,6 +1611,15 @@ class ConfigValidationTest {
   }
 
   @Test
+  void blankAndDuplicateTopicsGetNoLegalityError() {
+    List<String> errors =
+        ConfigTestSupport.errors(MINIMAL, P + ".source.topics=t,t, ", P + ".dlq.topic=ok-dlq");
+    assertThat(errors)
+        .anyMatch(e -> e.contains("'t' is listed twice"))
+        .noneMatch(e -> e.contains("legal Kafka topic name"));
+  }
+
+  @Test
   void rejectsAnIllegalExplicitDlqTopic() {
     assertInvalid(
         MINIMAL, P + ".dlq.topic: 'bad topic' is not a legal", P + ".dlq.topic=bad topic");

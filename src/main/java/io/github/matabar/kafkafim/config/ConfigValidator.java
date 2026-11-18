@@ -34,11 +34,11 @@ public final class ConfigValidator {
   /** Only digits: reserved for the position label of unnamed routes. */
   private static final Pattern POSITION_LABEL = Pattern.compile("[0-9]+");
 
-  /** {@code host:port}, IPv6 in brackets, optional {@code PROTOCOL://} prefix. */
   private static final int TOPIC_MAX_LENGTH = 249;
 
   private static final Pattern TOPIC_NAME = Pattern.compile("[a-zA-Z0-9._-]+");
 
+  /** {@code host:port}, IPv6 in brackets, optional {@code PROTOCOL://} prefix. */
   private static final Pattern BOOTSTRAP_SERVER =
       Pattern.compile("(?:[A-Za-z_]+://)?(\\[[0-9A-Fa-f:.%]+]|[A-Za-z0-9._-]+):(\\d{1,5})");
 
