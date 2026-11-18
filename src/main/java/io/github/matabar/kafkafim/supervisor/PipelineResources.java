@@ -441,7 +441,7 @@ final class PipelineResources implements SmartLifecycle, AutoCloseable {
   private static void closeAll(List<Handle> toClose) {
     for (Handle handle : toClose) {
       try {
-        LOG.info("Closing {} (no pipeline uses it any more)", handle);
+        LOG.info("Closing {}", handle);
         handle.close();
       } catch (RuntimeException e) {
         LOG.warn("Closing {} failed", handle, e);
@@ -495,12 +495,17 @@ final class PipelineResources implements SmartLifecycle, AutoCloseable {
       currentKafka.clear();
       currentEs.clear();
     }
-    all.forEach(Handle::close);
+    closeAll(all);
+  }
+
+  /** Test seam: makes {@code handle} one of the instances {@link #close} closes. */
+  synchronized void track(Handle handle) {
+    handles.put(handle.instance(), handle);
   }
 
   // ---- handles ----
 
-  private abstract static class Handle {
+  abstract static class Handle {
     final String cluster;
     int users; // guarded by the pool
     boolean current = true; // guarded by the pool
