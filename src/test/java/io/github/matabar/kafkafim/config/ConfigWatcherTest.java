@@ -53,6 +53,43 @@ class ConfigWatcherTest {
   }
 
   @Test
+  void midWalkDirectoryFailureContinuesAndIsRecorded() throws Exception {
+    Files.writeString(dir.resolve("a.yaml"), "a: 1");
+    Files.createDirectories(dir.resolve("sub"));
+    ConfigWatcher w =
+        new ConfigWatcher(List.of(dir), Duration.ofMinutes(1), Duration.ZERO, () -> {});
+    watcher = w;
+    var files = new java.util.TreeMap<String, Path>();
+    var failures = new java.util.ArrayList<String>();
+    ConfigWatcher.Collector collector = w.new Collector(dir, files, failures);
+
+    // What walkFileTree reports when a directory cannot be iterated to its end.
+    assertThat(collector.postVisitDirectory(dir.resolve("sub"), new IOException("gone")))
+        .isEqualTo(java.nio.file.FileVisitResult.CONTINUE);
+    assertThat(collector.postVisitDirectory(dir.resolve("sub"), null))
+        .isEqualTo(java.nio.file.FileVisitResult.CONTINUE);
+
+    assertThat(failures).containsExactly("<unreadable-dir:sub:IOException>");
+  }
+
+  @Test
+  void largeFileIsHashedWholeAndStably() throws Exception {
+    Path big = dir.resolve("big.bin");
+    byte[] content = new byte[1_000_000];
+    Files.write(big, content);
+    ConfigWatcher w =
+        new ConfigWatcher(List.of(dir), Duration.ofMinutes(1), Duration.ZERO, () -> {});
+    watcher = w;
+    String first = w.hash();
+    assertThat(w.hash()).isEqualTo(first);
+
+    content[content.length - 1] = 1; // only the last byte differs
+    Files.write(big, content);
+
+    assertThat(w.hash()).isNotEqualTo(first);
+  }
+
+  @Test
   void kubeletSymlinkSwapIsOneChange() throws Exception {
     Path volume = Files.createDirectories(dir.resolve("config"));
     kubeletUpdate(volume, "a", "application-kafkafim.yaml", "kafkafim: {}\n");
