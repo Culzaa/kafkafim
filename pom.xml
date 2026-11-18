@@ -13,7 +13,7 @@
 	<version>${revision}</version>
 	<name>kafkafim</name>
 	<description>Production-grade Kafka to Elasticsearch ingest service</description>
-	<url>https://github.com/matabar/kafkafim</url>
+	<url>https://github.com/culzaa/kafkafim</url>
 	<licenses>
 		<license>
 			<name>MIT License</name>
@@ -21,9 +21,9 @@
 		</license>
 	</licenses>
 	<scm>
-		<connection>scm:git:https://github.com/matabar/kafkafim.git</connection>
-		<developerConnection>scm:git:git@github.com:matabar/kafkafim.git</developerConnection>
-		<url>https://github.com/matabar/kafkafim</url>
+		<connection>scm:git:https://github.com/culzaa/kafkafim.git</connection>
+		<developerConnection>scm:git:git@github.com:culzaa/kafkafim.git</developerConnection>
+		<url>https://github.com/culzaa/kafkafim</url>
 	</scm>
 	<properties>
 		<java.version>27</java.version>

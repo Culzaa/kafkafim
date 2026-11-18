@@ -214,7 +214,7 @@ Where to read it:
   org.apache.hc.client5.http.impl.async` with a
   `java.nio.channels.ClosedSelectorException` (from `SingleCoreIOReactor.closeOpenChannels`).
   The check's short-lived client was closed by force; it held one connection and nothing is
-  lost. Ignore it unless it repeats without any stop or reload ([#202](https://github.com/matabar/kafkafim/issues/202)).
+  lost. Ignore it unless it repeats without any stop or reload ([#202](https://github.com/culzaa/kafkafim/issues/202)).
 - **Why it is paused**: `kafkafim_pipeline_pause_reason{pipeline,reason,es_cluster,identity} == 1`,
   with
   `reason` one of `es_breaker`
