@@ -428,6 +428,28 @@ class BulkSinkTest {
   }
 
   @Test
+  void itemClusterPressureIgnoresMaxElapsedAndStaysIndependentOfOtherRetries() throws Exception {
+    FakeTransport transport =
+        new FakeTransport((request, call) ->
+            FakeTransport.items(
+                request,
+                sent ->
+                    switch (call) {
+                      case 1, 2, 3, 5, 6 -> new String[] {"429", "es_rejected_execution_exception"};
+                      case 4 -> new String[] {"404", "index_not_found_exception"};
+                      default -> new String[] {"201"};
+                    }));
+    // max-elapsed of 1 ms would dead-letter any bounded retry after the first failure.
+    BulkSink<String> sink = sink(poison(3, Duration.ofMillis(1)), transport);
+
+    submitAll(sink, "busy");
+
+    assertThat(sink.awaitIdle(WAIT)).isTrue();
+    assertThat(outcomes.get("busy")).isEqualTo(ActionOutcome.INDEXED);
+    assertThat(transport.requests()).hasSize(7);
+  }
+
+  @Test
   void itemClusterPressureEndsAtTheSafetyValve() throws Exception {
     FakeTransport transport =
         new FakeTransport((request, call) ->

@@ -1,6 +1,6 @@
 # ADR-0052: Item-level cluster pressure does not count toward `max-attempts`
 
-Status: accepted · Date: 2026-11-18 · Supersedes the item-retry bound of
+Status: accepted · Date: 2026-11-18 · Refines the item-retry bound of
 [ADR-0026](0026-bulk-retry-loop-in-the-sink.md) for pressure errors;
 [ADR-0011](0011-dlq-on-source-kafka-cluster.md) stays
 
@@ -16,7 +16,9 @@ problem shows as lag, not as DLQ records (#397).
 
 ## Decision
 
-- The classifier gives those two item errors their own verdict, `RETRY_PRESSURE`. A pressure
+- The classifier gives item 429 of any error type (`es_rejected_execution_exception`,
+  `circuit_breaking_exception`, ...) and item 503 `unavailable_shards_exception` their own
+  verdict, `RETRY_PRESSURE`. A pressure
   attempt does not increment the item's `max-attempts` counter and is not checked against
   `max-elapsed`.
 - The delay comes from the configured backoff on a separate pressure counter, capped at 30
@@ -24,8 +26,8 @@ problem shows as lag, not as DLQ records (#397).
 - A fixed safety valve of one hour since the item's first pressure failure sends it to the
   DLQ as `es_retries_exhausted`, so a document that Elasticsearch mislabels as pressure cannot
   retry forever. It is a constant, not a setting: kafkafim stays light.
-- Item 404 `index_not_found_exception`, other 5xx items, unexpected item statuses and the
-  closed-index and cluster-block errors keep the `max-attempts`/`max-elapsed` bound.
+- Item 404 `index_not_found_exception`, other 5xx items and unexpected item statuses keep the
+  `max-attempts`/`max-elapsed` bound.
 
 ## Consequences
 

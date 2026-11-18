@@ -42,7 +42,8 @@ import org.slf4j.LoggerFactory;
  * DLQ; 413 splits the request in halves. Before every attempt the sender asks the cluster's circuit
  * breaker and waits while it is open. Item results are classified by {@link ErrorClassifier};
  * retryable items go back into the batcher after a backoff and are bounded by {@code
- * max-attempts}/{@code max-elapsed}.
+ * max-attempts}/{@code max-elapsed}, except items under cluster pressure (429, 503 {@code
+ * unavailable_shards_exception}), which only a one-hour safety valve bounds (ADR-0052).
  *
  * <p><b>Backpressure.</b> {@code submit} never blocks: the consumer thread must keep polling, and
  * the Kafka side already bounds what is outstanding by pausing the container at {@code
@@ -777,7 +778,8 @@ public final class BulkSink<H> implements AutoCloseable {
   private void retryPressureItem(Entry entry, BulkResponse.Item item, String reason) {
     entry.markFailure(clock);
     entry.pressureRetries++;
-    if (entry.firstPressureNanos == 0) {
+    if (!entry.pressureStarted) {
+      entry.pressureStarted = true;
       entry.firstPressureNanos = System.nanoTime();
     }
     listener.onItemRetry(key, item.status(), errorType(item), entry.pressureRetries);
@@ -874,6 +876,7 @@ public final class BulkSink<H> implements AutoCloseable {
     int itemFailures;
     int authRetries;
     int pressureRetries;
+    boolean pressureStarted;
     long firstPressureNanos;
     boolean retrying;
     long firstRetryableNanos;

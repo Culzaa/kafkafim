@@ -626,7 +626,7 @@ kafkafim:
       dlq:
         topic: orders.kafkafim-dlq            # default: <first topic>.kafkafim-dlq
         identity: dlq-writer                  # producer identity; default: the source identity
-        max-attempts: 10                      # per document, item-level retryable errors only
+        max-attempts: 10                      # per document, item-level retryable errors (not pressure)
         max-elapsed: 10m                      # request-level failures (ES down) never count
       latency:
         max-age: 200ms                        # overrides cluster bulk.max-age
