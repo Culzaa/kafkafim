@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.lang.reflect.RecordComponent;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -165,7 +166,7 @@ class ConfigDiffTest {
   /** {@code base} with the transform of every route of {@code pipeline} replaced (unvalidated). */
   private static KafkafimProperties withTransform(
       KafkafimProperties base, String pipeline, List<Pipeline.Step> steps) {
-    Map<String, Pipeline> pipelines = new java.util.LinkedHashMap<>(base.pipelines());
+    Map<String, Pipeline> pipelines = new LinkedHashMap<>(base.pipelines());
     Pipeline before = pipelines.get(pipeline);
     List<Pipeline.Route> routes =
         before.routes().stream()
@@ -333,12 +334,8 @@ class ConfigDiffTest {
           "securityProtocol", yaml -> yaml.replace("SASL_PLAINTEXT", "SASL_SSL"),
           "ssl",
               yaml ->
-                  yaml.replace("SASL_PLAINTEXT", "SASL_SSL")
-                      .transform(y ->
-                          insertAfter(
-                              y,
-                              "default-identity: reader",
-                              "ssl: { truststore-location: /t.p12 }")),
+                  insertAfter(
+                      yaml, "default-identity: reader", "ssl: { truststore-location: /t.p12 }"),
           "properties",
               yaml ->
                   insertAfter(yaml, "default-identity: reader", "properties: { client.rack: r1 }"));
@@ -349,16 +346,23 @@ class ConfigDiffTest {
           "uris", yaml -> yaml.replace("http://es:9200", "http://es2:9200"),
           "ssl",
               yaml ->
-                  yaml.replace("http://es:9200", "https://es:9200")
-                      .transform(y ->
-                          insertAfter(
-                              y, "default-identity: writer", "ssl: { ca-certificate: /ca.pem }")),
+                  insertAfter(yaml, "default-identity: writer", "ssl: { ca-certificate: /ca.pem }"),
           "bulk", yaml -> insertAfter(yaml, "default-identity: writer", "bulk: { max-docs: 7 }"),
           "compression",
               yaml -> insertAfter(yaml, "default-identity: writer", "compression: false"),
           "client",
               yaml ->
                   insertAfter(yaml, "default-identity: writer", "client: { connect-timeout: 3s }"));
+
+  /**
+   * Trust is only valid on a TLS cluster, so these variants start from a TLS tree: the baseline and
+   * the variant differ in {@code ssl} alone, and dropping {@code ssl} from the copy is detected.
+   */
+  private static final Map<String, UnaryOperator<String>> KAFKA_BASELINES =
+      Map.of("ssl", yaml -> yaml.replace("SASL_PLAINTEXT", "SASL_SSL"));
+
+  private static final Map<String, UnaryOperator<String>> ES_BASELINES =
+      Map.of("ssl", yaml -> yaml.replace("http://es:9200", "https://es:9200"));
 
   /** Adds {@code line} under {@code anchor}, at the same indentation. */
   private static String insertAfter(String yaml, String anchor, String line) {
@@ -377,12 +381,16 @@ class ConfigDiffTest {
 
   @Test
   void everyClusterWideKafkaClusterComponentRestartsThePipelinesUsingIt() {
-    // A component added to KafkaCluster fails here until withoutIdentities copies it and a variant
-    // proves that changing it is diffed (or it is declared identity-scoped above).
+    // A component added to KafkaCluster fails here until a variant exists for it; a variant that
+    // changes only that component then fails unless withoutIdentities copies it (or the component
+    // is declared identity-scoped above).
     assertThat(KAFKA_VARIANTS.keySet()).isEqualTo(clusterWideComponents(KafkaCluster.class));
     String before = tree("", "", PIPELINES);
     KAFKA_VARIANTS.forEach((component, variant) -> {
-      ConfigDiff diff = ConfigDiff.between(base(), bind(variant.apply(before), SECRETS));
+      String start =
+          KAFKA_BASELINES.getOrDefault(component, UnaryOperator.identity()).apply(before);
+      ConfigDiff diff =
+          ConfigDiff.between(bind(start, SECRETS), bind(variant.apply(start), SECRETS));
       assertThat(diff.restarted().get("a"))
           .as("changing KafkaCluster.%s", component)
           .containsExactly("Kafka cluster 'k' changed");
@@ -394,7 +402,9 @@ class ConfigDiffTest {
     assertThat(ES_VARIANTS.keySet()).isEqualTo(clusterWideComponents(ElasticsearchCluster.class));
     String before = tree("", "", PIPELINES);
     ES_VARIANTS.forEach((component, variant) -> {
-      ConfigDiff diff = ConfigDiff.between(base(), bind(variant.apply(before), SECRETS));
+      String start = ES_BASELINES.getOrDefault(component, UnaryOperator.identity()).apply(before);
+      ConfigDiff diff =
+          ConfigDiff.between(bind(start, SECRETS), bind(variant.apply(start), SECRETS));
       assertThat(diff.restarted().get("a"))
           .as("changing ElasticsearchCluster.%s", component)
           .containsExactly("Elasticsearch cluster 'es' changed");
