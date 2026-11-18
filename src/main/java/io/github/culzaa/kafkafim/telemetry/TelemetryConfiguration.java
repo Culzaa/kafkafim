@@ -2,10 +2,12 @@ package io.github.culzaa.kafkafim.telemetry;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.registry.otlp.OtlpMetricsSender;
 import io.micrometer.tracing.Tracer;
 import io.opentelemetry.sdk.trace.samplers.Sampler;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -22,6 +24,23 @@ public class TelemetryConfiguration {
   @Bean(destroyMethod = "close")
   KafkafimMeters kafkafimMeters(ObjectProvider<MeterRegistry> registry) {
     return new KafkafimMeters(registry.getIfAvailable(SimpleMeterRegistry::new));
+  }
+
+  /**
+   * Wraps Spring Boot's OTLP metrics sender so non-finite points never leave ({@link
+   * FiniteMetricsSender}, ADR-0055). A post-processor keeps Boot's sender, with its connection
+   * details and TLS, rather than replacing it.
+   */
+  @Bean
+  static BeanPostProcessor kafkafimFiniteMetricsSender() {
+    return new BeanPostProcessor() {
+      @Override
+      public Object postProcessAfterInitialization(Object bean, String beanName) {
+        return bean instanceof OtlpMetricsSender sender && !(bean instanceof FiniteMetricsSender)
+            ? new FiniteMetricsSender(sender)
+            : bean;
+      }
+    };
   }
 
   @Bean
