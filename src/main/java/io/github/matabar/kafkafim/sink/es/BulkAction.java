@@ -1,6 +1,9 @@
 package io.github.matabar.kafkafim.sink.es;
 
 import io.github.matabar.kafkafim.config.Pipeline.Op;
+import java.nio.CharBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import org.jspecify.annotations.Nullable;
@@ -52,7 +55,20 @@ public record BulkAction<H>(
           "op create does not support external versions (Elasticsearch: use index)");
     }
     if (id != null) {
-      int idBytes = id.getBytes(StandardCharsets.UTF_8).length;
+      // A strict encoder: String.getBytes would turn a lone surrogate into '?', and Jackson later
+      // refuses to write it, which would throw out of submit().
+      int idBytes;
+      try {
+        idBytes =
+            StandardCharsets.UTF_8
+                .newEncoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .encode(CharBuffer.wrap(id))
+                .remaining();
+      } catch (CharacterCodingException e) {
+        throw new IllegalArgumentException("_id must not contain an unpaired UTF-16 surrogate", e);
+      }
       if (idBytes == 0 || idBytes > MAX_ID_BYTES) {
         throw new IllegalArgumentException("_id must be 1 to 512 UTF-8 bytes");
       }

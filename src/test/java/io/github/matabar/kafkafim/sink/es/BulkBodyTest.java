@@ -56,6 +56,27 @@ class BulkBodyTest {
   }
 
   @Test
+  void unpairedSurrogateIdIsRejectedWhenTheActionIsBuilt() {
+    for (String id :
+        List.of(
+            "" + (char) 0xD800,
+            "a" + (char) 0xDC00,
+            "" + (char) 0xDC00 + (char) 0xD800,
+            "x" + (char) 0xD83D)) {
+      assertThatIllegalArgumentException()
+          .as(id)
+          .isThrownBy(() -> action("orders", id, Op.INDEX, null, null, "{}"))
+          .withMessageContaining("unpaired UTF-16 surrogate");
+    }
+  }
+
+  @Test
+  void validSurrogatePairIdIsWritten() {
+    assertThat(meta(action("orders", "a😀", Op.INDEX, null, null, "{}")))
+        .isEqualTo("{\"index\":{\"_index\":\"orders\",\"_id\":\"a😀\"}}");
+  }
+
+  @Test
   void sourceIsCopiedVerbatimAndSizesMatch() {
     // Number spelling, key order, whitespace and unicode survive: the bytes are not re-serialised.
     String source = "{\"b\":1.0E2, \"a\":[1 ,2],\"u\":\"\\u00e9\",\"x\":\"é\"}";

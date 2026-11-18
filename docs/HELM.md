@@ -18,6 +18,9 @@ in [DELIVERY.md](DELIVERY.md#importing-into-the-air-gapped-environment).
   `ServiceMonitor` by default (opt-in flag for clusters that have the Prometheus
   Operator); scrape annotations are on by default.
 - Has no subcharts and pulls no other images. Air-gap safe by construction.
+- Needs Kubernetes 1.27 or newer (`kubeVersion: ">=1.27.0-0"` in `Chart.yaml`): the
+  default topology spread constraint sets `matchLabelKeys`. Helm refuses to install or
+  upgrade on an older cluster with a clear message.
 
 ## Values (shape)
 
