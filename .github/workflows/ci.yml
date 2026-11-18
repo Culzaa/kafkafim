@@ -324,6 +324,17 @@ jobs:
           version: v4.3.1   # helm-unittest 1.2.1 supports Helm >= 4.3; keep ci.yml and release.yml in step
       - if: steps.chart.outputs.exists == 'true'
         run: helm lint charts/kafkafim
+      # helm-unittest does not enforce Chart.yaml kubeVersion, so assert it with helm itself.
+      - if: steps.chart.outputs.exists == 'true'
+        name: Chart refuses Kubernetes older than 1.27
+        shell: bash
+        run: |
+          v=charts/kafkafim/ci/minimal-values.yaml
+          if out=$(helm template kafkafim charts/kafkafim -f "$v" --kube-version 1.26.9 2>&1); then
+            echo "kubeVersion is not enforced: helm template succeeded on Kubernetes 1.26.9" >&2; exit 1
+          fi
+          grep -q 'incompatible with Kubernetes' <<<"$out" || { echo "unexpected failure on 1.26.9: $out" >&2; exit 1; }
+          helm template kafkafim charts/kafkafim -f "$v" --kube-version 1.27.0 >/dev/null
       # Third-party chart tools are pinned and cached so an outage of github.com release
       # downloads or of the Go module proxy cannot fail the gate once the cache is warm.
       # The key changes with every pin below; a cache is only saved by a passing job.
