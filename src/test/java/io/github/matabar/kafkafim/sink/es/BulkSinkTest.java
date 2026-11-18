@@ -27,6 +27,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
@@ -344,7 +345,16 @@ class BulkSinkTest {
                 new IOException(
                     "a", new IOException("b", new ConnectionRequestTimeoutException("c")))))
         .isTrue();
+    // The real chain of the async client: IOException -> RuntimeException -> TimeoutException.
+    assertThat(
+            BulkSink.isPoolLeaseTimeout(
+                new IOException(
+                    "bulk request failed",
+                    new RuntimeException(
+                        "error while performing request", new TimeoutException()))))
+        .isTrue();
     assertThat(BulkSink.isPoolLeaseTimeout(new ConnectException("refused"))).isFalse();
+    assertThat(BulkSink.isPoolLeaseTimeout(new java.net.SocketTimeoutException("read"))).isFalse();
     assertThat(BulkSink.isPoolLeaseTimeout(new IOException("plain"))).isFalse();
   }
 

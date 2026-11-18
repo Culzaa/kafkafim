@@ -20,6 +20,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
@@ -587,10 +588,18 @@ public final class BulkSink<H> implements AutoCloseable {
         sentAt, clock.instant(), docs, bytes, status, error, retries, itemErrors);
   }
 
-  /** Whether the failure is the wait for a pooled connection timing out, locally. */
+  /**
+   * Whether the failure is the wait for a pooled connection timing out, locally. The async client
+   * under {@code Rest5Client} fails the lease with a {@link TimeoutException} (HttpCore's {@code
+   * DeadlineTimeoutException}) that the client wraps in a {@code RuntimeException} and {@code
+   * BulkTransport} in an {@code IOException}; the blocking client's {@code
+   * ConnectionRequestTimeoutException} is accepted as well. Connect and response timeouts are
+   * {@code IOException}s of their own and do not match. {@code Rest5ClientPoolLeaseContractTest}
+   * pins the real shape.
+   */
   static boolean isPoolLeaseTimeout(Throwable error) {
     for (Throwable t = error, last = null; t != null && t != last; last = t, t = t.getCause()) {
-      if (t instanceof ConnectionRequestTimeoutException) {
+      if (t instanceof TimeoutException || t instanceof ConnectionRequestTimeoutException) {
         return true;
       }
     }
