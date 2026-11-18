@@ -161,7 +161,10 @@ public final class ConfigWatcher implements AutoCloseable {
         if (closed) {
           return;
         }
-      } catch (RuntimeException e) {
+      } catch (VirtualMachineError e) {
+        throw e; // out of memory or stack: nothing a reload loop can recover from
+      } catch (RuntimeException | Error e) {
+        // An Error from a reload (ADR-0041) must not end the thread: hot reload would stop.
         LOG.error("Configuration watcher failed; continuing", e);
       }
     }
