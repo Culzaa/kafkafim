@@ -28,7 +28,7 @@ One file per decision, MADR-style. Supersede with a new ADR rather than editing 
 | [0022](0022-delivery-github-actions-ghcr-airgap.md) | Delivery via GitHub Actions and GHCR; signed, versioned air-gap bundles |
 | [0023](0023-helm-chart-one-release-per-cluster.md) | One Helm chart, one release per Kubernetes cluster, groups rendered as Deployments |
 | [0024](0024-google-java-style.md) | Google Java Style, enforced by Spotless and Checkstyle |
-| [0025](0025-own-offset-tracker-instead-of-async-acks.md) | Own per-partition offset tracker instead of spring-kafka `asyncAcks` (supersedes that part of 0004) |
+| [0025](0025-own-offset-tracker-instead-of-async-acks.md) | Own per-partition offset tracker instead of spring-kafka `asyncAcks` (supersedes that part of 0004; budget bullet superseded by 0050) |
 | [0026](0026-bulk-retry-loop-in-the-sink.md) | Bulk retries are a small loop in the sink; Resilience4j supplies the breaker and the backoff (refines 0016) |
 | [0027](0027-dlq-record-timestamp-and-headers.md) | DLQ records carry the send time; the original timestamp and a fresh `kafkafim.*` header set travel in headers (refines 0011) |
 | [0028](0028-hot-reload-rereads-config-data-and-shares-building-blocks-per-cluster.md) | Hot reload re-runs Spring Boot's config data loading and shares building blocks per cluster definition (refines 0012) |
@@ -53,4 +53,5 @@ One file per decision, MADR-style. Supersede with a new ADR rather than editing 
 | [0047](0047-route-transforms-remove-rename-set.md) | Routes can transform documents with a closed set of `remove`, `rename`, and `set` steps, applied to each route's own copy after routing; routes without `transform` stay zero-copy; new `transform` DLQ error type (supersedes the transformation parts of 0009 and 0020) |
 | [0048](0048-only-allowlisted-mdc-keys-are-exported-over-otlp.md) | Only MDC keys named in `captureMdcAttributes` are exported over OTLP, never `*` (refines 0044) |
 | [0049](0049-kafka-clients-are-instrumented-with-the-otel-library-and-micrometer.md) | Kafka clients are traced with the OpenTelemetry `kafka-clients` library (process spans parent `pipeline.batch`; sampling is parent-based) and measured with Micrometer `KafkaClientMetrics`, never both mechanisms (refines 0013 and 0029) |
+| [0050](0050-in-flight-budget-counts-headers-and-a-per-record-overhead.md) | The in-flight budget counts key, value and header bytes plus a fixed 256-byte per-record overhead (supersedes the budget bullet of 0025) |
 | [0053](0053-route-matches-conditions-run-on-a-regex-step-budget.md) | Route `matches` conditions run on a regex step budget: an overrun is no match and increments `kafkafim_route_regex_budget_exceeded_total` (refines DESIGN §5.3) |
