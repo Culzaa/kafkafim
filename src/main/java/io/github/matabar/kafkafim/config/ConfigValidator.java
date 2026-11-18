@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Stream;
@@ -152,6 +153,33 @@ public final class ConfigValidator {
           checkName(identityPath, "identity", name);
           checkKafkaIdentity(identityPath, identity, protocol);
         });
+    checkOwnedProperties(path, cluster);
+  }
+
+  /**
+   * A passthrough key kafkafim owns fails at pipeline start (and {@code validate} would pass it),
+   * so it is rejected here: the keys of {@link OwnedKafkaKeys} for either client, and the security
+   * keys derived from the cluster's {@code ssl} block or any identity's {@code sasl}/{@code ssl}
+   * block. Names only, never values.
+   */
+  private void checkOwnedProperties(String path, KafkaCluster cluster) {
+    Set<String> owned = new TreeSet<>();
+    cluster.properties().keySet().stream()
+        .filter(
+            key -> OwnedKafkaKeys.CONSUMER.contains(key) || OwnedKafkaKeys.PRODUCER.contains(key))
+        .forEach(owned::add);
+    // The cluster's own trust keys, also derived when the cluster has no identity.
+    Set<String> derived = new TreeSet<>(KafkaClientSecurity.properties(cluster, null).keySet());
+    cluster
+        .identities()
+        .values()
+        .forEach(
+            identity -> derived.addAll(KafkaClientSecurity.properties(cluster, identity).keySet()));
+    cluster.properties().keySet().stream().filter(derived::contains).forEach(owned::add);
+    owned.forEach(key ->
+        error(
+            path + ".properties[" + key + "]",
+            "kafkafim sets this key itself; remove it from the passthrough"));
   }
 
   private void checkKafkaIdentity(
@@ -221,20 +249,26 @@ public final class ConfigValidator {
   private void checkElasticsearchCluster(String path, ElasticsearchCluster cluster) {
     Set<String> schemes = new HashSet<>();
     for (int i = 0; i < cluster.uris().size(); i++) {
-      String uri = cluster.uris().get(i);
+      String raw = cluster.uris().get(i);
+      String uri = ElasticsearchCluster.maskUserInfo(raw);
       String uriPath = path + ".uris[" + i + "]";
       try {
-        URI parsed = new URI(uri == null ? "" : uri);
+        URI parsed = new URI(raw == null ? "" : raw);
         String scheme = parsed.getScheme();
         if (!"http".equals(scheme) && !"https".equals(scheme)) {
           error(uriPath, "'" + uri + "' must start with http:// or https://");
+        } else if (parsed.getUserInfo() != null) {
+          error(
+              uriPath,
+              "must not contain credentials (user:password@); set them on an identity, with a"
+                  + " ${...} placeholder");
         } else if (parsed.getHost() == null) {
           error(uriPath, "'" + uri + "' has no host");
         } else {
           schemes.add(scheme);
         }
       } catch (URISyntaxException e) {
-        error(uriPath, "'" + uri + "' is not a URI: " + e.getMessage());
+        error(uriPath, "'" + uri + "' is not a URI: " + e.getReason());
       }
     }
     if (schemes.size() > 1) {

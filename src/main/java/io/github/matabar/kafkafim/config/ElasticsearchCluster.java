@@ -50,6 +50,40 @@ public record ElasticsearchCluster(
         && uris.stream().allMatch(uri -> uri != null && uri.startsWith("https://"));
   }
 
+  /**
+   * Masks everything between the scheme and the last {@code @} of a URI string ({@code
+   * https://user:pass@host} becomes {@code https://[hidden]@host}), so the text is safe to print.
+   * Deliberately generous: a password holding {@code /}, {@code ?} or {@code #}, a missing {@code
+   * //} or a missing scheme still hides the credential. An {@code @} in a path is masked too, which
+   * only matters in diagnostics. The validator rejects userinfo; the rejected value must not be
+   * echoed.
+   */
+  static String maskUserInfo(@Nullable String uri) {
+    return uri == null
+        ? ""
+        : uri.replaceFirst("(?s)^((?:[A-Za-z][A-Za-z0-9+.-]*:)?(?://)?).*@", "$1[hidden]@");
+  }
+
+  /** Masks any userinfo in the URIs (§5.5). */
+  @Override
+  public String toString() {
+    return "ElasticsearchCluster[uris="
+        + uris.stream().map(ElasticsearchCluster::maskUserInfo).toList()
+        + ", ssl="
+        + ssl
+        + ", identities="
+        + identities
+        + ", defaultIdentity="
+        + defaultIdentity
+        + ", bulk="
+        + bulk
+        + ", compression="
+        + compression
+        + ", client="
+        + client
+        + "]";
+  }
+
   /** The URIs parsed; call only on a validated model. */
   public List<URI> parsedUris() {
     return uris.stream().map(URI::create).toList();

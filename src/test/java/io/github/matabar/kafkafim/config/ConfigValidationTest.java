@@ -230,6 +230,60 @@ class ConfigValidationTest {
           .anyMatch(e -> e.startsWith(K + ".identities.r.sasl.password: " + mechanism));
     }
 
+    @ParameterizedTest
+    @ValueSource(
+        strings = {
+          "group.id",
+          "enable.auto.commit",
+          "key.deserializer",
+          "client.id",
+          "bootstrap.servers",
+          "security.protocol",
+          "acks",
+          "retries",
+          "key.serializer",
+          "transactional.id",
+          "interceptor.classes"
+        })
+    void rejectsPassthroughKeysKafkafimOwns(String key) {
+      List<String> errors = ConfigTestSupport.errors(MINIMAL, K + ".properties[" + key + "]=x");
+      assertThat(errors)
+          .anyMatch(e -> e.startsWith(K + ".properties[" + key + "]: kafkafim sets this key"));
+      assertThat(String.join("\n", errors)).doesNotContain("=x");
+    }
+
+    @Test
+    void rejectsSecurityKeysDerivedFromTheClusterAndItsIdentities() {
+      List<String> errors =
+          ConfigTestSupport.errors(
+              MINIMAL,
+              K + ".security-protocol=SASL_SSL",
+              K + ".ssl.truststore-location=/t.p12",
+              K + ".identities.r.sasl.mechanism=SCRAM-SHA-256",
+              K + ".identities.r.sasl.username=u",
+              K + ".identities.r.sasl.password=p",
+              K + ".identities.m.ssl.keystore-location=/k.p12",
+              K + ".properties[ssl.truststore.location]=/other",
+              K + ".properties[sasl.jaas.config]=x",
+              K + ".properties[sasl.mechanism]=PLAIN",
+              K + ".properties[ssl.keystore.location]=/other");
+      assertThat(errors)
+          .anyMatch(e -> e.startsWith(K + ".properties[ssl.truststore.location]:"))
+          .anyMatch(e -> e.startsWith(K + ".properties[sasl.jaas.config]:"))
+          .anyMatch(e -> e.startsWith(K + ".properties[sasl.mechanism]:"))
+          .anyMatch(e -> e.startsWith(K + ".properties[ssl.keystore.location]:"));
+    }
+
+    @Test
+    void acceptsPassthroughKeysKafkafimDoesNotOwn() {
+      assertValid(
+          MINIMAL,
+          K + ".properties[fetch.max.bytes]=1048576",
+          K + ".properties[enable.idempotence]=false",
+          K + ".properties[sasl.jaas.config]=x",
+          "kafkafim.allow-inline-secrets=true");
+    }
+
     @Test
     void acceptsGssapiWithoutPassword() {
       assertValid(
@@ -295,6 +349,40 @@ class ConfigValidationTest {
           MINIMAL,
           ES + ".uris[0]: 'ftp://a' must start with http:// or https://",
           ES + ".uris=ftp://a");
+    }
+
+    @Test
+    void rejectsUserInfoWithoutEchoingIt() {
+      List<String> errors =
+          ConfigTestSupport.errors(
+              MINIMAL, ES + ".uris=https://elastic:hunter2@a:9200,https://u:hunter2@");
+      assertThat(errors)
+          .anyMatch(e -> e.startsWith(ES + ".uris[0]: must not contain credentials"))
+          .anyMatch(e -> e.startsWith(ES + ".uris[1]: 'https://[hidden]@' has no host"));
+      assertThat(String.join("\n", errors)).doesNotContain("hunter2");
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+        strings = {
+          "elastic:hunter2@a:9200",
+          "https://u:hun/ter2@a:9200",
+          "https://u:hun?ter2@a:9200",
+          "https://u:hun#ter2@a:9200",
+          "https:u:hunter2@a:9200"
+        })
+    void malformedUrisNeverEchoTheCredential(String uri) {
+      List<String> errors = ConfigTestSupport.errors(MINIMAL, ES + ".uris=" + uri);
+      assertThat(errors).anyMatch(e -> e.startsWith(ES + ".uris[0]"));
+      assertThat(String.join("\n", errors)).doesNotContain("hunter2").doesNotContain("ter2");
+    }
+
+    @Test
+    void syntaxErrorsDoNotEchoUserInfo() {
+      List<String> errors =
+          ConfigTestSupport.errors(MINIMAL, ES + ".uris=https://elastic:hunter2@a b:9200");
+      assertThat(errors).anyMatch(e -> e.startsWith(ES + ".uris[0]"));
+      assertThat(String.join("\n", errors)).doesNotContain("hunter2");
     }
 
     @Test
