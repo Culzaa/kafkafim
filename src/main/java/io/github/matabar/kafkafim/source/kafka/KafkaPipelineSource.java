@@ -1,6 +1,7 @@
 package io.github.matabar.kafkafim.source.kafka;
 
 import io.github.matabar.kafkafim.config.Pipeline;
+import io.github.matabar.kafkafim.telemetry.PipelineMdc;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -572,13 +573,16 @@ public final class KafkaPipelineSource implements SmartLifecycle {
     consumer.commitAsync(
         offsets,
         (committed, exception) -> {
-          if (exception == null) {
-            tracker.committed(consumer, committed);
-          } else {
-            LOG.warn(
-                "Pipeline '{}': offset commit failed, retrying next interval: {}",
-                pipeline,
-                exception.toString());
+          // Runs on the consumer thread inside a later poll, outside the scopes above.
+          try (var ignored = PipelineMdc.open(pipeline)) {
+            if (exception == null) {
+              tracker.committed(consumer, committed);
+            } else {
+              LOG.warn(
+                  "Pipeline '{}': offset commit failed, retrying next interval: {}",
+                  pipeline,
+                  exception.toString());
+            }
           }
         });
   }
@@ -607,6 +611,12 @@ public final class KafkaPipelineSource implements SmartLifecycle {
     public void onMessage(
         List<ConsumerRecord<byte[], byte[]>> data, @Nullable Consumer<?, ?> consumer) {
       Objects.requireNonNull(consumer, "consumer-aware listener without a consumer");
+      try (var ignored = PipelineMdc.open(pipeline)) {
+        deliver(data, consumer);
+      }
+    }
+
+    private void deliver(List<ConsumerRecord<byte[], byte[]>> data, Consumer<?, ?> consumer) {
       long maxRecordBytes = source.maxRecordBytes().toBytes();
       List<SourceRecord> batch = new ArrayList<>(data.size());
       for (ConsumerRecord<byte[], byte[]> record : data) {
@@ -629,11 +639,20 @@ public final class KafkaPipelineSource implements SmartLifecycle {
 
     @Override
     public void onPartitionsAssigned(Consumer<?, ?> consumer, Collection<TopicPartition> assigned) {
-      tracker.assign(consumer, assigned);
+      try (var ignored = PipelineMdc.open(pipeline)) {
+        tracker.assign(consumer, assigned);
+      }
     }
 
     @Override
     public void onPartitionsRevokedBeforeCommit(
+        Consumer<?, ?> consumer, Collection<TopicPartition> partitions) {
+      try (var ignored = PipelineMdc.open(pipeline)) {
+        revokedBeforeCommit(consumer, partitions);
+      }
+    }
+
+    private void revokedBeforeCommit(
         Consumer<?, ?> consumer, Collection<TopicPartition> partitions) {
       List<TopicPartition> tracked = tracker.tracked(consumer, partitions);
       if (tracked.isEmpty()) {
@@ -655,6 +674,12 @@ public final class KafkaPipelineSource implements SmartLifecycle {
 
     @Override
     public void onPartitionsLost(Consumer<?, ?> consumer, Collection<TopicPartition> partitions) {
+      try (var ignored = PipelineMdc.open(pipeline)) {
+        lost(consumer, partitions);
+      }
+    }
+
+    private void lost(Consumer<?, ?> consumer, Collection<TopicPartition> partitions) {
       List<TopicPartition> tracked = tracker.tracked(consumer, partitions);
       if (tracked.isEmpty()) {
         return;
@@ -684,7 +709,9 @@ public final class KafkaPipelineSource implements SmartLifecycle {
 
     @Override
     public void setupThreadState(Consumer<?, ?> consumer) {
-      commitIfDue(consumer);
+      try (var ignored = PipelineMdc.open(pipeline)) {
+        commitIfDue(consumer);
+      }
     }
   }
 

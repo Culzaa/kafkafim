@@ -119,21 +119,19 @@ public final class PipelineSupervisor implements SmartLifecycle {
 
   /**
    * Test seam, like {@link #rollbackProbe}: called with {@code "release"}, {@code
-   * "release:<pipeline>"} or {@code "retire"} before each cleanup step of the commit phase of an
-   * apply, so that a test can make it fail with an {@link Error} (closing an instance can).
+   * "release:<pipeline>"}, {@code "retire"}, {@code "start:<pipeline>"} or {@code
+   * "retry:<pipeline>"} before each step of the commit phase of an apply, so that a test can make
+   * it fail with an {@link Error} (closing an instance can, starting a pipeline can throw too).
    */
   volatile Consumer<String> commitProbe = step -> {};
 
-  /** One cleanup step of the commit phase: a failure is logged, the other steps still run. */
+  /** One step of the commit phase: a failure is logged, the other steps still run. */
   private void cleanUp(String step, Runnable action) {
     try {
       commitProbe.accept(step);
       action.run();
     } catch (RuntimeException | Error e) {
-      LOG.warn(
-          "Reload cleanup step '{}' failed; the new configuration is in effect regardless",
-          step,
-          e);
+      LOG.warn("Reload step '{}' failed; the new configuration is in effect regardless", step, e);
     }
   }
 
@@ -384,7 +382,11 @@ public final class PipelineSupervisor implements SmartLifecycle {
       cleanUp("retire", () -> resources.retireStale(next));
       topologyListeners.forEach(PipelineSupervisor::runQuietly);
       if (running) {
-        toStart.forEach(PipelineRuntime::start);
+        // One that cannot start (start() refuses a pipeline that is stopping) must not leave the
+        // pipelines after it unstarted.
+        for (PipelineRuntime runtime : toStart) {
+          cleanUp("start:" + runtime.name(), runtime::start);
+        }
         return retryFailed(diff.unchanged());
       }
       // A shutdown began during the drains: stop() runs next and would stop them again.
@@ -479,8 +481,14 @@ public final class PipelineSupervisor implements SmartLifecycle {
     Set<String> wanted = Set.copyOf(candidates);
     List<String> retried = new ArrayList<>();
     pipelines.forEach((name, runtime) -> {
-      if (wanted.contains(name) && runtime.retryIfFailed()) {
-        retried.add(name);
+      if (wanted.contains(name)) {
+        cleanUp(
+            "retry:" + name,
+            () -> {
+              if (runtime.retryIfFailed()) {
+                retried.add(name);
+              }
+            });
       }
     });
     return List.copyOf(retried);
