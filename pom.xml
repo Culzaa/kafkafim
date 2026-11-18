@@ -154,14 +154,18 @@
 			<scope>test</scope>
 		</dependency>
 		<dependency>
-			<!-- Runtime, not test: a direct test-scoped declaration would win over the
-			     transitive runtime scope and drop the jar micrometer-registry-otlp needs.
-			     Declared so OtlpExportIntegrationTest, which decodes the captured OTLP
-			     request bodies with it, does not rely on a transitive dependency. -->
+			<!-- Compile scope (the starter brings it at runtime): FiniteMetricsSender wraps its
+			     OtlpMetricsSender. Version from the Boot BOM. -->
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-registry-otlp</artifactId>
+		</dependency>
+		<dependency>
+			<!-- Compile scope: FiniteMetricsSender decodes the OTLP export body with it (a
+			     test scope would also drop the jar micrometer-registry-otlp needs at runtime).
+			     OtlpExportIntegrationTest decodes the captured request bodies with it too. -->
 			<groupId>io.opentelemetry.proto</groupId>
 			<artifactId>opentelemetry-proto</artifactId>
 			<version>${opentelemetry-proto.version}</version>
-			<scope>runtime</scope>
 		</dependency>
 		<dependency>
 			<groupId>org.testcontainers</groupId>
@@ -260,7 +264,7 @@
 				</executions>
 			</plugin>
 			<plugin>
-				<!-- opentelemetry-proto is declared explicitly (runtime scope) but no BOM manages it.
+				<!-- opentelemetry-proto is declared explicitly but no BOM manages it.
 				     Fail in validate when the declared version differs from the one micrometer-registry-otlp
 				     depends on, so a Boot/Micrometer upgrade cannot silently keep an old pin. Dependabot
 				     ignores the artifact (.github/dependabot.yml); bump it in the upgrade that fails here.
