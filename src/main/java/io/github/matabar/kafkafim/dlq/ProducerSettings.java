@@ -2,6 +2,7 @@ package io.github.matabar.kafkafim.dlq;
 
 import io.github.matabar.kafkafim.config.KafkaClientSecurity;
 import io.github.matabar.kafkafim.config.KafkaCluster;
+import io.github.matabar.kafkafim.config.OwnedKafkaKeys;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -56,19 +57,7 @@ public final class ProducerSettings {
    * that it stays unset: a transactional producer would need fencing kafkafim does not do; {@code
    * interceptor.classes} likewise, since an interceptor could change DLQ records.
    */
-  public static final Set<String> OWNED_KEYS =
-      Set.of(
-          CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG,
-          CommonClientConfigs.SECURITY_PROTOCOL_CONFIG,
-          ProducerConfig.CLIENT_ID_CONFIG,
-          ProducerConfig.ACKS_CONFIG,
-          ProducerConfig.RETRIES_CONFIG,
-          ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION,
-          ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG,
-          ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
-          ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
-          ProducerConfig.TRANSACTIONAL_ID_CONFIG,
-          ProducerConfig.INTERCEPTOR_CLASSES_CONFIG);
+  public static final Set<String> OWNED_KEYS = OwnedKafkaKeys.PRODUCER;
 
   /**
    * Defaults the passthrough may override.

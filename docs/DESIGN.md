@@ -537,8 +537,10 @@ kafkafim:
 ```
 
 A Kafka cluster's `properties` are passed to kafka-clients under kafkafim's own
-consumer settings (`source/kafka/ConsumerSettings`). A key kafkafim owns is rejected when
-the pipeline's consumer factory is built, naming the key but never its value:
+consumer settings (`source/kafka/ConsumerSettings`). A key kafkafim owns, for the
+consumer or for the DLQ producer, is rejected at bind and reload (`config/OwnedKafkaKeys`,
+plus the security keys derived from the cluster's and identities' blocks) and again when a
+client is built, naming the key but never its value. The consumer's:
 `bootstrap.servers`, `security.protocol`, `group.id`, `group.instance.id`,
 `group.protocol` (always `classic`, which the cooperative-sticky assignor needs),
 `client.id` (`kafkafim-<pipeline>-<n>`), `enable.auto.commit` (always `false`),
@@ -548,9 +550,9 @@ deserializers (always byte arrays), `partition.assignment.strategy` (always
 The security keys kafkafim derives from the cluster's `ssl` block and the identity's
 `sasl`/`ssl` blocks (`ssl.truststore.*`, `ssl.keystore.*`, `ssl.key.password`,
 `sasl.mechanism`, and `sasl.jaas.config` for `PLAIN`/`SCRAM-*`) are rejected only when
-that block sets them, so GSSAPI or OAUTHBEARER can still bring their JAAS settings
-through `properties`. Everything else (fetch sizes, timeouts, `isolation.level`, …)
-passes through. Consumer factories are cached per `(cluster, identity)`; every
+that block sets them (any identity's block counts), so GSSAPI or OAUTHBEARER can still
+bring their JAAS settings through `properties`. Everything else (fetch sizes, timeouts,
+`isolation.level`, …) passes through. Consumer factories are cached per `(cluster, identity)`; every
 pipeline's container creates its own consumers.
 
 The DLQ producer (`dlq/ProducerSettings`, one per `(cluster, identity)`, `client.id`

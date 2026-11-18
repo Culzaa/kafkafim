@@ -43,10 +43,10 @@ class RedactionTest {
         K + ".identities.r.ssl.keystore-password=S3CRET-keystore",
         K + ".identities.r.ssl.key-password=S3CRET-key",
         K + ".default-identity=r",
-        K + ".properties[sasl.jaas.config]=S3CRET-jaas",
-        K + ".properties[ssl.key.password]=S3CRET-passthrough-key-password",
+        K + ".properties[sasl.oauthbearer.client.credentials.client.secret]=S3CRET-jaas",
+        K + ".properties[ssl.keystore.key]=S3CRET-passthrough-key-password",
         K + ".properties[basic.auth.user.info]=S3CRET-basic-auth-info",
-        K + ".properties[client.id]=visible-client-id",
+        K + ".properties[fetch.max.bytes]=visible-fetch-size",
         ES + ".uris[0]=https://es:9200",
         ES + ".identities.basic.username=writer-user",
         ES + ".identities.basic.password=S3CRET-es-password",
@@ -62,8 +62,8 @@ class RedactionTest {
 
     assertThat(printed).doesNotContain("S3CRET");
     assertThat(printed)
-        .contains("reader-user", "writer-user", "visible-client-id", "/client.p12")
-        .contains("sasl.jaas.config=" + Redaction.MASK);
+        .contains("reader-user", "writer-user", "visible-fetch-size", "/client.p12")
+        .contains("sasl.oauthbearer.client.credentials.client.secret=" + Redaction.MASK);
   }
 
   @Test
@@ -79,8 +79,8 @@ class RedactionTest {
                 kafka.identities().get("r").sasl().password(),
                 kafka.identities().get("r").ssl().keystorePassword(),
                 kafka.identities().get("r").ssl().keyPassword(),
-                kafka.properties().get("sasl.jaas.config"),
-                kafka.properties().get("ssl.key.password"),
+                kafka.properties().get("sasl.oauthbearer.client.credentials.client.secret"),
+                kafka.properties().get("ssl.keystore.key"),
                 kafka.properties().get("basic.auth.user.info"),
                 es.identities().get("basic").password(),
                 es.identities().get("basic").ssl().keystorePassword(),
