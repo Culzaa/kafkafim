@@ -17,8 +17,8 @@ production-like hardware before sizing a real cluster.
 | Date | 2026-11-15 |
 | kafkafim | 0.1.0-SNAPSHOT at `8658634` (plus the harness), jar run with `java -jar` on Temurin 27, profile `kafkafim`, OTLP export off |
 | Host | Apple M4, 10 cores, 24 GiB; Docker Desktop VM with 10 CPUs and 8 GiB |
-| Kafka | `apache/kafka:4.1.0`, one KRaft node, 1 GiB heap, container limit 2 CPUs / 2 GiB |
-| Elasticsearch | `8.19.0`, one node, security off, 1 GiB heap, container limit 2 CPUs / 2 GiB; one shard, no replica |
+| Kafka | `apache/kafka:4.3.1`, one KRaft node, 1 GiB heap, container limit 2 CPUs / 2 GiB |
+| Elasticsearch | `9.5.6`, one node, security off, 1 GiB heap, container limit 2 CPUs / 2 GiB; one shard, no replica |
 | Documents | JSON object, about 1 KiB, unique `id`, one route to one index per pipeline |
 | Pipeline | 3 partitions per topic unless stated; defaults otherwise: `max-poll-records` 500, bulk 5000 docs / 5 MB / 200 ms, `bulk.in-flight` 4 |
 | Load | topic backlog written first (throughput, memory), or a fixed rate while kafkafim runs (latency, outage, rebalance) |

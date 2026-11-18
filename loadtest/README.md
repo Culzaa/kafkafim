@@ -9,8 +9,8 @@ meant to be run by hand on a machine you can leave alone while it runs.
 
 ## What it starts
 
-- [compose.yaml](compose.yaml): one Kafka broker (`apache/kafka:4.1.0`, 1 GiB heap, 2 CPUs) on
-  `localhost:19092` and one Elasticsearch node (`8.19.0`, 1 GiB heap, 2 CPUs, security off) on
+- [compose.yaml](compose.yaml): one Kafka broker (`apache/kafka:4.3.1`, 1 GiB heap, 2 CPUs) on
+  `localhost:19092` and one Elasticsearch node (`9.5.6`, 1 GiB heap, 2 CPUs, security off) on
   `localhost:19200`. Ports differ from the development stack, so both can run side by side.
 - kafkafim itself runs from the jar on the host (`java -jar`) with the production `kafkafim`
   profile and a generated `application-kafkafim.yaml` in the run directory. OTLP export is

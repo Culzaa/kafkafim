@@ -68,7 +68,7 @@ class TelemetryIntegrationTest {
 
   private static final ElasticsearchContainer ES =
       new ElasticsearchContainer(
-              DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.19.0"))
+              DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:9.5.6"))
           .withEnv("xpack.security.enabled", "false")
           .withEnv("ES_JAVA_OPTS", "-Xms512m -Xmx512m -XX:TieredStopAtLevel=1")
           // Parallel Failsafe forks can boot several nodes at once; the 60 s default is tight.

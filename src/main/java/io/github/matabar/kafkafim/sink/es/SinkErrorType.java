@@ -13,8 +13,10 @@ public enum SinkErrorType {
    */
   ES_ERROR("es_error"),
   /**
-   * A retryable item error (item 429, item 5xx, {@code index_not_found_exception}) that still
-   * failed after {@code dlq.max-attempts} or {@code dlq.max-elapsed}: the poison bound (ADR-0011).
+   * A retryable item error (item 5xx, {@code index_not_found_exception}) that still failed after
+   * {@code dlq.max-attempts} or {@code dlq.max-elapsed}: the poison bound (ADR-0011), or an item
+   * under cluster pressure (429, 503 {@code unavailable_shards_exception}) that kept failing past
+   * the one-hour safety valve (ADR-0052).
    */
   RETRIES_EXHAUSTED("es_retries_exhausted"),
   /** An external-version conflict while {@code document.on-version-conflict} is {@code dlq}. */

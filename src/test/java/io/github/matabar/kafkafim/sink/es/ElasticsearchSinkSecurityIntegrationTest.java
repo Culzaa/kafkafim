@@ -38,7 +38,7 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 
 /**
- * Identities against a secured Elasticsearch 8.19 (TLS with its own CA, basic auth, API keys): the
+ * Identities against a secured Elasticsearch 9.5 (TLS with its own CA, basic auth, API keys): the
  * production shape (DESIGN §5.2.1). Bad credentials are a configuration failure: retried and
  * reported, never DLQ.
  */
@@ -56,7 +56,7 @@ class ElasticsearchSinkSecurityIntegrationTest {
   @Container
   static final ElasticsearchContainer ES =
       new ElasticsearchContainer(
-              DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.19.0"))
+              DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:9.5.6"))
           .withPassword(ADMIN_PASSWORD)
           .withEnv("ES_JAVA_OPTS", "-Xms512m -Xmx512m -XX:TieredStopAtLevel=1")
           // Parallel Failsafe forks can boot several nodes at once; the 60 s default is tight.
