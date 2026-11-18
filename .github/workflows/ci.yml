@@ -380,7 +380,7 @@ jobs:
           for f in deploy/grafana/dashboards/*.json; do
             grep -q "^  $(basename "$f"): " "$RUNNER_TEMP/demo.yaml" || { echo "$f is not in the demo's dashboards ConfigMap" >&2; exit 1; }
           done
-          grep -q 'value: "http://lgtm:4318"' "$RUNNER_TEMP/demo.yaml" || { echo "kafkafim's OTLP endpoint does not point at the lgtm Service" >&2; exit 1; }
+          grep -q 'value: "http://apm-server:8200"' "$RUNNER_TEMP/demo.yaml" || { echo "kafkafim's OTLP endpoint does not point at the apm-server Service" >&2; exit 1; }
       - if: steps.chart.outputs.exists == 'true'
         name: Chart unit tests
         shell: bash

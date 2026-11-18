@@ -2,8 +2,8 @@
 
 One `helm install` brings up everything on a local Kubernetes cluster: a Kafka broker,
 Elasticsearch, an APM Server that receives kafkafim's OTLP, Kibana on that Elasticsearch,
-Grafana LGTM (dashboards), and kafkafim, installed by the real chart ([charts/kafkafim](../../charts/kafkafim)). Secrets take the
-production path: Kubernetes `Secret`s mounted as files and read through
+Grafana LGTM (dashboards), and kafkafim, installed by the real chart
+([charts/kafkafim](../../charts/kafkafim)). Secrets take the production path: Kubernetes `Secret`s mounted as files and read through
 `configtree:/etc/kafkafim/secrets/` ([HELM.md](../../docs/HELM.md#secrets-and-configtree-naming)).
 On Kubernetes kafkafim refuses the `local` profile and inline secrets, so this is the
 way to see a chart install work before production. For day-to-day development use
@@ -48,7 +48,7 @@ Desktop's Kubernetes (kubeadm mode, which shares Docker's images). JDK 27 to bui
 jar, as for the rest of the repository. With Nix:
 `nix shell nixpkgs#kind nixpkgs#kubectl nixpkgs#kubernetes-helm`.
 
-Memory: the pods request about 5.5 GiB in total (Kafka 768 Mi + 256 Mi for its topics
+Memory: the pods request about 5.25 GiB in total (Kafka 768 Mi + 256 Mi for its topics
 container, Elasticsearch 1.5 Gi requested and 2 Gi limit with a 1 GiB heap, LGTM 1 Gi,
 kafkafim 768 Mi, Kibana 768 Mi requested and 1.5 Gi limit, APM Server 256 Mi). Give Docker
 at least 8 GiB.

@@ -1,7 +1,7 @@
 # Local Kubernetes demo (deploy/local/README.md). One release: Kafka, Elasticsearch,
-# Grafana LGTM (templates/ of this chart) and kafkafim (the production chart, as the
-# `kafkafim` subchart). Resource names are fixed (kafka, elasticsearch, lgtm), so install
-# it once per namespace.
+# APM Server, Kibana, Grafana LGTM (templates/ of this chart) and kafkafim (the production
+# chart, as the `kafkafim` subchart). Resource names are fixed (kafka, elasticsearch,
+# apm-server, kibana, lgtm), so install it once per namespace.
 
 kafka:
   # JVM image: the native image cannot authenticate SASL clients. Same version as compose.yaml.

@@ -2,8 +2,8 @@
 # Local Kubernetes demo of kafkafim (deploy/local/README.md).
 #
 #   deploy/local/demo.sh up      build the image, create the cluster, then one `helm install`
-#                                of deploy/local/kafkafim-demo (Kafka, Elasticsearch, Grafana
-#                                LGTM and kafkafim)
+#                                of deploy/local/kafkafim-demo (Kafka, Elasticsearch, APM
+#                                Server, Kibana, Grafana LGTM and kafkafim)
 #   deploy/local/demo.sh smoke   send one record to demo.events and wait for it in Elasticsearch
 #   deploy/local/demo.sh down    delete the kind cluster (Docker Desktop: the namespace)
 #
@@ -82,7 +82,8 @@ up() {
   fi
   # Docker Desktop (kubeadm mode) runs on the same Docker engine, so it sees kafkafim:dev.
 
-  # The whole demo is this one install: Kafka, Elasticsearch, Grafana LGTM and kafkafim.
+  # The whole demo is this one install: Kafka, Elasticsearch, APM Server, Kibana, Grafana LGTM
+  # and kafkafim.
   helm --kube-context "$CONTEXT" upgrade --install "$RELEASE" "$HERE/kafkafim-demo" \
     -n "$NS" --create-namespace --wait --timeout 10m
   k get pods
