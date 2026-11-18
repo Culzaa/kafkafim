@@ -1511,7 +1511,8 @@ Every log event goes to two places (ADR-0044):
   `management.otlp.metrics.export.enabled` and `management.tracing.export.otlp.enabled`
   do for the other two.
   MDC keys are opt-in: `captureMdcAttributes` in `logback-spring.xml` names the keys to
-  export, never `*` (ADR-0048). The list names `pipeline`, which no code sets yet; a key
+  export, never `*` (ADR-0048). The list names `pipeline`, which the consumer, bulk sender and
+  DLQ writer threads set (`telemetry/PipelineMdc`); a key
   someone adds to the MDC later stays out of the backend until a reviewed change adds it
   to the list, and Micrometer's `traceId` and `spanId` MDC entries are not repeated as
   attributes (the record's own trace and span id remain). `MdcAllowlistTest` pins it.

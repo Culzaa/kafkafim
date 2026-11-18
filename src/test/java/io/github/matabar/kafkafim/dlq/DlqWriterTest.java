@@ -169,6 +169,17 @@ class DlqWriterTest {
   }
 
   @Test
+  void theDlqThreadCarriesThePipelineInTheMdcWhileItSends() throws Exception {
+    DlqWriter writer = ordersWriter();
+
+    writer.send(request());
+    clients.get(0).next();
+
+    assertThat(clients.get(0).sendMdc).containsExactly("orders");
+    assertThat(org.slf4j.MDC.get("pipeline")).as("not leaked to the caller").isNull();
+  }
+
+  @Test
   void completesOnlyAfterTheBrokerAcknowledged() throws Exception {
     DlqWriter writer = ordersWriter();
 
@@ -695,6 +706,7 @@ class DlqWriterTest {
     final LinkedBlockingQueue<PendingSend> sends = new LinkedBlockingQueue<>();
     final AtomicReference<TopicStatus> topic = new AtomicReference<>(TopicStatus.EXISTS);
     final AtomicInteger describes = new AtomicInteger();
+    final List<String> sendMdc = new CopyOnWriteArrayList<>();
     final AtomicReference<RuntimeException> describeFailure = new AtomicReference<>();
     volatile Runnable onClose = () -> {};
     volatile boolean closed;
@@ -714,6 +726,7 @@ class DlqWriterTest {
       if (closed) {
         throw new IllegalStateException("closed");
       }
+      sendMdc.add(String.valueOf(org.slf4j.MDC.get("pipeline")));
       sends.add(new PendingSend(record, callback));
     }
 
