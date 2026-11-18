@@ -76,12 +76,12 @@ class ProcessSpanContextsTest {
   }
 
   @Test
-  void recordsAreKeyedByIdentityNotByEquality() {
+  void anotherInstanceOfTheSamePositionGetsNothing() {
     ConsumerRecord<byte[], byte[]> traced = record(5);
-    ConsumerRecord<byte[], byte[]> equalButOther = record(5);
+    ConsumerRecord<byte[], byte[]> samePositionOtherInstance = record(5);
     end(traced, spanContext(true));
 
-    assertThat(ProcessSpanContexts.take(equalButOther)).isNull();
+    assertThat(ProcessSpanContexts.take(samePositionOtherInstance)).isNull();
     assertThat(ProcessSpanContexts.take(traced)).isNotNull();
   }
 
