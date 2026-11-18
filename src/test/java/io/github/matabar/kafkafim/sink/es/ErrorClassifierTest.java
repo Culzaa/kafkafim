@@ -80,19 +80,19 @@ class ErrorClassifierTest {
   }
 
   @Test
-  void itemRejectedExecutionIsRetried() {
+  void itemRejectedExecutionIsClusterPressure() {
     List<BulkAction<String>> actions =
         IntStream.range(0, 8).mapToObj(i -> action(Op.INDEX, null)).toList();
     assertThat(classify("bulk-item-rejected.json", actions, OnVersionConflict.IGNORE))
         .containsExactly(
-            ItemVerdict.RETRY,
-            ItemVerdict.RETRY,
+            ItemVerdict.RETRY_PRESSURE,
+            ItemVerdict.RETRY_PRESSURE,
             ItemVerdict.INDEXED,
-            ItemVerdict.RETRY,
-            ItemVerdict.RETRY,
-            ItemVerdict.RETRY,
-            ItemVerdict.RETRY,
-            ItemVerdict.RETRY);
+            ItemVerdict.RETRY_PRESSURE,
+            ItemVerdict.RETRY_PRESSURE,
+            ItemVerdict.RETRY_PRESSURE,
+            ItemVerdict.RETRY_PRESSURE,
+            ItemVerdict.RETRY_PRESSURE);
   }
 
   @Test
@@ -137,11 +137,13 @@ class ErrorClassifierTest {
     "400, index_closed_exception, INDEX, false, RETRY",
     "404, index_closed_exception, INDEX, false, RETRY",
     "403, cluster_block_exception, INDEX, false, RETRY",
+    "429, cluster_block_exception, INDEX, false, RETRY",
     "403, security_exception, INDEX, false, AUTH_FAILURE",
     "400, some_other_exception, INDEX, false, DLQ_ES_ERROR",
-    "429, circuit_breaking_exception, INDEX, false, RETRY",
+    "429, circuit_breaking_exception, INDEX, false, RETRY_PRESSURE",
     "500, internal_error, INDEX, false, RETRY",
-    "503, unavailable_shards_exception, INDEX, true, RETRY",
+    "503, unavailable_shards_exception, INDEX, true, RETRY_PRESSURE",
+    "503, some_other_exception, INDEX, false, RETRY",
     "302, , INDEX, false, RETRY"
   })
   void syntheticItems(int status, String type, Op op, boolean versioned, ItemVerdict expected) {

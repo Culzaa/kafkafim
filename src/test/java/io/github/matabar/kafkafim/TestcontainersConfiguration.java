@@ -23,7 +23,7 @@ class TestcontainersConfiguration {
   @Bean
   @ServiceConnection
   LgtmStackContainer grafanaLgtmContainer() {
-    return new LgtmStackContainer(DockerImageName.parse("grafana/otel-lgtm:0.11.0"));
+    return new LgtmStackContainer(DockerImageName.parse("grafana/otel-lgtm:0.41.0"));
   }
 
   @Bean
@@ -34,7 +34,7 @@ class TestcontainersConfiguration {
   @Bean
   ElasticsearchContainer elasticsearchContainer() {
     return new ElasticsearchContainer(
-            DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.19.0"))
+            DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:9.5.6"))
         .withEnv("xpack.security.enabled", "false")
         // C1 JIT only, as in every test Elasticsearch: a test node never lives long enough for C2
         // to pay off, and C2 compiles burn CPU that the parallel Failsafe forks share.

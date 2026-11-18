@@ -29,7 +29,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * The sink against an Elasticsearch 8.19 that rejects bodies over a lowered {@code
+ * The sink against an Elasticsearch 9.5 that rejects bodies over a lowered {@code
  * http.max_content_length} (1mb, so the test bodies stay small). Elasticsearch answers 413 as soon
  * as it knows the body is too large and closes the connection, while the client may still be
  * uploading. The sink must see that 413 and split, with gzip on or off; if the client reported a
@@ -43,7 +43,7 @@ class ElasticsearchSinkContentLengthIntegrationTest {
   @Container
   static final ElasticsearchContainer ES =
       new ElasticsearchContainer(
-              DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.19.0"))
+              DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:9.5.6"))
           .withEnv("xpack.security.enabled", "false")
           .withEnv("action.auto_create_index", "false")
           .withEnv("http.max_content_length", "1mb")

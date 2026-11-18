@@ -43,7 +43,8 @@ import org.slf4j.LoggerFactory;
  * DLQ; 413 splits the request in halves. Before every attempt the sender asks the cluster's circuit
  * breaker and waits while it is open. Item results are classified by {@link ErrorClassifier};
  * retryable items go back into the batcher after a backoff and are bounded by {@code
- * max-attempts}/{@code max-elapsed}.
+ * max-attempts}/{@code max-elapsed}, except items under cluster pressure (429, 503 {@code
+ * unavailable_shards_exception}), which only a one-hour safety valve bounds (ADR-0052).
  *
  * <p><b>Backpressure.</b> {@code submit} never blocks: the consumer thread must keep polling, and
  * the Kafka side already bounds what is outstanding by pausing the container at {@code
@@ -95,6 +96,15 @@ public final class BulkSink<H> implements AutoCloseable {
   private long pendingBytes;
   private boolean closing;
   private volatile boolean stopped;
+
+  /** Longest delay between retries of an item rejected under cluster pressure. */
+  static final Duration PRESSURE_MAX_DELAY = Duration.ofSeconds(30);
+
+  /** Safety valve: how long an item may keep failing with cluster pressure before the DLQ. */
+  static final Duration PRESSURE_MAX_ELAPSED = Duration.ofHours(1);
+
+  /** {@link #PRESSURE_MAX_ELAPSED}; tests shorten it. */
+  volatile Duration pressureMaxElapsed = PRESSURE_MAX_ELAPSED;
 
   BulkSink(
       SinkKey key,
@@ -427,11 +437,14 @@ public final class BulkSink<H> implements AutoCloseable {
 
   private void send(List<Entry> entries, long bytes, List<BatchReport.Request> requests)
       throws InterruptedException {
+    // The body is identical on every retry of these entries: build it once per send. A 413 split
+    // calls send() again for each half, which builds that half's own body.
+    byte[] body = BulkBody.build(entries, bytes);
     int attempt = 0;
     while (!stopped) {
       Permit permit = awaitBreakerPermission();
       try {
-        attempt = attempt(entries, bytes, attempt, permit, requests);
+        attempt = attempt(entries, body, attempt, permit, requests);
       } finally {
         permit.release(); // no-op unless an exception escaped before a verdict
       }
@@ -448,12 +461,12 @@ public final class BulkSink<H> implements AutoCloseable {
    */
   private int attempt(
       List<Entry> entries,
-      long bytes,
+      byte[] body,
       int attempt,
       Permit permit,
       List<BatchReport.Request> requests)
       throws InterruptedException {
-    byte[] body = BulkBody.build(entries, bytes);
+    int bytes = body.length;
     Instant sentAt = clock.instant();
     long start = System.nanoTime();
     BulkTransport.Result result;
@@ -751,6 +764,7 @@ public final class BulkSink<H> implements AutoCloseable {
           complete(entry, dlq(entry, SinkErrorType.VERSION_CONFLICT, reason, item.status()));
         }
         case RETRY -> retryItem(entry, item, reason);
+        case RETRY_PRESSURE -> retryPressureItem(entry, item, reason);
         case AUTH_FAILURE -> {
           entry.markFailure(clock);
           entry.authRetries++;
@@ -764,6 +778,30 @@ public final class BulkSink<H> implements AutoCloseable {
 
   private static String errorType(BulkResponse.Item item) {
     return item.errorType() != null ? item.errorType() : "status_" + item.status();
+  }
+
+  /**
+   * Item-level cluster pressure (429, 503 unavailable_shards): the cluster is overloaded or
+   * relocating shards, not the document at fault, so the attempt does not count against {@code
+   * max-attempts}. The delay grows with a separate counter and is capped; only the long safety
+   * valve {@link #pressureMaxElapsed} dead-letters the document, so a mislabelled poison document
+   * cannot retry forever (ADR-0052).
+   */
+  private void retryPressureItem(Entry entry, BulkResponse.Item item, String reason) {
+    entry.markFailure(clock);
+    entry.pressureRetries++;
+    if (!entry.pressureStarted) {
+      entry.pressureStarted = true;
+      entry.firstPressureNanos = System.nanoTime();
+    }
+    listener.onItemRetry(key, item.status(), errorType(item), entry.pressureRetries);
+    long elapsed = System.nanoTime() - entry.firstPressureNanos;
+    if (elapsed >= pressureMaxElapsed.toNanos()) {
+      complete(entry, dlq(entry, SinkErrorType.RETRIES_EXHAUSTED, reason, item.status()));
+    } else {
+      Duration delay = settings.backoff().delay(entry.pressureRetries);
+      scheduleRetry(entry, delay.compareTo(PRESSURE_MAX_DELAY) > 0 ? PRESSURE_MAX_DELAY : delay);
+    }
   }
 
   private void retryItem(Entry entry, BulkResponse.Item item, String reason) {
@@ -849,6 +887,9 @@ public final class BulkSink<H> implements AutoCloseable {
     int answered;
     int itemFailures;
     int authRetries;
+    int pressureRetries;
+    boolean pressureStarted;
+    long firstPressureNanos;
     boolean retrying;
     long firstRetryableNanos;
     boolean done;

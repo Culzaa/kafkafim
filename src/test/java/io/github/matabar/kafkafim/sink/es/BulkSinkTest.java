@@ -404,7 +404,7 @@ class BulkSinkTest {
                 request,
                 sent ->
                     sent.id().equals("poison")
-                        ? new String[] {"429", "es_rejected_execution_exception"}
+                        ? new String[] {"404", "index_not_found_exception"}
                         : new String[] {"201"}));
     BulkSink<String> sink = sink(poison(3, HOUR), transport);
 
@@ -418,18 +418,81 @@ class BulkSinkTest {
             dlq -> {
               assertThat(dlq.errorType()).isEqualTo(SinkErrorType.RETRIES_EXHAUSTED);
               assertThat(dlq.attempts()).isEqualTo(3);
-              assertThat(dlq.status()).isEqualTo(429);
-              assertThat(dlq.reason()).contains("es_rejected_execution_exception");
+              assertThat(dlq.status()).isEqualTo(404);
+              assertThat(dlq.reason()).contains("index_not_found_exception");
             });
     assertThat(transport.requests().stream().filter(r -> r.ids().contains("poison"))).hasSize(3);
+  }
+
+  @Test
+  void itemClusterPressureIsRetriedBeyondMaxAttemptsAndNeverDeadLettered() throws Exception {
+    for (String[] pressure :
+        List.of(
+            new String[] {"429", "es_rejected_execution_exception"},
+            new String[] {"503", "unavailable_shards_exception"})) {
+      String id = "busy-" + pressure[0];
+      FakeTransport transport =
+          new FakeTransport((request, call) ->
+              FakeTransport.items(request, sent -> call <= 8 ? pressure : new String[] {"201"}));
+      BulkSink<String> sink = sink(poison(3, HOUR), transport);
+
+      submitAll(sink, id);
+
+      assertThat(sink.awaitIdle(WAIT)).isTrue();
+      assertThat(outcomes.get(id)).isEqualTo(ActionOutcome.INDEXED);
+      assertThat(transport.requests()).hasSize(9);
+    }
+  }
+
+  @Test
+  void itemClusterPressureIgnoresMaxElapsedAndStaysIndependentOfOtherRetries() throws Exception {
+    FakeTransport transport =
+        new FakeTransport((request, call) ->
+            FakeTransport.items(
+                request,
+                sent ->
+                    switch (call) {
+                      case 1, 2, 3, 5, 6 -> new String[] {"429", "es_rejected_execution_exception"};
+                      case 4 -> new String[] {"404", "index_not_found_exception"};
+                      default -> new String[] {"201"};
+                    }));
+    // max-elapsed of 1 ms would dead-letter any bounded retry after the first failure.
+    BulkSink<String> sink = sink(poison(3, Duration.ofMillis(1)), transport);
+
+    submitAll(sink, "busy");
+
+    assertThat(sink.awaitIdle(WAIT)).isTrue();
+    assertThat(outcomes.get("busy")).isEqualTo(ActionOutcome.INDEXED);
+    assertThat(transport.requests()).hasSize(7);
+  }
+
+  @Test
+  void itemClusterPressureEndsAtTheSafetyValve() throws Exception {
+    FakeTransport transport =
+        new FakeTransport((request, call) ->
+            FakeTransport.items(
+                request, sent -> new String[] {"429", "es_rejected_execution_exception"}));
+    BulkSink<String> sink = sink(poison(3, HOUR), transport);
+    sink.pressureMaxElapsed = Duration.ofMillis(100);
+
+    submitAll(sink, "busy");
+
+    assertThat(sink.awaitIdle(WAIT)).isTrue();
+    assertThat(outcomes.get("busy"))
+        .isInstanceOfSatisfying(
+            ActionOutcome.Dlq.class,
+            dlq -> {
+              assertThat(dlq.errorType()).isEqualTo(SinkErrorType.RETRIES_EXHAUSTED);
+              assertThat(dlq.status()).isEqualTo(429);
+              assertThat(dlq.attempts()).isGreaterThan(3);
+            });
   }
 
   @Test
   void poisonBoundByMaxElapsed() throws Exception {
     FakeTransport transport =
         new FakeTransport((request, call) ->
-            FakeTransport.items(
-                request, sent -> new String[] {"503", "unavailable_shards_exception"}));
+            FakeTransport.items(request, sent -> new String[] {"500", "internal_error"}));
     BulkSink<String> sink = sink(poison(1_000_000, Duration.ofMillis(100)), transport);
 
     long start = System.nanoTime();
@@ -890,6 +953,45 @@ class BulkSinkTest {
         .filter(e -> e.getLevel() == level)
         .map(ILoggingEvent::getFormattedMessage)
         .toList();
+  }
+
+  @Test
+  void theBodyIsBuiltOncePerSendAndReusedByEveryRetry() throws Exception {
+    List<byte[]> bodies = new CopyOnWriteArrayList<>();
+    AtomicInteger calls = new AtomicInteger();
+    BulkTransport transport =
+        body -> {
+          bodies.add(body);
+          return calls.incrementAndGet() <= 2 ? FakeTransport.status(503) : FakeTransport.allOk();
+        };
+    BulkSink<String> sink = sink(poison(10, HOUR), transport);
+
+    submitAll(sink, "a", "b");
+
+    assertThat(sink.awaitIdle(WAIT)).isTrue();
+    assertThat(bodies).hasSize(3);
+    assertThat(bodies.get(1)).isSameAs(bodies.get(0));
+    assertThat(bodies.get(2)).isSameAs(bodies.get(0));
+  }
+
+  @Test
+  void a413SplitBuildsItsOwnBodyPerHalf() throws Exception {
+    List<byte[]> bodies = new CopyOnWriteArrayList<>();
+    BulkTransport transport =
+        body -> {
+          bodies.add(body);
+          return FakeTransport.decode(body).actions().size() > 2
+              ? FakeTransport.status(413)
+              : FakeTransport.allOk();
+        };
+    BulkSink<String> sink = sink(settings(4, 1 << 20, HOUR, 1), transport);
+
+    submitAll(sink, "a", "b", "c", "d");
+
+    assertThat(sink.awaitIdle(WAIT)).isTrue();
+    assertThat(bodies).hasSize(3);
+    assertThat(bodies.get(1)).isNotSameAs(bodies.get(0)).hasSizeLessThan(bodies.get(0).length);
+    assertThat(bodies.get(2)).isNotSameAs(bodies.get(1));
   }
 
   @Test
