@@ -25,3 +25,9 @@ reservation.
   unchanged.
 - This replaces the ADR-0044 consequence that any MDC entry added later is exported
   automatically. DESIGN §10 (Logs) states the rule.
+- SLF4J fluent key-value pairs (`addKeyValue`) have no allowlist in the appender, so
+  `captureKeyValuePairAttributes` is `false` (#354): a call site that attached a document
+  field or a secret would otherwise export it. kafkafim uses none today. Exporting one
+  later needs a reviewed change that turns the option on, or an MDC key on the list.
+  `MdcAllowlistTest` checks that an unlisted pair is not exported. This also replaces the
+  ADR-0044 consequence that key-value pairs added later are exported automatically.

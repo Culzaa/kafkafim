@@ -9,7 +9,7 @@
            event to the OpenTelemetry SDK's logger provider, which Spring Boot auto-configures
            with a batching OTLP exporter (management.opentelemetry.logging.export.* in
            application.yaml). Records travel with metrics and traces, under the same resource
-           attributes, with severity, logger name, thread, the allowlisted MDC entries, key-value pairs, the
+           attributes, with severity, logger name, thread, the allowlisted MDC entries, the
            exception (type, message, stack trace) and the current span's trace and span id.
            Events logged before the SDK exists are kept (the first 1000) and replayed once
            telemetry/LogExportConfiguration installs it. Switching the export off
@@ -27,7 +27,9 @@
     <captureExperimentalAttributes>true</captureExperimentalAttributes>
     <!-- explicit allowlist, comma separated; a new MDC key is exported only once added here -->
     <captureMdcAttributes>pipeline</captureMdcAttributes>
-    <captureKeyValuePairAttributes>true</captureKeyValuePairAttributes>
+    <!-- off: SLF4J fluent key-value pairs have no allowlist, so one would export whatever a call site
+         puts in it; kafkafim uses none (ADR-0048) -->
+    <captureKeyValuePairAttributes>false</captureKeyValuePairAttributes>
   </appender>
 
   <root level="INFO">
