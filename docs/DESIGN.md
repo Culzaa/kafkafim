@@ -1069,7 +1069,9 @@ are reported together:
   `ssl` trust and keystores only with `https`. An identity is exactly one of
   `username`+`password` or `api-key`, optionally with a keystore, or a keystore alone.
   A route on an `https` cluster without a resolvable identity fails; on `http` it binds
-  with a startup warning.
+  with a startup warning. An identity with `username`+`password` or `api-key` on an `http`
+  cluster also binds with a warning that the credential travels in clear (an error would
+  break a service-mesh setup that terminates TLS outside kafkafim).
 - **Pipelines**: `topics` are non-empty and distinct; the DLQ topic is not one of the
   source topics; `max-record-bytes ≤ max-in-flight-bytes`; sizes and durations are
   positive. A consumer group belongs to exactly one pipeline: two pipelines with the same
