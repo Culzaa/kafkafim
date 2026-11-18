@@ -126,12 +126,18 @@ class KafkaPipelineSourceIntegrationTest {
       records.get(i).complete();
     }
     await().atMost(TIMEOUT).until(() -> committed(groupOf(topic), topic, 0) == 3);
-    Thread.sleep(COMMIT_INTERVAL.multipliedBy(4).toMillis());
-    assertThat(committed(groupOf(topic), topic, 0)).as("3 and 4 are incomplete").isEqualTo(3);
+    await()
+        .during(COMMIT_INTERVAL.multipliedBy(4))
+        .atMost(TIMEOUT)
+        .alias("3 and 4 are incomplete")
+        .until(() -> committed(groupOf(topic), topic, 0) == 3);
 
     records.get(4).complete();
-    Thread.sleep(COMMIT_INTERVAL.multipliedBy(4).toMillis());
-    assertThat(committed(groupOf(topic), topic, 0)).as("3 is still incomplete").isEqualTo(3);
+    await()
+        .during(COMMIT_INTERVAL.multipliedBy(4))
+        .atMost(TIMEOUT)
+        .alias("3 is still incomplete")
+        .until(() -> committed(groupOf(topic), topic, 0) == 3);
 
     records.get(3).complete();
     await().atMost(TIMEOUT).until(() -> committed(groupOf(topic), topic, 0) == 8);
@@ -153,8 +159,11 @@ class KafkaPipelineSourceIntegrationTest {
                 && source.pauseReasons().contains(KafkaPipelineSource.BUDGET_REASON));
     int delivered = recorder.records.size();
     assertThat(delivered).as("budget plus at most one poll").isBetween(10, 14);
-    Thread.sleep(1_500);
-    assertThat(recorder.records).as("no fetching while paused").hasSize(delivered);
+    await()
+        .during(Duration.ofMillis(1_500))
+        .atMost(TIMEOUT)
+        .alias("no fetching while paused")
+        .until(() -> recorder.records.size() == delivered);
 
     // Completing everything delivered so far frees the budget; from then on, complete on arrival.
     recorder.onRecord = SourceRecord::complete;
@@ -174,8 +183,7 @@ class KafkaPipelineSourceIntegrationTest {
     source.pause("breaker:search-eu");
     await().atMost(TIMEOUT).until(source::isConsumerPaused);
     produce(topic, 0, 5, 10);
-    Thread.sleep(1_500);
-    assertThat(recorder.records).isEmpty();
+    await().during(Duration.ofMillis(1_500)).atMost(TIMEOUT).until(recorder.records::isEmpty);
     assertThatThrownBy(() -> source.resume(KafkaPipelineSource.BUDGET_REASON))
         .isInstanceOf(IllegalArgumentException.class);
 
@@ -232,9 +240,11 @@ class KafkaPipelineSourceIntegrationTest {
     await()
         .atMost(TIMEOUT)
         .until(() -> source.pauseReasons().contains(KafkaPipelineSource.STOPPING_REASON));
-    Thread.sleep(300);
-    assertThat(stopper.isAlive()).as("waits for in-flight records").isTrue();
-    assertThat(committed(groupOf(topic), topic, 0)).as("nothing committed yet").isLessThan(1);
+    await()
+        .during(Duration.ofMillis(300))
+        .atMost(TIMEOUT)
+        .alias("waits for in-flight records, nothing committed yet")
+        .until(() -> stopper.isAlive() && committed(groupOf(topic), topic, 0) < 1);
     recorder.records.forEach(SourceRecord::complete);
     stopper.join(TIMEOUT.toMillis());
     assertThat(stopper.isAlive()).isFalse();
@@ -324,8 +334,11 @@ class KafkaPipelineSourceIntegrationTest {
 
     Thread stopper = Thread.ofVirtual().start(source::stop);
     try {
-      Thread.sleep(1_000);
-      assertThat(stopper.isAlive()).as("waits for the revoking consumer").isTrue();
+      await()
+          .during(Duration.ofSeconds(1))
+          .atMost(TIMEOUT)
+          .alias("waits for the revoking consumer")
+          .until(stopper::isAlive);
     } finally {
       releaseRevoke.countDown();
     }
@@ -412,8 +425,11 @@ class KafkaPipelineSourceIntegrationTest {
     await().atMost(TIMEOUT).until(() -> liveConsumerThreads("it-" + topic).isEmpty());
     // Nothing of this source consumes any more (the first consumer may have polled once).
     int delivered = recorder.records.size();
-    Thread.sleep(1_500);
-    assertThat(recorder.records).hasSize(delivered);
+    await()
+        .during(Duration.ofMillis(1_500))
+        .atMost(TIMEOUT)
+        .alias("nothing of this source consumes any more")
+        .until(() -> recorder.records.size() == delivered);
     // close() has returned, but the broker's view of the leave is not ordered with it (#256, #259).
     await()
         .atMost(TIMEOUT)

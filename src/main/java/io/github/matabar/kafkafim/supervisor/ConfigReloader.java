@@ -183,7 +183,7 @@ final class ConfigReloader implements SmartLifecycle {
       List<String> retried;
       try {
         retried = supervisor.apply(next, diff);
-      } catch (RuntimeException e) {
+      } catch (RuntimeException | Error e) {
         if (!supervisor.isRunning()) {
           throw e; // a shutdown began before apply took over: nothing was applied, no failure
         }

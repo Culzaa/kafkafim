@@ -408,6 +408,33 @@ class ConfigReloaderTest {
         .noneMatch(m -> m.contains("ignored"));
   }
 
+  /** An Error from apply (ADR-0041) is counted and logged like any failed reload, then rethrown. */
+  @Test
+  void errorWhileApplyingIsCountedAndLoggedAsFailedReload() {
+    final ConfigReloader reloader = start(A);
+    awaitSettled();
+    final KafkafimProperties running = supervisor.properties();
+    onDisk(A + B);
+    onAcquire =
+        () -> {
+          throw new NoClassDefFoundError("no client today");
+        };
+
+    List<ILoggingEvent> events =
+        watcherEvents(() ->
+            assertThatThrownBy(() -> reloader.reload("test"))
+                .isInstanceOf(NoClassDefFoundError.class));
+
+    assertThat(reloads("failure")).isEqualTo(1);
+    assertThat(reloads("success")).isZero();
+    assertThat(reloader.generation()).isEqualTo(1);
+    assertThat(supervisor.properties()).isSameAs(running);
+    assertThat(events)
+        .anyMatch(e ->
+            e.getLevel() == Level.ERROR
+                && e.getFormattedMessage().contains("failed while applying"));
+  }
+
   /** A shutdown during the reload applied nothing; the watcher says so at INFO. */
   @Test
   void watcherReportsShutdownAsNotApplied() {

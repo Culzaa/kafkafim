@@ -2,6 +2,15 @@
 {{- range $g, $group := .Values.groups }}
 {{- $name := include "kafkafim.groupName" (dict "root" $ "group" $g) }}
 {{- $selector := include "kafkafim.groupSelectorLabels" (dict "root" $ "group" $g) }}
+{{- /* A group's own value replaces the top-level one, even when empty ({}, []); only an absent or null key inherits. */}}
+{{- $affinity := $.Values.affinity }}
+{{- $nodeSelector := $.Values.nodeSelector }}
+{{- $tolerations := $.Values.tolerations }}
+{{- $resources := $.Values.resources }}
+{{- if and (hasKey $group "affinity") (not (kindIs "invalid" $group.affinity)) }}{{ $affinity = $group.affinity }}{{ end }}
+{{- if and (hasKey $group "nodeSelector") (not (kindIs "invalid" $group.nodeSelector)) }}{{ $nodeSelector = $group.nodeSelector }}{{ end }}
+{{- if and (hasKey $group "tolerations") (not (kindIs "invalid" $group.tolerations)) }}{{ $tolerations = $group.tolerations }}{{ end }}
+{{- if and (hasKey $group "resources") (not (kindIs "invalid" $group.resources)) }}{{ $resources = $group.resources }}{{ end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -37,6 +46,9 @@ spec:
     spec:
       serviceAccountName: {{ include "kafkafim.serviceAccountName" $ }}
       automountServiceAccountToken: false
+      # The per-group Services would inject KAFKAFIM_<GROUP>_PORT=tcp://... env vars that
+      # Boot's relaxed binding maps into kafkafim.<group>.*; the pods never use them.
+      enableServiceLinks: false
       terminationGracePeriodSeconds: {{ $.Values.terminationGracePeriodSeconds }}
       {{- with $.Values.image.pullSecrets }}
       imagePullSecrets:
@@ -47,7 +59,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       affinity:
-        {{- with ($group.affinity | default $.Values.affinity) }}
+        {{- with $affinity }}
         {{- toYaml . | nindent 8 }}
         {{- else }}
         podAntiAffinity:
@@ -70,11 +82,11 @@ spec:
           matchLabelKeys:
             - pod-template-hash
       {{- end }}
-      {{- with ($group.nodeSelector | default $.Values.nodeSelector) }}
+      {{- with $nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with ($group.tolerations | default $.Values.tolerations) }}
+      {{- with $tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -142,7 +154,7 @@ spec:
             periodSeconds: {{ $.Values.probes.readiness.periodSeconds }}
             failureThreshold: {{ $.Values.probes.readiness.failureThreshold }}
             timeoutSeconds: {{ $.Values.probes.readiness.timeoutSeconds }}
-          {{- with ($group.resources | default $.Values.resources) }}
+          {{- with $resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
