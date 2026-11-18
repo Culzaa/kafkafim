@@ -1,0 +1,228 @@
+package io.github.culzaa.kafkafim.supervisor;
+
+import io.github.culzaa.kafkafim.config.ElasticsearchCluster;
+import io.github.culzaa.kafkafim.config.KafkafimProperties;
+import io.github.culzaa.kafkafim.config.Pipeline;
+import io.github.culzaa.kafkafim.decode.DecodeSpec;
+import io.github.culzaa.kafkafim.decode.Decoder;
+import io.github.culzaa.kafkafim.decode.DocumentTransform;
+import io.github.culzaa.kafkafim.decode.StepRegistry;
+import io.github.culzaa.kafkafim.decode.TransformStepSpec;
+import io.github.culzaa.kafkafim.route.ConditionSpec;
+import io.github.culzaa.kafkafim.route.RouteMode;
+import io.github.culzaa.kafkafim.route.RouteSpec;
+import io.github.culzaa.kafkafim.route.Router;
+import io.github.culzaa.kafkafim.sink.es.SinkSettings;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import org.jspecify.annotations.Nullable;
+
+/**
+ * Maps the bound configuration of one pipeline onto the specs of the building blocks: {@link
+ * DecodeSpec}, {@link RouteSpec}/{@link ConditionSpec}, and one {@link SinkSettings} per bulk
+ * stream (DESIGN §4.2, §5.2, §5.3). Pure functions over a validated model; anything the building
+ * blocks would reject (or that would make Elasticsearch reject a whole bulk request) is reported as
+ * {@link IllegalArgumentException}, which the supervisor turns into {@code failed_preflight}.
+ */
+public final class PipelineMapping {
+
+  private PipelineMapping() {}
+
+  /**
+   * Compiles one pipeline.
+   *
+   * @param name pipeline name
+   * @param properties the whole validated configuration (for the Elasticsearch clusters)
+   * @return the compiled pipeline
+   * @throws IllegalArgumentException if the pipeline cannot run as configured
+   */
+  public static CompiledPipeline compile(String name, KafkafimProperties properties) {
+    return compile(name, properties, StepRegistry.BUILT_IN);
+  }
+
+  /**
+   * As {@link #compile(String, KafkafimProperties)}, with the transform ops of {@code steps}.
+   *
+   * @param steps the ops a route's {@code transform} can name
+   */
+  public static CompiledPipeline compile(
+      String name, KafkafimProperties properties, StepRegistry steps) {
+    Pipeline pipeline = properties.pipelines().get(name);
+    if (pipeline == null) {
+      throw new IllegalArgumentException("Unknown pipeline '" + name + "'");
+    }
+    Pipeline.Document document = pipeline.document();
+    if (document.op() == Pipeline.Op.CREATE && document.versionField() != null) {
+      // Elasticsearch rejects external versions on create for the whole bulk request (DESIGN §7).
+      throw new IllegalArgumentException(
+          "document.op 'create' cannot be combined with document.version-field");
+    }
+    Decoder decoder = Decoder.compile(decodeSpec(pipeline));
+    List<RouteSpec<RouteTarget>> routes = routeSpecs(pipeline, steps);
+    Router<RouteTarget> router = Router.compile(routeMode(pipeline.routeMode()), routes);
+    Map<RouteTarget.StreamKey, SinkSettings> streams = new LinkedHashMap<>();
+    for (RouteSpec<RouteTarget> route : routes) {
+      if (route.drop()) {
+        continue; // no cluster: nothing to open or check in preflight
+      }
+      RouteTarget target = route.target();
+      ElasticsearchCluster cluster = properties.elasticsearch().clusters().get(target.cluster());
+      if (cluster == null) {
+        throw new IllegalArgumentException(
+            "route "
+                + target.label()
+                + ": unknown Elasticsearch cluster '"
+                + target.cluster()
+                + "'");
+      }
+      streams.computeIfAbsent(target.stream(), k -> sinkSettings(cluster, pipeline));
+    }
+    return new CompiledPipeline(
+        name, pipeline, decoder, router, streams, document.op(), document.timestampField() != null);
+  }
+
+  /** {@code document} plus {@code source.max-record-bytes} as the decoder's spec. */
+  static DecodeSpec decodeSpec(Pipeline pipeline) {
+    Pipeline.Document document = pipeline.document();
+    return new DecodeSpec(
+        document.idField(),
+        switch (document.idMissing()) {
+          case DLQ -> DecodeSpec.IdMissing.DLQ;
+          case AUTO -> DecodeSpec.IdMissing.AUTO;
+        },
+        document.versionField(),
+        document.timestampField(),
+        document.timestampFormat(),
+        switch (document.onBadTimestamp()) {
+          case DLQ -> DecodeSpec.OnBadTimestamp.DLQ;
+          case INGEST_TIME -> DecodeSpec.OnBadTimestamp.INGEST_TIME;
+        },
+        pipeline.source().maxRecordBytes().toBytes());
+  }
+
+  /** {@code route-mode} as the router's mode. */
+  static RouteMode routeMode(Pipeline.RouteMode mode) {
+    return switch (mode) {
+      case FIRST -> RouteMode.FIRST;
+      case ALL -> RouteMode.ALL;
+    };
+  }
+
+  /**
+   * The routes, in configuration order, each with its {@link RouteTarget}; a drop route's target
+   * has only its label ({@link RouteTarget#drop}).
+   */
+  static List<RouteSpec<RouteTarget>> routeSpecs(Pipeline pipeline) {
+    return routeSpecs(pipeline, StepRegistry.BUILT_IN);
+  }
+
+  /**
+   * As {@link #routeSpecs(Pipeline)}, compiling each route's {@code transform} with {@code steps}.
+   */
+  static List<RouteSpec<RouteTarget>> routeSpecs(Pipeline pipeline, StepRegistry steps) {
+    List<RouteSpec<RouteTarget>> specs = new ArrayList<>(pipeline.routes().size());
+    for (int i = 0; i < pipeline.routes().size(); i++) {
+      Pipeline.Route route = pipeline.routes().get(i);
+      String label = route.label(i);
+      List<ConditionSpec> when = new ArrayList<>(route.when().size());
+      for (Pipeline.Condition condition : route.when()) {
+        when.add(condition(label, condition));
+      }
+      if (route.isDrop()) {
+        if (route.cluster() != null
+            || route.identity() != null
+            || route.index() != null
+            || route.pipeline() != null
+            || !route.transform().isEmpty()) {
+          throw new IllegalArgumentException(
+              "route "
+                  + label
+                  + ": drop: true takes no cluster, identity, index, pipeline or transform");
+        }
+        specs.add(RouteSpec.drop(RouteTarget.drop(label), when, route.isDefault()));
+        continue;
+      }
+      if (route.cluster() == null || route.index() == null) {
+        throw new IllegalArgumentException("route " + label + ": cluster and index are required");
+      }
+      if (route.pipeline() != null && route.pipeline().isBlank()) {
+        throw new IllegalArgumentException("route " + label + ": ingest pipeline name is blank");
+      }
+      specs.add(
+          new RouteSpec<>(
+              new RouteTarget(
+                  route.cluster(),
+                  route.identity(),
+                  route.pipeline(),
+                  label,
+                  transform(label, route.transform(), steps)),
+              when,
+              route.isDefault(),
+              route.index()));
+    }
+    return specs;
+  }
+
+  /**
+   * A route's {@code transform} as compiled steps, or {@code null} for none (the zero-copy path).
+   */
+  static @Nullable DocumentTransform transform(
+      String routeLabel, List<Pipeline.Step> steps, StepRegistry registry) {
+    List<TransformStepSpec> specs = new ArrayList<>(steps.size());
+    for (Pipeline.Step step : steps) {
+      if (step.op() == null) {
+        throw new IllegalArgumentException("route " + routeLabel + ": transform step has no op");
+      }
+      specs.add(
+          new TransformStepSpec(step.op(), step.field(), step.to(), step.value(), step.json()));
+    }
+    return DocumentTransform.compile(routeLabel, specs, registry);
+  }
+
+  /** One {@code when} entry as a condition spec. */
+  static ConditionSpec condition(String routeLabel, Pipeline.Condition c) {
+    if (c.topic() != null) {
+      return new ConditionSpec.TopicEquals(c.topic());
+    }
+    if (c.header() != null) {
+      if (c.equalTo() == null) {
+        throw new IllegalArgumentException(
+            "route " + routeLabel + ": header condition '" + c.header() + "' needs equals");
+      }
+      return new ConditionSpec.HeaderEquals(c.header(), c.equalTo());
+    }
+    if (c.field() != null) {
+      if (c.equalTo() != null) {
+        return new ConditionSpec.FieldEquals(c.field(), c.equalTo());
+      }
+      if (c.oneOf() != null) {
+        return new ConditionSpec.FieldIn(c.field(), c.oneOf());
+      }
+      if (c.exists() != null) {
+        return new ConditionSpec.FieldExists(c.field(), c.exists());
+      }
+      if (c.prefix() != null) {
+        return new ConditionSpec.FieldPrefix(c.field(), c.prefix());
+      }
+      if (c.matches() != null) {
+        return new ConditionSpec.FieldMatches(c.field(), c.matches());
+      }
+    }
+    throw new IllegalArgumentException(
+        "route " + routeLabel + ": condition has no usable subject and operator");
+  }
+
+  /**
+   * The cluster's bulk limits with the pipeline's {@code latency.max-age} override, poison bound
+   * and version-conflict policy.
+   */
+  static SinkSettings sinkSettings(ElasticsearchCluster cluster, Pipeline pipeline) {
+    return SinkSettings.of(
+        cluster.bulk(),
+        pipeline.latency().maxAge(),
+        pipeline.dlq(),
+        pipeline.document().onVersionConflict());
+  }
+}

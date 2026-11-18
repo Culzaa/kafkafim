@@ -1,0 +1,1291 @@
+package io.github.culzaa.kafkafim.supervisor;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import io.github.culzaa.kafkafim.config.KafkafimProperties;
+import io.github.culzaa.kafkafim.decode.StepRegistry;
+import io.github.culzaa.kafkafim.decode.TestSteps;
+import io.github.culzaa.kafkafim.dlq.DlqClosedException;
+import io.github.culzaa.kafkafim.dlq.DlqListener;
+import io.github.culzaa.kafkafim.dlq.DlqProducers;
+import io.github.culzaa.kafkafim.dlq.DlqRecordFormat;
+import io.github.culzaa.kafkafim.dlq.DlqRequest;
+import io.github.culzaa.kafkafim.dlq.DlqWriter;
+import io.github.culzaa.kafkafim.sink.es.ActionOutcome;
+import io.github.culzaa.kafkafim.sink.es.BulkAction;
+import io.github.culzaa.kafkafim.sink.es.SinkErrorType;
+import io.github.culzaa.kafkafim.telemetry.KafkafimMeters;
+import io.github.culzaa.kafkafim.telemetry.PipelineMeters;
+import io.github.culzaa.kafkafim.telemetry.PipelineSpec;
+import io.github.culzaa.kafkafim.telemetry.SourceProbe;
+import io.github.culzaa.kafkafim.telemetry.TelemetryNames;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.common.header.internals.RecordHeader;
+import org.apache.kafka.common.header.internals.RecordHeaders;
+import org.apache.kafka.common.record.TimestampType;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Record-completion accounting (DESIGN §4.3): a record completes only when every part (routed copy
+ * or dead-lettered document) is done, whatever order the outcomes arrive in, and never through a
+ * revoked partition or an unacknowledged DLQ send.
+ */
+class RecordProcessorTest {
+
+  private static final Instant NOW = Instant.parse("2026-11-08T12:00:00Z");
+
+  /** 2026-03-04T05:06:07Z, the Kafka timestamp of every test record. */
+  private static final long RECORD_TS = Instant.parse("2026-03-04T05:06:07Z").toEpochMilli();
+
+  private static final String FAN_OUT =
+      """
+      p:
+        source: { cluster: k, topics: [t], max-record-bytes: 1KB }
+        route-mode: all
+        routes:
+          - when: [ { field: /region, equals: eu } ]
+            cluster: es
+            index: "eu-%{+yyyy.MM.dd}"
+          - when: [ { field: /copy, exists: true } ]
+            cluster: es2
+            index: "copy-%{tenant}"
+            pipeline: enrich
+      """;
+
+  private static final RouteTarget.StreamKey ES = new RouteTarget.StreamKey("es", "writer");
+  private static final RouteTarget.StreamKey ES2 = new RouteTarget.StreamKey("es2", null);
+
+  private final Map<RouteTarget.StreamKey, FakeSink> sinks = new LinkedHashMap<>();
+  private final List<Sent> dlq = new ArrayList<>();
+  private RecordProcessor processor = processor(FAN_OUT);
+
+  private record Sent(DlqRequest request, CompletableFuture<Object> future) {
+    void ack() {
+      future.complete(new Object());
+    }
+  }
+
+  private static final class FakeSink implements RecordProcessor.ActionSink {
+    final List<BulkAction<RecordProcessor.DocumentRef>> actions = new ArrayList<>();
+    int flushes;
+
+    @Override
+    public void submit(BulkAction<RecordProcessor.DocumentRef> action) {
+      actions.add(action);
+    }
+
+    @Override
+    public void flush() {
+      flushes++;
+    }
+  }
+
+  /** Mirrors {@code SourceRecord}'s part counting and abandonment. */
+  private static final class FakeRecord implements InboundRecord {
+    private final ConsumerRecord<byte[], byte[]> record;
+    private final boolean oversize;
+    private Integer expected;
+    private int completed;
+    private boolean abandoned;
+
+    FakeRecord(ConsumerRecord<byte[], byte[]> record, boolean oversize) {
+      this.record = record;
+      this.oversize = oversize;
+    }
+
+    @Override
+    public ConsumerRecord<byte[], byte[]> record() {
+      return record;
+    }
+
+    @Override
+    public boolean oversize() {
+      return oversize;
+    }
+
+    @Override
+    public void expectParts(int parts) {
+      if (expected != null || completed > 0) {
+        throw new IllegalStateException("parts already declared");
+      }
+      expected = parts;
+    }
+
+    @Override
+    public void complete() {
+      if (!abandoned && !isComplete()) {
+        completed++;
+      }
+    }
+
+    @Override
+    public boolean isAbandoned() {
+      return abandoned;
+    }
+
+    boolean isComplete() {
+      return expected == null ? completed >= 1 : completed >= expected;
+    }
+
+    void revoke() {
+      if (!isComplete()) {
+        abandoned = true;
+      }
+    }
+  }
+
+  private RecordProcessor processor(String pipelines) {
+    return processor(pipelines, PipelineMeters.NOOP);
+  }
+
+  private RecordProcessor processor(String pipelines, PipelineMeters meters) {
+    return processor(pipelines, meters, StepRegistry.BUILT_IN);
+  }
+
+  private RecordProcessor processor(String pipelines, PipelineMeters meters, StepRegistry steps) {
+    CompiledPipeline compiled =
+        PipelineMapping.compile("p", TestConfigs.withPipelines(pipelines), steps);
+    sinks.clear();
+    for (RouteTarget.StreamKey key : compiled.streams().keySet()) {
+      sinks.put(key, new FakeSink());
+    }
+    return new RecordProcessor(
+        compiled,
+        sinks::get,
+        request -> {
+          Sent sent = new Sent(request, new CompletableFuture<>());
+          dlq.add(sent);
+          return sent.future();
+        },
+        Clock.fixed(NOW, ZoneOffset.UTC),
+        meters);
+  }
+
+  private static FakeRecord record(String value) {
+    return record(value, new RecordHeaders(), RECORD_TS, false);
+  }
+
+  private static FakeRecord record(
+      String value, RecordHeaders headers, long timestamp, boolean oversize) {
+    return new FakeRecord(
+        new ConsumerRecord<>(
+            "t",
+            2,
+            41,
+            timestamp,
+            TimestampType.CREATE_TIME,
+            1,
+            value == null ? -1 : value.length(),
+            "k".getBytes(StandardCharsets.UTF_8),
+            value == null ? null : value.getBytes(StandardCharsets.UTF_8),
+            headers,
+            Optional.empty()),
+        oversize);
+  }
+
+  private List<BulkAction<RecordProcessor.DocumentRef>> actions(RouteTarget.StreamKey key) {
+    return sinks.get(key).actions;
+  }
+
+  private void ack(BulkAction<RecordProcessor.DocumentRef> action) {
+    processor.onOutcome(action, ActionOutcome.INDEXED);
+  }
+
+  @Test
+  void documentsAreCountedPerRouteAndOutcomeWithTheirEndToEndLatency() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    try (KafkafimMeters meters = new KafkafimMeters(registry)) {
+      meters.sync(
+          Map.of(
+              "p",
+              new PipelineSpec(
+                  "k", List.of("t"), List.of("0", "1"), Set.of("es", "es2"), SourceProbe.NONE)),
+          Set.of("es", "es2"),
+          cluster -> null);
+      processor = processor(FAN_OUT, meters.pipeline("p"));
+
+      FakeRecord both = record("{\"id\":\"a\",\"region\":\"eu\",\"copy\":1,\"tenant\":\"x\"}");
+      FakeRecord broken = record("not json");
+      processor.process(List.of(both, broken));
+      processor.onOutcome(actions(ES).getFirst(), ActionOutcome.INDEXED);
+      processor.onOutcome(
+          actions(ES2).getFirst(),
+          new ActionOutcome.Dlq(SinkErrorType.ES_ERROR, "{}", 400, 1, NOW));
+      dlq.forEach(Sent::ack);
+
+      assertThat(docs(registry, "0", "indexed")).isOne();
+      assertThat(docs(registry, "1", "dlq")).isOne();
+      assertThat(docs(registry, TelemetryNames.NO_ROUTE, "dlq")).isOne();
+      assertThat(docs(registry, "1", "indexed")).isZero();
+      Timer e2e = registry.get(TelemetryNames.E2E_LATENCY).tag("pipeline", "p").timer();
+      assertThat(e2e.count()).isOne(); // only Elasticsearch acknowledgements
+      assertThat(e2e.max(TimeUnit.MILLISECONDS))
+          .isEqualTo((double) (NOW.toEpochMilli() - RECORD_TS));
+      assertThat(both.isComplete()).isTrue();
+      assertThat(broken.isComplete()).isTrue();
+    }
+  }
+
+  /**
+   * Cardinality bound (#328, DESIGN §10): tag values come from the configuration, never from a
+   * document. The routes here name an index from a document field ({@code copy-%{tenant}}); however
+   * many distinct documents come in, the {@code route} labels stay the configured ones.
+   */
+  @Test
+  void documentContentNeverReachesTagValues() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    try (KafkafimMeters meters = new KafkafimMeters(registry)) {
+      meters.sync(
+          Map.of(
+              "p",
+              new PipelineSpec(
+                  "k", List.of("t"), List.of("0", "1"), Set.of("es", "es2"), SourceProbe.NONE)),
+          Set.of("es", "es2"),
+          cluster -> null);
+      processor = processor(FAN_OUT, meters.pipeline("p"));
+
+      List<FakeRecord> records = new ArrayList<>();
+      for (int i = 0; i < 25; i++) {
+        records.add(
+            record(
+                "{\"id\":\"doc-%d\",\"region\":\"eu\",\"copy\":%d,\"tenant\":\"tenant-%d\"}"
+                    .formatted(i, i, i)));
+        records.add(record("not json " + i));
+      }
+      processor.process(records);
+      sinks.values().forEach(sink -> sink.actions.forEach(this::ack));
+      dlq.forEach(Sent::ack);
+
+      Map<String, Set<String>> values = new LinkedHashMap<>();
+      registry
+          .getMeters()
+          .forEach(meter ->
+              meter
+                  .getId()
+                  .getTags()
+                  .forEach(tag ->
+                      values
+                          .computeIfAbsent(tag.getKey(), k -> new java.util.TreeSet<>())
+                          .add(tag.getValue())));
+      assertThat(values.get("route")).containsExactlyInAnyOrder("0", "1", "none");
+      assertThat(values.get("topic")).containsExactly("t");
+      assertThat(values.get("pipeline")).containsExactly("p");
+      assertThat(values.get("kafka_cluster")).containsExactly("k");
+      assertThat(values.get("es_cluster")).isSubsetOf("es", "es2", "none");
+      assertThat(values.get("identity")).isSubsetOf("none", "writer");
+      assertThat(values.keySet())
+          .as("a new tag key needs its value source audited (DESIGN §10)")
+          .isSubsetOf(
+              "pipeline",
+              "kafka_cluster",
+              "topic",
+              "route",
+              "outcome",
+              "es_cluster",
+              "identity",
+              "reason",
+              "le"); // the bucket bound of a histogram, not a value of ours
+    }
+  }
+
+  private static double docs(SimpleMeterRegistry registry, String route, String outcome) {
+    return registry
+        .get(TelemetryNames.DOCS)
+        .tags("pipeline", "p", "kafka_cluster", "k", "route", route, "outcome", outcome)
+        .counter()
+        .count();
+  }
+
+  @Test
+  void objectRecordCompletesWhenItsActionIsAcked() {
+    FakeRecord r = record("{\"id\":\"a1\",\"region\":\"eu\"}");
+    processor.process(List.of(r));
+
+    assertThat(actions(ES))
+        .singleElement()
+        .satisfies(a -> {
+          assertThat(a.index()).isEqualTo("eu-2026.03.04"); // ingest time: the record timestamp
+          assertThat(a.id()).isEqualTo("a1");
+          assertThat(new String(a.source(), StandardCharsets.UTF_8))
+              .isEqualTo("{\"id\":\"a1\",\"region\":\"eu\"}");
+          assertThat(a.ingestPipeline()).isNull();
+          assertThat(a.handle().docIndex()).isNull();
+        });
+    assertThat(r.isComplete()).isFalse();
+    ack(actions(ES).get(0));
+    assertThat(r.isComplete()).isTrue();
+    assertThat(dlq).isEmpty();
+  }
+
+  @Test
+  void arrayRecordCompletesOnlyWhenEveryDocumentIsAckedInAnyOrder() {
+    FakeRecord r =
+        record(
+            "[{\"id\":1,\"region\":\"eu\"},"
+                + "{\"id\":2,\"region\":\"eu\"},"
+                + "{\"id\":3,\"region\":\"eu\"}]");
+    processor.process(List.of(r));
+
+    List<BulkAction<RecordProcessor.DocumentRef>> actions = actions(ES);
+    assertThat(actions).extracting(BulkAction::id).containsExactly("1", "2", "3");
+    assertThat(actions).extracting(a -> a.handle().docIndex()).containsExactly(0, 1, 2);
+    ack(actions.get(2));
+    ack(actions.get(0));
+    assertThat(r.isComplete()).isFalse();
+    ack(actions.get(1));
+    assertThat(r.isComplete()).isTrue();
+  }
+
+  @Test
+  void emptyArrayCompletesAtOnce() {
+    FakeRecord r = record("[]");
+    processor.process(List.of(r));
+    assertThat(r.isComplete()).isTrue();
+    assertThat(actions(ES)).isEmpty();
+    assertThat(dlq).isEmpty();
+  }
+
+  @Test
+  void fanOutCopiesAreSeparatePartsOnTheirStreams() {
+    FakeRecord r = record("{\"id\":\"x\",\"region\":\"eu\",\"copy\":true,\"tenant\":\"ACME\"}");
+    processor.process(List.of(r));
+
+    assertThat(actions(ES))
+        .singleElement()
+        .extracting(BulkAction::index)
+        .isEqualTo("eu-2026.03.04");
+    assertThat(actions(ES2))
+        .singleElement()
+        .satisfies(a -> {
+          assertThat(a.index()).isEqualTo("copy-acme");
+          assertThat(a.ingestPipeline()).isEqualTo("enrich");
+          assertThat(a.handle().target()).isEqualTo(new RouteTarget("es2", null, "enrich", "1"));
+        });
+    // Both copies share one byte array: one copy of the source per document.
+    assertThat(actions(ES).get(0).source()).isSameAs(actions(ES2).get(0).source());
+    ack(actions(ES2).get(0));
+    assertThat(r.isComplete()).isFalse();
+    ack(actions(ES).get(0));
+    assertThat(r.isComplete()).isTrue();
+  }
+
+  @Test
+  void mixedDecodeRouteAndIndexFailuresAreDeadLetteredWithDocIndexWhileSiblingsIndex() {
+    FakeRecord r =
+        record(
+            "["
+                + "{\"id\":\"ok\",\"region\":\"eu\"}," // 0: indexed
+                + "42," // 1: decode
+                + "{\"region\":\"eu\"}," // 2: missing_id
+                + "{\"id\":\"lost\"}," // 3: no_route (no route matches, no default)
+                + "{\"id\":\"half\",\"region\":\"eu\",\"copy\":1}" // 4: eu indexed, copy unresolved
+                + "]");
+    processor.process(List.of(r));
+
+    assertThat(actions(ES)).extracting(BulkAction::id).containsExactly("ok", "half");
+    assertThat(actions(ES2)).isEmpty();
+    assertThat(dlq)
+        .extracting(s -> s.request().errorType(), s -> s.request().docIndex())
+        .containsExactly(
+            org.assertj.core.groups.Tuple.tuple("decode", 1),
+            org.assertj.core.groups.Tuple.tuple("missing_id", 2),
+            org.assertj.core.groups.Tuple.tuple("no_route", 3),
+            org.assertj.core.groups.Tuple.tuple("unresolved_index", 4));
+    DlqRequest unresolved = dlq.get(3).request();
+    assertThat(unresolved.targetCluster()).isEqualTo("es2");
+    assertThat(unresolved.targetIndex()).isNull();
+    assertThat(unresolved.reason()).contains("tenant").contains("missing");
+    assertThat(dlq.get(2).request().targetCluster()).isNull();
+
+    // 6 parts: 2 actions + 4 DLQ records.
+    actions(ES).forEach(this::ack);
+    dlq.get(0).ack();
+    dlq.get(1).ack();
+    dlq.get(2).ack();
+    assertThat(r.isComplete()).isFalse();
+    dlq.get(3).ack();
+    assertThat(r.isComplete()).isTrue();
+  }
+
+  /**
+   * Routing comes before the id, version and timestamp checks, but while every route indexes an
+   * extraction problem is still one DLQ part per document, with the same {@code error.type}, no
+   * target and the {@code none} route label, however many routes the document matched.
+   */
+  @ParameterizedTest(name = "route-mode: {0}")
+  @ValueSource(strings = {"first", "all"})
+  void extractionErrorsAreOneDeadLetterPerDocumentWhateverTheRoutes(String mode) {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    try (KafkafimMeters meters = new KafkafimMeters(registry)) {
+      meters.sync(
+          Map.of(
+              "p",
+              new PipelineSpec(
+                  "k",
+                  List.of("t"),
+                  List.of("0", "1", "2"),
+                  Set.of("es", "es2"),
+                  SourceProbe.NONE)),
+          Set.of("es", "es2"),
+          cluster -> null);
+      processor =
+          processor(
+              """
+              p:
+                source: { cluster: k, topics: [t], max-record-bytes: 1KB }
+                route-mode: %s
+                document: { timestamp-field: /ts, version-field: /v }
+                routes:
+                  - when: [ { field: /region, equals: eu } ]
+                    cluster: es
+                    index: "eu-%%{+yyyy.MM.dd}"
+                  - when: [ { field: /copy, exists: true } ]
+                    cluster: es2
+                    index: "copy-%%{tenant}"
+                  - { default: true, cluster: es, index: other }
+              """
+                  .formatted(mode),
+              meters.pipeline("p"));
+
+      // Every element matches both conditional routes (two copies in `all`) and has a problem,
+      // except 0, which is indexed so the record has a sibling to wait for.
+      String both = "\"region\":\"eu\",\"copy\":1,\"tenant\":\"x\"";
+      FakeRecord r =
+          record(
+              "["
+                  + "{\"id\":\"ok\",\"v\":1,\"ts\":\"2026-01-02T03:04:05Z\","
+                  + both
+                  + "}," // 0: indexed
+                  + "{\"v\":1,\"ts\":\"2026-01-02T03:04:05Z\","
+                  + both
+                  + "}," // 1: missing_id
+                  + "{\"id\":\"b\",\"ts\":\"2026-01-02T03:04:05Z\","
+                  + both
+                  + "}," // 2: decode (no version)
+                  + "{\"id\":\"c\",\"v\":1,\"ts\":\"yesterday\","
+                  + both
+                  + "}," // 3: bad_timestamp
+                  + "{\"v\":1,\"ts\":\"2026-01-02T03:04:05Z\"}" // 4: missing_id, default route
+                  + "]");
+      processor.process(List.of(r));
+
+      int copies = mode.equals("all") ? 2 : 1;
+      assertThat(r.expected).isEqualTo(copies + 4);
+      assertThat(actions(ES)).extracting(BulkAction::id).containsExactly("ok");
+      assertThat(actions(ES2)).hasSize(copies - 1);
+      assertThat(dlq)
+          .extracting(
+              s -> s.request().errorType(),
+              s -> s.request().docIndex(),
+              s -> s.request().targetCluster())
+          .containsExactly(
+              org.assertj.core.groups.Tuple.tuple("missing_id", 1, null),
+              org.assertj.core.groups.Tuple.tuple("decode", 2, null),
+              org.assertj.core.groups.Tuple.tuple("bad_timestamp", 3, null),
+              org.assertj.core.groups.Tuple.tuple("missing_id", 4, null));
+      assertThat(dlq.get(1).request().reason()).isEqualTo("version at /v is missing");
+
+      dlq.forEach(Sent::ack);
+      assertThat(r.isComplete()).isFalse();
+      actions(ES).forEach(this::ack);
+      actions(ES2).forEach(this::ack);
+      assertThat(r.isComplete()).isTrue();
+      assertThat(docs(registry, TelemetryNames.NO_ROUTE, "dlq")).isEqualTo(4);
+      assertThat(docs(registry, "0", "dlq")).isZero();
+      assertThat(docs(registry, "1", "dlq")).isZero();
+      assertThat(docs(registry, "2", "dlq")).isZero();
+    }
+  }
+
+  /** Drops debug documents, indexes the rest; ids, versions and timestamps are required. */
+  private static final String DROP_DEBUG =
+      """
+      p:
+        source: { cluster: k, topics: [t], max-record-bytes: 1KB }
+        route-mode: %s
+        document: { id-field: /id, timestamp-field: /ts, version-field: /v }
+        routes:
+          - { name: debug, when: [ { field: /level, equals: debug } ], drop: true }
+          - name: logs
+            when: [ { field: /level, exists: true } ]
+            cluster: es
+            index: logs
+          - { default: true, cluster: es, index: other }
+      """;
+
+  private RecordProcessor dropProcessor(String mode, KafkafimMeters meters) {
+    meters.sync(
+        Map.of(
+            "p",
+            new PipelineSpec(
+                "k", List.of("t"), List.of("debug", "logs", "2"), Set.of("es"), SourceProbe.NONE)),
+        Set.of("es"),
+        cluster -> null);
+    return processor(DROP_DEBUG.formatted(mode), meters.pipeline("p"));
+  }
+
+  @ParameterizedTest(name = "route-mode: {0}")
+  @ValueSource(strings = {"first", "all"})
+  void recordWhoseDocumentsAllDropCompletesAtOnce(String mode) {
+    SimpleMeterRegistry dropRegistry = new SimpleMeterRegistry();
+    try (KafkafimMeters meters = new KafkafimMeters(dropRegistry)) {
+      processor = dropProcessor(mode, meters);
+      FakeRecord object = record("{\"level\":\"debug\"}");
+      FakeRecord array = record("[{\"level\":\"debug\"},{\"level\":\"debug\",\"id\":1}]");
+      processor.process(List.of(object, array));
+
+      assertThat(object.expected).isOne();
+      assertThat(array.expected).isEqualTo(2);
+      assertThat(object.isComplete()).isTrue();
+      assertThat(array.isComplete()).isTrue();
+      assertThat(actions(ES)).isEmpty();
+      assertThat(dlq).isEmpty();
+      assertThat(docs(dropRegistry, "debug", "dropped")).isEqualTo(3);
+      assertThat(docs(dropRegistry, "logs", "dropped")).isZero();
+    }
+  }
+
+  @Test
+  void arrayElementsDropOneByOneWhileTheRestGoAhead() {
+    SimpleMeterRegistry dropRegistry = new SimpleMeterRegistry();
+    try (KafkafimMeters meters = new KafkafimMeters(dropRegistry)) {
+      processor = dropProcessor("first", meters);
+      String ok = "\"v\":1,\"ts\":\"2026-01-02T03:04:05Z\"";
+      FakeRecord r =
+          record(
+              "["
+                  + "{\"level\":\"debug\"}," // 0: dropped
+                  + "{\"id\":\"a\",\"level\":\"info\","
+                  + ok
+                  + "}," // 1: indexed
+                  + "7," // 2: decode
+                  + "{\"level\":\"debug\",\"id\":\"b\"}," // 3: dropped
+                  + "{\"level\":\"info\","
+                  + ok
+                  + "}" // 4: missing_id
+                  + "]");
+      processor.process(List.of(r));
+
+      assertThat(r.expected).isEqualTo(5);
+      assertThat(actions(ES)).extracting(BulkAction::id).containsExactly("a");
+      assertThat(dlq)
+          .extracting(sent -> sent.request().errorType(), sent -> sent.request().docIndex())
+          .containsExactly(
+              org.assertj.core.groups.Tuple.tuple("decode", 2),
+              org.assertj.core.groups.Tuple.tuple("missing_id", 4));
+      assertThat(docs(dropRegistry, "debug", "dropped")).isEqualTo(2);
+      ack(actions(ES).getFirst());
+      dlq.getFirst().ack();
+      assertThat(r.isComplete()).isFalse();
+      dlq.get(1).ack();
+      assertThat(r.isComplete()).isTrue();
+    }
+  }
+
+  /**
+   * A drop route decides before the id, version and timestamp checks (ADR-0037, part 1 in #63): a
+   * dropped document with none of them is not dead-lettered. In {@code all} mode the drop cancels
+   * the copy the {@code logs} route would have made.
+   */
+  @ParameterizedTest(name = "route-mode: {0}")
+  @ValueSource(strings = {"first", "all"})
+  void droppedDocumentSkipsTheIdVersionAndTimestampChecks(String mode) {
+    SimpleMeterRegistry dropRegistry = new SimpleMeterRegistry();
+    try (KafkafimMeters meters = new KafkafimMeters(dropRegistry)) {
+      processor = dropProcessor(mode, meters);
+      FakeRecord r = record("[{\"level\":\"debug\",\"ts\":\"yesterday\"},{\"level\":\"debug\"}]");
+      processor.process(List.of(r));
+
+      assertThat(r.isComplete()).isTrue();
+      assertThat(dlq).isEmpty();
+      assertThat(actions(ES)).isEmpty();
+      assertThat(docs(dropRegistry, "debug", "dropped")).isEqualTo(2);
+    }
+  }
+
+  @Test
+  void decodeFailuresStillGoToTheDlqWhenEverythingWouldDrop() {
+    processor =
+        processor(
+            """
+            p:
+              source: { cluster: k, topics: [t], max-record-bytes: 1KB }
+              routes:
+                - { default: true, drop: true }
+            """);
+    FakeRecord broken = record("not json");
+    FakeRecord scalar = record("42");
+    FakeRecord tombstone = record(null);
+    FakeRecord oversize = record("{}", new RecordHeaders(), RECORD_TS, true);
+    FakeRecord element = record("[{},true]");
+    processor.process(List.of(broken, scalar, tombstone, oversize, element));
+
+    assertThat(dlq)
+        .extracting(sent -> sent.request().errorType())
+        .containsExactly("decode", "decode", "decode", "decode", "decode");
+    assertThat(sinks).isEmpty();
+    assertThat(element.expected).isEqualTo(2);
+    assertThat(element.isComplete()).isFalse(); // the dropped {} is done; true waits for its ack
+    dlq.forEach(Sent::ack);
+    assertThat(List.of(broken, scalar, tombstone, oversize, element))
+        .allMatch(FakeRecord::isComplete);
+  }
+
+  @Test
+  void extractionErrorWinsOverNoRoute() {
+    FakeRecord r = record("[{\"region\":\"us\"},{\"id\":\"lost\"}]");
+    processor.process(List.of(r));
+
+    assertThat(r.expected).isEqualTo(2);
+    assertThat(dlq)
+        .extracting(s -> s.request().errorType(), s -> s.request().docIndex())
+        .containsExactly(
+            org.assertj.core.groups.Tuple.tuple("missing_id", 0),
+            org.assertj.core.groups.Tuple.tuple("no_route", 1));
+  }
+
+  @Test
+  void deadLetterRequestCarriesTheOriginalRecord() {
+    RecordHeaders headers = new RecordHeaders();
+    headers.add(new RecordHeader("trace", "t1".getBytes(StandardCharsets.UTF_8)));
+    FakeRecord r = record("{\"id\":\"a\"}", headers, RECORD_TS, false);
+    processor.process(List.of(r));
+
+    DlqRequest request = dlq.get(0).request();
+    assertThat(request.errorType()).isEqualTo("no_route");
+    assertThat(request.sourceTopic()).isEqualTo("t");
+    assertThat(request.sourcePartition()).isEqualTo(2);
+    assertThat(request.sourceOffset()).isEqualTo(41);
+    assertThat(request.sourceTimestamp()).isEqualTo(Instant.ofEpochMilli(RECORD_TS));
+    assertThat(request.key()).isEqualTo("k".getBytes(StandardCharsets.UTF_8));
+    assertThat(request.value()).isEqualTo("{\"id\":\"a\"}".getBytes(StandardCharsets.UTF_8));
+    assertThat(request.headers()).extracting(h -> h.key()).containsExactly("trace");
+    assertThat(request.attempts()).isEqualTo(1);
+    assertThat(request.firstFailure()).isEqualTo(NOW);
+    assertThat(request.docIndex()).isNull(); // an object record has no doc-index
+  }
+
+  @Test
+  void undecodableRecordIsOneDeadLetterWithoutDocIndex() {
+    FakeRecord r = record("{not json");
+    processor.process(List.of(r));
+    assertThat(dlq)
+        .singleElement()
+        .satisfies(s -> {
+          assertThat(s.request().errorType()).isEqualTo("decode");
+          assertThat(s.request().docIndex()).isNull();
+        });
+    assertThat(r.isComplete()).isFalse();
+    dlq.get(0).ack();
+    assertThat(r.isComplete()).isTrue();
+  }
+
+  @Test
+  void tombstoneIsDeadLettered() {
+    FakeRecord r = record(null);
+    processor.process(List.of(r));
+    assertThat(dlq)
+        .singleElement()
+        .satisfies(s -> {
+          assertThat(s.request().errorType()).isEqualTo("decode");
+          assertThat(s.request().value()).isNull();
+        });
+  }
+
+  @Test
+  void oversizeRecordIsDeadLetteredWithoutDecoding() {
+    // Valid JSON, but flagged oversize by the source: it must not be decoded or indexed.
+    FakeRecord r =
+        record("{\"id\":\"big\",\"region\":\"eu\"}", new RecordHeaders(), RECORD_TS, true);
+    processor.process(List.of(r));
+    assertThat(actions(ES)).isEmpty();
+    assertThat(dlq)
+        .singleElement()
+        .satisfies(s -> {
+          assertThat(s.request().errorType()).isEqualTo("decode");
+          assertThat(s.request().reason()).contains("max-record-bytes 1024");
+        });
+    dlq.get(0).ack();
+    assertThat(r.isComplete()).isTrue();
+  }
+
+  @Test
+  void sinkDeadLetterCompletesOnlyAfterTheDlqAck() {
+    FakeRecord r = record("[{\"id\":1,\"region\":\"eu\"},{\"id\":2,\"region\":\"eu\"}]");
+    processor.process(List.of(r));
+    BulkAction<RecordProcessor.DocumentRef> second = actions(ES).get(1);
+    Instant first = Instant.parse("2026-11-08T11:00:00Z");
+    processor.onOutcome(
+        second,
+        new ActionOutcome.Dlq(SinkErrorType.ES_ERROR, "{\"type\":\"mapper\"}", 400, 2, first));
+    ack(actions(ES).get(0));
+
+    assertThat(dlq)
+        .singleElement()
+        .satisfies(s -> {
+          DlqRequest req = s.request();
+          assertThat(req.errorType()).isEqualTo("es_error");
+          assertThat(req.reason()).isEqualTo("{\"type\":\"mapper\"}");
+          assertThat(req.targetCluster()).isEqualTo("es");
+          assertThat(req.targetIndex()).isEqualTo("eu-2026.03.04");
+          assertThat(req.attempts()).isEqualTo(2);
+          assertThat(req.firstFailure()).isEqualTo(first);
+          assertThat(req.docIndex()).isEqualTo(1);
+        });
+    assertThat(r.isComplete()).isFalse();
+    dlq.get(0).ack();
+    assertThat(r.isComplete()).isTrue();
+  }
+
+  @Test
+  void staleCountsAsDone() {
+    FakeRecord r = record("{\"id\":1,\"region\":\"eu\"}");
+    processor.process(List.of(r));
+    processor.onOutcome(actions(ES).get(0), new ActionOutcome.Stale("{}"));
+    assertThat(r.isComplete()).isTrue();
+  }
+
+  @Test
+  void tooLargeWithZeroAttemptsStillBuildsValidRequest() {
+    FakeRecord r = record("{\"id\":1,\"region\":\"eu\"}");
+    processor.process(List.of(r));
+    processor.onOutcome(
+        actions(ES).get(0), new ActionOutcome.Dlq(SinkErrorType.TOO_LARGE, "413", 413, 0, NOW));
+    assertThat(dlq)
+        .singleElement()
+        .satisfies(s -> {
+          assertThat(s.request().errorType()).isEqualTo("too_large");
+          assertThat(s.request().attempts()).isEqualTo(1);
+        });
+  }
+
+  @Test
+  void dlqClosedAtShutdownLeavesTheRecordIncomplete() {
+    FakeRecord r = record("{\"id\":\"a\"}");
+    processor.process(List.of(r));
+    dlq.get(0).future().completeExceptionally(dlqClosed(dlq.get(0).request()));
+    assertThat(r.isComplete()).isFalse();
+  }
+
+  /** The exception a real DLQ writer fails a send with once the producers are closed. */
+  private static Throwable dlqClosed(DlqRequest request) {
+    KafkafimProperties local =
+        TestConfigs.bind(
+            """
+            kafkafim:
+              kafka:
+                clusters:
+                  k: { bootstrap-servers: ["127.0.0.1:9"] }
+              pipelines:
+                p:
+                  source: { cluster: k, topics: [t] }
+                  routes: [ { default: true, cluster: es, index: i } ]
+            """);
+    DlqProducers producers = new DlqProducers(local, DlqListener.NONE);
+    DlqWriter writer = producers.writer("p");
+    producers.close();
+    Throwable closed = writer.send(request).exceptionNow();
+    assertThat(closed).isInstanceOf(DlqClosedException.class);
+    return closed;
+  }
+
+  @Test
+  void revokedPartitionIgnoresLateOutcomesAndSkipsDeadLetters() {
+    FakeRecord r = record("[{\"id\":1,\"region\":\"eu\"},{\"id\":2,\"region\":\"eu\"}]");
+    processor.process(List.of(r));
+    ack(actions(ES).get(0));
+    r.revoke();
+    processor.onOutcome(
+        actions(ES).get(1), new ActionOutcome.Dlq(SinkErrorType.ES_ERROR, "x", 400, 1, NOW));
+    assertThat(dlq).isEmpty(); // the next owner re-reads and dead-letters it
+    ack(actions(ES).get(1));
+    assertThat(r.isComplete()).isFalse();
+    assertThat(r.isAbandoned()).isTrue();
+  }
+
+  @Test
+  void recordAbandonedOnArrivalIsSkipped() {
+    FakeRecord r = record("{\"id\":1,\"region\":\"eu\"}");
+    r.revoke();
+    processor.process(List.of(r));
+    assertThat(actions(ES)).isEmpty();
+    assertThat(dlq).isEmpty();
+  }
+
+  @Test
+  void refusedDlqSendLeavesTheRecordIncomplete() {
+    CompiledPipeline compiled = PipelineMapping.compile("p", TestConfigs.withPipelines(FAN_OUT));
+    RecordProcessor refusing =
+        new RecordProcessor(
+            compiled,
+            k -> new FakeSink(),
+            request -> {
+              throw new IllegalStateException("DLQ producers are closed");
+            },
+            Clock.systemUTC());
+    FakeRecord r = record("{\"id\":\"a\"}");
+    Logger logger = (Logger) LoggerFactory.getLogger(RecordProcessor.class);
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    logger.addAppender(appender);
+    try {
+      refusing.process(List.of(r));
+    } finally {
+      logger.detachAppender(appender);
+    }
+    assertThat(r.isComplete()).isFalse();
+    // An unexpected failure keeps its stack trace, and the line carries no record data.
+    assertThat(appender.list)
+        .filteredOn(e -> e.getFormattedMessage().contains("refused"))
+        .singleElement()
+        .satisfies(event -> {
+          assertThat(event.getLevel()).isEqualTo(Level.WARN);
+          assertThat(event.getFormattedMessage()).endsWith("will be re-delivered");
+          assertThat(event.getThrowableProxy().getClassName())
+              .isEqualTo(IllegalStateException.class.getName());
+          assertThat(event.getThrowableProxy().getMessage()).isEqualTo("DLQ producers are closed");
+        });
+  }
+
+  @Test
+  void failedDlqSendLogsTheCauseAndLeavesTheRecordIncomplete() {
+    CompiledPipeline compiled = PipelineMapping.compile("p", TestConfigs.withPipelines(FAN_OUT));
+    RecordProcessor failing =
+        new RecordProcessor(
+            compiled,
+            k -> new FakeSink(),
+            request -> CompletableFuture.failedFuture(new IllegalStateException("broker down")),
+            Clock.systemUTC());
+    FakeRecord r = record("{\"id\":\"a\"}");
+    Logger logger = (Logger) LoggerFactory.getLogger(RecordProcessor.class);
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    logger.addAppender(appender);
+    try {
+      failing.process(List.of(r));
+    } finally {
+      logger.detachAppender(appender);
+    }
+    assertThat(r.isComplete()).isFalse();
+    assertThat(appender.list)
+        .filteredOn(e -> e.getFormattedMessage().contains("failed; the record"))
+        .singleElement()
+        .satisfies(event -> {
+          assertThat(event.getLevel()).isEqualTo(Level.WARN);
+          assertThat(event.getFormattedMessage()).endsWith("will be re-delivered");
+          assertThat(event.getThrowableProxy().getMessage()).isEqualTo("broker down");
+        });
+  }
+
+  @Test
+  void replayedDlqRecordUsesTheOriginalTimestampWithoutTimestampField() {
+    RecordHeaders headers = new RecordHeaders();
+    headers.add(
+        new RecordHeader(
+            DlqRecordFormat.SOURCE_TIMESTAMP,
+            "2025-12-31T23:59:59.999Z".getBytes(StandardCharsets.UTF_8)));
+    processor.process(List.of(record("{\"id\":1,\"region\":\"eu\"}", headers, RECORD_TS, false)));
+    assertThat(actions(ES))
+        .singleElement()
+        .extracting(BulkAction::index)
+        .isEqualTo("eu-2025.12.31");
+  }
+
+  @Test
+  void timestampFieldWinsOverTheDlqHeader() {
+    processor =
+        processor(
+            """
+            p:
+              source: { cluster: k, topics: [t] }
+              document: { timestamp-field: /ts }
+              routes: [ { default: true, cluster: es, index: "d-%{+yyyy.MM.dd}" } ]
+            """);
+    RecordHeaders headers = new RecordHeaders();
+    headers.add(
+        new RecordHeader(
+            DlqRecordFormat.SOURCE_TIMESTAMP,
+            "2025-12-31T23:59:59Z".getBytes(StandardCharsets.UTF_8)));
+    processor.process(
+        List.of(record("{\"id\":1,\"ts\":\"2024-02-29T10:00:00Z\"}", headers, RECORD_TS, false)));
+    assertThat(actions(ES)).singleElement().extracting(BulkAction::index).isEqualTo("d-2024.02.29");
+  }
+
+  /** Route {@code transform} steps (DESIGN §8), with the framework's test ops. */
+  @Nested
+  class Transforms {
+
+    private static final String ROUTES =
+        """
+        p:
+          source: { cluster: k, topics: [t], max-record-bytes: 1KB }
+          route-mode: all
+          routes:
+            - name: plain
+              when: [ { field: /region, equals: eu } ]
+              cluster: es
+              index: plain
+            - name: stamped
+              when: [ { field: /region, equals: eu } ]
+              cluster: es2
+              index: stamped
+              transform:
+                - { op: noop }
+                - { op: append, field: stamp, value: x }
+            - name: broken
+              when: [ { field: /region, equals: eu } ]
+              cluster: es
+              index: "broken-%{kind}"
+              transform:
+                - { op: noop }
+                - { op: fail, field: /a/b }
+        """;
+
+    private RecordProcessor transforming(String pipelines) {
+      return processor(pipelines, PipelineMeters.NOOP, TestSteps.REGISTRY);
+    }
+
+    private String text(BulkAction<?> action) {
+      return new String(action.source(), StandardCharsets.UTF_8);
+    }
+
+    private static final String DOC =
+        "{\"id\":\"a\",\"region\":\"eu\",\"big\":123456789012345678901234567890,"
+            + "\"d\":0.1000000000000000055511151231257827,\"kind\":\"k\"}";
+
+    @Test
+    void transformedCopyOwnsItsBytesWhileTheOtherCopiesKeepTheRecordBytes() {
+      processor = transforming(ROUTES);
+      processor.process(List.of(record(DOC)));
+
+      assertThat(actions(ES)).extracting(this::text).containsExactly(DOC); // plain; broken failed
+      assertThat(actions(ES2))
+          .singleElement()
+          .satisfies(a -> {
+            assertThat(text(a)).isEqualTo(DOC.replace("}", ",\"stamp\":\"x\"}"));
+            assertThat(a.index()).isEqualTo("stamped");
+            assertThat(a.id()).isEqualTo("a");
+          });
+    }
+
+    @Test
+    void failedCopyIsDeadLetteredAloneWithTheOriginalBytesAndItsTarget() {
+      processor = transforming(ROUTES);
+      FakeRecord r = record(DOC);
+      processor.process(List.of(r));
+
+      assertThat(dlq)
+          .singleElement()
+          .satisfies(sent -> {
+            DlqRequest request = sent.request();
+            assertThat(request.errorType()).isEqualTo("transform");
+            assertThat(request.reason())
+                .isEqualTo("route broken, step 2 (fail /a/b): parent is not an object");
+            assertThat(request.value()).isEqualTo(DOC.getBytes(StandardCharsets.UTF_8));
+            assertThat(request.targetCluster()).isEqualTo("es");
+            assertThat(request.targetIndex()).isEqualTo("broken-k");
+            assertThat(request.docIndex()).isNull();
+          });
+      // Three parts: the plain copy, the stamped copy and the DLQ record.
+      ack(actions(ES).getFirst());
+      ack(actions(ES2).getFirst());
+      assertThat(r.isComplete()).isFalse();
+      dlq.getFirst().ack();
+      assertThat(r.isComplete()).isTrue();
+    }
+
+    @Test
+    void exactReparseFailureNamesTheRoute() {
+      processor = transforming(ROUTES);
+      // The routing parse reads 1e99999999999 as a double; the exact parse cannot hold its scale.
+      // "broken" never gets that far: its index needs /kind, which this document lacks.
+      processor.process(List.of(record("{\"id\":\"a\",\"region\":\"eu\",\"n\":1e99999999999}")));
+
+      assertThat(dlq)
+          .filteredOn(sent -> sent.request().errorType().equals("transform"))
+          .singleElement()
+          .satisfies(sent ->
+              assertThat(sent.request().reason())
+                  .isEqualTo(
+                      "route stamped: the document could not be parsed again for its"
+                          + " transform"));
+    }
+
+    @Test
+    void arrayElementsFailAndPassOnTheirOwn() {
+      processor = transforming(ROUTES);
+      processor.process(List.of(record("[" + DOC + "," + DOC.replace("\"a\"", "\"b\"") + "]")));
+
+      assertThat(actions(ES2)).extracting(BulkAction::id).containsExactly("a", "b");
+      assertThat(dlq)
+          .extracting(sent -> sent.request().errorType(), sent -> sent.request().docIndex())
+          .containsExactly(
+              org.assertj.core.groups.Tuple.tuple("transform", 0),
+              org.assertj.core.groups.Tuple.tuple("transform", 1));
+    }
+
+    @Test
+    void documentWithoutCopyNeverRunsItsSteps() {
+      processor = transforming(ROUTES);
+      processor.process(List.of(record("{\"region\":\"eu\",\"kind\":\"k\"}"))); // no _id
+
+      assertThat(actions(ES)).isEmpty();
+      assertThat(actions(ES2)).isEmpty();
+      assertThat(dlq).extracting(sent -> sent.request().errorType()).containsExactly("missing_id");
+    }
+
+    @Test
+    void failedCopyCountsAsDlqUnderItsRoute() {
+      SimpleMeterRegistry registry = new SimpleMeterRegistry();
+      try (KafkafimMeters meters = new KafkafimMeters(registry)) {
+        meters.sync(
+            Map.of(
+                "p",
+                new PipelineSpec(
+                    "k",
+                    List.of("t"),
+                    List.of("plain", "stamped", "broken"),
+                    Set.of("es", "es2"),
+                    SourceProbe.NONE)),
+            Set.of("es", "es2"),
+            cluster -> null);
+        processor = processor(ROUTES, meters.pipeline("p"), TestSteps.REGISTRY);
+        processor.process(List.of(record(DOC)));
+        dlq.forEach(Sent::ack);
+
+        assertThat(docs(registry, "broken", "dlq")).isOne();
+        assertThat(docs(registry, "stamped", "indexed")).isZero();
+      }
+    }
+  }
+
+  /** The production {@code remove} op in the processor: it runs after routing and extraction. */
+  @Nested
+  class RemoveTransforms {
+
+    private static final String ROUTES =
+        """
+        p:
+          source: { cluster: k, topics: [t], max-record-bytes: 1KB }
+          route-mode: all
+          routes:
+            - name: plain
+              when: [ { field: /region, equals: eu } ]
+              cluster: es
+              index: "plain-%{kind}"
+            - name: stripped
+              when: [ { field: /region, equals: eu } ]
+              cluster: es2
+              index: "stripped-%{kind}"
+              transform:
+                - { op: remove, field: /id }
+                - { op: remove, field: /region }
+                - { op: remove, field: /kind }
+                - { op: remove, field: /card/number }
+                - { op: remove, field: /missing/path }
+        """;
+
+    private static final String DOC =
+        "{\"id\":\"a\",\"region\":\"eu\",\"kind\":\"k\",\"card\":{\"number\":\"4111\","
+            + "\"brand\":\"v\"},\"keep\":null}";
+
+    @Test
+    void removingTheFieldsRoutingAndTheIdAlreadyReadChangesNeitherRouteNorIdNorIndex() {
+      processor = processor(ROUTES, PipelineMeters.NOOP, StepRegistry.BUILT_IN);
+      processor.process(List.of(record(DOC)));
+
+      assertThat(actions(ES2))
+          .singleElement()
+          .satisfies(a -> {
+            assertThat(a.id()).isEqualTo("a");
+            assertThat(a.index()).isEqualTo("stripped-k");
+            assertThat(new String(a.source(), StandardCharsets.UTF_8))
+                .isEqualTo("{\"card\":{\"brand\":\"v\"},\"keep\":null}");
+          });
+      assertThat(dlq).isEmpty();
+    }
+
+    @Test
+    void fanOutSiblingKeepsTheRecordBytesAndEveryField() {
+      processor = processor(ROUTES, PipelineMeters.NOOP, StepRegistry.BUILT_IN);
+      processor.process(List.of(record(DOC)));
+
+      assertThat(actions(ES))
+          .singleElement()
+          .satisfies(
+              a -> assertThat(new String(a.source(), StandardCharsets.UTF_8)).isEqualTo(DOC));
+    }
+
+    @Test
+    void arrayElementsAreStrippedOnTheirOwn() {
+      processor = processor(ROUTES, PipelineMeters.NOOP, StepRegistry.BUILT_IN);
+      processor.process(List.of(record("[" + DOC + "," + DOC.replace("\"a\"", "\"b\"") + "]")));
+
+      assertThat(actions(ES2)).extracting(BulkAction::id).containsExactly("a", "b");
+      assertThat(actions(ES2))
+          .allSatisfy(a ->
+              assertThat(new String(a.source(), StandardCharsets.UTF_8))
+                  .doesNotContain("4111", "region"));
+    }
+  }
+
+  /** The production {@code rename} op in the processor. */
+  @Nested
+  class RenameTransforms {
+
+    private static final String ROUTES =
+        """
+        p:
+          source: { cluster: k, topics: [t], max-record-bytes: 1KB }
+          route-mode: all
+          routes:
+            - name: plain
+              when: [ { field: /region, equals: eu } ]
+              cluster: es
+              index: "plain-%{kind}"
+            - name: renamed
+              when: [ { field: /region, equals: eu } ]
+              cluster: es2
+              index: "renamed-%{kind}"
+              transform:
+                - { op: rename, field: /id, to: /ident }
+                - { op: rename, field: /kind, to: /meta/kind }
+        """;
+
+    private static final String DOC = "{\"id\":\"a\",\"region\":\"eu\",\"kind\":\"k\"}";
+
+    @Test
+    void renamingTheFieldsRoutingAndTheIdAlreadyReadChangesNeitherRouteNorIdNorIndex() {
+      processor = processor(ROUTES, PipelineMeters.NOOP, StepRegistry.BUILT_IN);
+      processor.process(List.of(record(DOC)));
+
+      assertThat(actions(ES2))
+          .singleElement()
+          .satisfies(a -> {
+            assertThat(a.id()).isEqualTo("a");
+            assertThat(a.index()).isEqualTo("renamed-k");
+            assertThat(new String(a.source(), StandardCharsets.UTF_8))
+                .isEqualTo("{\"region\":\"eu\",\"ident\":\"a\",\"meta\":{\"kind\":\"k\"}}");
+          });
+      assertThat(actions(ES))
+          .singleElement()
+          .satisfies(
+              a -> assertThat(new String(a.source(), StandardCharsets.UTF_8)).isEqualTo(DOC));
+      assertThat(dlq).isEmpty();
+    }
+
+    @Test
+    void targetParentThatIsNotAnObjectDeadLettersOnlyThatCopy() {
+      processor = processor(ROUTES, PipelineMeters.NOOP, StepRegistry.BUILT_IN);
+      String doc = "{\"id\":\"a\",\"region\":\"eu\",\"kind\":\"k\",\"meta\":\"secret\"}";
+      processor.process(List.of(record(doc)));
+
+      assertThat(actions(ES)).hasSize(1);
+      assertThat(actions(ES2)).isEmpty();
+      assertThat(dlq)
+          .singleElement()
+          .satisfies(sent -> {
+            DlqRequest request = sent.request();
+            assertThat(request.errorType()).isEqualTo("transform");
+            assertThat(request.reason())
+                .isEqualTo(
+                    "route renamed, step 2 (rename /kind to /meta/kind): "
+                        + "a parent of the target is not an object");
+            assertThat(request.reason()).doesNotContain("secret");
+            assertThat(request.value()).isEqualTo(doc.getBytes(StandardCharsets.UTF_8));
+          });
+    }
+  }
+
+  /** The production {@code set} op in the processor. */
+  @Nested
+  class SetTransforms {
+
+    private static final String ROUTES =
+        """
+        p:
+          source: { cluster: k, topics: [t], max-record-bytes: 1KB }
+          route-mode: all
+          routes:
+            - name: plain
+              when: [ { field: /region, equals: eu } ]
+              cluster: es
+              index: "plain-%{kind}"
+            - name: stamped
+              when: [ { field: /region, equals: eu } ]
+              cluster: es2
+              index: "stamped-%{kind}"
+              transform:
+                - { op: set, field: /kind, value: changed }
+                - { op: set, field: /event/version, json: "2" }
+        """;
+
+    private static final String DOC = "{\"id\":\"a\",\"region\":\"eu\",\"kind\":\"k\"}";
+
+    @Test
+    void settingTheFieldsRoutingAndIndexReadChangesNeitherRouteNorIndex() {
+      processor = processor(ROUTES, PipelineMeters.NOOP, StepRegistry.BUILT_IN);
+      processor.process(List.of(record(DOC)));
+
+      assertThat(actions(ES2))
+          .singleElement()
+          .satisfies(a -> {
+            assertThat(a.id()).isEqualTo("a");
+            assertThat(a.index()).isEqualTo("stamped-k");
+            assertThat(new String(a.source(), StandardCharsets.UTF_8))
+                .isEqualTo(
+                    "{\"id\":\"a\",\"region\":\"eu\",\"kind\":\"changed\","
+                        + "\"event\":{\"version\":2}}");
+          });
+      assertThat(actions(ES))
+          .singleElement()
+          .satisfies(
+              a -> assertThat(new String(a.source(), StandardCharsets.UTF_8)).isEqualTo(DOC));
+      assertThat(dlq).isEmpty();
+    }
+
+    @Test
+    void parentThatIsNotAnObjectDeadLettersOnlyThatCopy() {
+      processor = processor(ROUTES, PipelineMeters.NOOP, StepRegistry.BUILT_IN);
+      String doc = "{\"id\":\"a\",\"region\":\"eu\",\"kind\":\"k\",\"event\":\"secret\"}";
+      processor.process(List.of(record(doc)));
+
+      assertThat(actions(ES)).hasSize(1);
+      assertThat(actions(ES2)).isEmpty();
+      assertThat(dlq)
+          .singleElement()
+          .satisfies(sent -> {
+            DlqRequest request = sent.request();
+            assertThat(request.errorType()).isEqualTo("transform");
+            assertThat(request.reason())
+                .isEqualTo(
+                    "route stamped, step 2 (set /event/version): "
+                        + "a parent of the field is not an object");
+            assertThat(request.reason()).doesNotContain("secret");
+            assertThat(request.value()).isEqualTo(doc.getBytes(StandardCharsets.UTF_8));
+          });
+    }
+  }
+}

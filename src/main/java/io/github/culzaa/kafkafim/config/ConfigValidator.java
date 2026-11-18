@@ -1,0 +1,954 @@
+package io.github.culzaa.kafkafim.config;
+
+import io.github.culzaa.kafkafim.config.KafkaCluster.KafkaIdentity;
+import io.github.culzaa.kafkafim.config.KafkaCluster.SecurityProtocol;
+import io.github.culzaa.kafkafim.config.Pipeline.Condition;
+import io.github.culzaa.kafkafim.config.Pipeline.Route;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
+import java.util.stream.Stream;
+import org.jspecify.annotations.Nullable;
+import org.springframework.util.unit.DataSize;
+
+/**
+ * Cross-reference and semantic validation of a bound {@link KafkafimProperties} tree (DESIGN §5,
+ * §5.2.1, §5.3). Pure: it inspects the model and returns every violation at once, so a broken tree
+ * is reported in one go, at startup and (later) on reload. Bean Validation covers the per-field
+ * constraints; this covers everything that needs more than one field.
+ */
+public final class ConfigValidator {
+
+  /** Cluster, identity and pipeline names: lower-case kebab-case (they appear in paths). */
+  private static final Pattern NAME = Pattern.compile("[a-z0-9]([a-z0-9-]*[a-z0-9])?");
+
+  /** Only digits: reserved for the position label of unnamed routes. */
+  private static final Pattern POSITION_LABEL = Pattern.compile("[0-9]+");
+
+  private static final int TOPIC_MAX_LENGTH = 249;
+
+  private static final Pattern TOPIC_NAME = Pattern.compile("[a-zA-Z0-9._-]+");
+
+  /** Lower bound of {@code reload.poll-interval}, and the debounce below which a warning shows. */
+  private static final Duration MIN_POLL_INTERVAL = Duration.ofSeconds(1);
+
+  /** {@code host:port}, IPv6 in brackets, optional {@code PROTOCOL://} prefix. */
+  private static final Pattern BOOTSTRAP_SERVER =
+      Pattern.compile("(?:[A-Za-z_]+://)?(\\[[0-9A-Fa-f:.%]+]|[A-Za-z0-9._-]+):(\\d{1,5})");
+
+  /**
+   * Pessimistic bulk throughput of a loaded cluster, for the {@code max-bytes} versus {@code
+   * response-timeout} warning: 1MB per second, so the warning fires when {@code max-bytes} in MB
+   * exceeds {@code response-timeout} in seconds (the defaults, 5MB and 60s, leave a factor of 12).
+   */
+  private static final DataSize SLOW_BULK_BYTES_PER_SECOND = DataSize.ofMegabytes(1);
+
+  /**
+   * Elasticsearch's default {@code http.max_content_length}. It applies to the request body before
+   * compression, which is also what {@code bulk.max-bytes} counts, and a sealed batch never exceeds
+   * {@code max-bytes} (unless a single action does), so only a larger {@code max-bytes} warns.
+   */
+  private static final DataSize ES_DEFAULT_MAX_CONTENT_LENGTH = DataSize.ofMegabytes(100);
+
+  private static final Set<String> TIMESTAMP_FORMATS =
+      Set.of("iso-8601", "epoch-millis", "epoch-seconds");
+
+  private final List<String> errors = new ArrayList<>();
+  private final List<String> warnings = new ArrayList<>();
+
+  private ConfigValidator() {}
+
+  /** Validates {@code properties}; never throws for an invalid tree. */
+  public static Result validate(KafkafimProperties properties) {
+    ConfigValidator validator = new ConfigValidator();
+    validator.check(properties);
+    return new Result(List.copyOf(validator.errors), List.copyOf(validator.warnings));
+  }
+
+  /**
+   * Outcome of a validation.
+   *
+   * @param errors {@code <property path>: <problem>} lines; non-empty means the tree is invalid
+   * @param warnings conditions that bind but deserve a startup warning
+   */
+  public record Result(List<String> errors, List<String> warnings) {
+
+    /** Whether the tree is valid. */
+    public boolean isValid() {
+      return errors.isEmpty();
+    }
+  }
+
+  private void check(KafkafimProperties properties) {
+    String prefix = KafkafimProperties.PREFIX;
+    properties
+        .kafka()
+        .clusters()
+        .forEach((name, cluster) -> {
+          String path = prefix + ".kafka.clusters." + name;
+          checkName(path, "Kafka cluster", name);
+          if (cluster != null) {
+            checkKafkaCluster(path, cluster);
+          }
+        });
+    properties
+        .elasticsearch()
+        .clusters()
+        .forEach((name, cluster) -> {
+          String path = prefix + ".elasticsearch.clusters." + name;
+          checkName(path, "Elasticsearch cluster", name);
+          if (cluster != null) {
+            checkElasticsearchCluster(path, cluster);
+          }
+        });
+    if (properties.pipelines().isEmpty()) {
+      warnings.add(prefix + ".pipelines: no pipelines configured; nothing will be consumed");
+    }
+    Map<String, String> groupOwners = new HashMap<>();
+    properties
+        .pipelines()
+        .forEach((name, pipeline) -> {
+          String path = prefix + ".pipelines." + name;
+          checkName(path, "pipeline", name);
+          if (pipeline != null) {
+            checkPipeline(path, pipeline, properties);
+            checkGroupUnique(path, name, pipeline.source(), groupOwners);
+          }
+        });
+    KafkafimProperties.Reload reload = properties.reload();
+    if (reload.pollInterval().isNegative() || reload.pollInterval().isZero()) {
+      error(prefix + ".reload.poll-interval", "must be positive");
+    } else if (reload.pollInterval().compareTo(MIN_POLL_INTERVAL) < 0) {
+      error(
+          prefix + ".reload.poll-interval",
+          "must be at least 1s: every poll hashes all watched files, so a shorter period is a"
+              + " tight hashing loop");
+    }
+    if (reload.debounce().isNegative()) {
+      error(prefix + ".reload.debounce", "must not be negative");
+    } else if (reload.debounce().compareTo(MIN_POLL_INTERVAL) < 0) {
+      warnings.add(
+          prefix
+              + ".reload.debounce: below 1s, a kubelet update that swaps several files can be read"
+              + " half-applied and reload more than once; the default is 2s");
+    }
+    if (properties.allowInlineSecrets()) {
+      warnings.add(
+          prefix + ".allow-inline-secrets=true: literal secrets accepted (local development only)");
+    }
+  }
+
+  // ---------------------------------------------------------------- Kafka clusters
+
+  private void checkKafkaCluster(String path, KafkaCluster cluster) {
+    for (int i = 0; i < cluster.bootstrapServers().size(); i++) {
+      String server = cluster.bootstrapServers().get(i);
+      var matcher = server == null ? null : BOOTSTRAP_SERVER.matcher(server.trim());
+      if (matcher == null || !matcher.matches() || !validPort(matcher.group(2))) {
+        error(path + ".bootstrap-servers[" + i + "]", "'" + server + "' is not host:port");
+      }
+    }
+    SecurityProtocol protocol = cluster.securityProtocol();
+    if (cluster.ssl() != null && !protocol.usesTls()) {
+      error(path + ".ssl", "trust is set but security-protocol " + protocol + " does not use TLS");
+    }
+    checkDefaultIdentity(path, cluster.defaultIdentity(), cluster.identities());
+    cluster
+        .identities()
+        .forEach((name, identity) -> {
+          String identityPath = path + ".identities." + name;
+          checkName(identityPath, "identity", name);
+          checkKafkaIdentity(identityPath, identity, protocol);
+        });
+    checkOwnedProperties(path, cluster);
+  }
+
+  /**
+   * A passthrough key kafkafim owns fails at pipeline start (and {@code validate} would pass it),
+   * so it is rejected here: the keys of {@link OwnedKafkaKeys} for either client, and the security
+   * keys derived from the cluster's {@code ssl} block or any identity's {@code sasl}/{@code ssl}
+   * block. Names only, never values.
+   */
+  private void checkOwnedProperties(String path, KafkaCluster cluster) {
+    Set<String> owned = new TreeSet<>();
+    cluster.properties().keySet().stream()
+        .filter(
+            key -> OwnedKafkaKeys.CONSUMER.contains(key) || OwnedKafkaKeys.PRODUCER.contains(key))
+        .forEach(owned::add);
+    // The cluster's own trust keys, also derived when the cluster has no identity.
+    Set<String> derived = new TreeSet<>(KafkaClientSecurity.properties(cluster, null).keySet());
+    cluster
+        .identities()
+        .values()
+        .forEach(
+            identity -> derived.addAll(KafkaClientSecurity.properties(cluster, identity).keySet()));
+    cluster.properties().keySet().stream().filter(derived::contains).forEach(owned::add);
+    owned.forEach(key ->
+        error(
+            path + ".properties[" + key + "]",
+            "kafkafim sets this key itself; remove it from the passthrough"));
+  }
+
+  private void checkKafkaIdentity(
+      String path, @Nullable KafkaIdentity identity, SecurityProtocol protocol) {
+    if (identity == null || (identity.sasl() == null && identity.ssl() == null)) {
+      error(path, "a Kafka identity needs a sasl block, an ssl keystore block, or both");
+      return;
+    }
+    if (identity.sasl() != null) {
+      if (!protocol.requiresSasl()) {
+        error(path + ".sasl", "sasl is set but security-protocol " + protocol + " is not SASL_*");
+      }
+      checkSaslMechanism(path, identity.sasl());
+      if (identity.sasl().needsUsernameAndPassword()) {
+        if (isBlank(identity.sasl().username())) {
+          error(path + ".sasl.username", identity.sasl().mechanism() + " needs a username");
+        }
+        if (isBlank(identity.sasl().password())) {
+          error(path + ".sasl.password", identity.sasl().mechanism() + " needs a password");
+        }
+      }
+    }
+    if (identity.ssl() != null && !protocol.usesTls()) {
+      error(
+          path + ".ssl",
+          "a client keystore is set but security-protocol " + protocol + " does not use TLS");
+    }
+  }
+
+  /**
+   * The mechanism must be spelled exactly as kafka-clients expects it; a mis-cased one would skip
+   * the credential check and build no JAAS config, failing only at runtime. GSSAPI and OAUTHBEARER
+   * take their settings from the cluster's {@code properties}, so a username or password is a
+   * mistake there.
+   */
+  private void checkSaslMechanism(String path, KafkaCluster.Sasl sasl) {
+    String mechanism = sasl.mechanism();
+    if (isBlank(mechanism)) {
+      return; // reported by @NotBlank
+    }
+    if (!KafkaCluster.Sasl.MECHANISMS.contains(mechanism)) {
+      String hint =
+          KafkaCluster.Sasl.MECHANISMS.stream()
+              .filter(known -> known.equalsIgnoreCase(mechanism.trim()))
+              .findFirst()
+              .map(known -> "; did you mean '" + known + "'? The name is case-sensitive")
+              .orElse("");
+      error(
+          path + ".sasl.mechanism",
+          "'"
+              + mechanism
+              + "' is not a supported mechanism (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, GSSAPI,"
+              + " OAUTHBEARER)"
+              + hint);
+    } else if (!sasl.needsUsernameAndPassword()) {
+      if (sasl.username() != null) {
+        error(path + ".sasl.username", mechanism + " takes no username; use cluster properties");
+      }
+      if (sasl.password() != null) {
+        error(path + ".sasl.password", mechanism + " takes no password; use cluster properties");
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------- Elasticsearch clusters
+
+  private void checkElasticsearchCluster(String path, ElasticsearchCluster cluster) {
+    Set<String> schemes = new HashSet<>();
+    for (int i = 0; i < cluster.uris().size(); i++) {
+      String raw = cluster.uris().get(i);
+      String uri = ElasticsearchCluster.maskUserInfo(raw);
+      String uriPath = path + ".uris[" + i + "]";
+      try {
+        URI parsed = new URI(raw == null ? "" : raw);
+        String scheme = parsed.getScheme();
+        if (!"http".equals(scheme) && !"https".equals(scheme)) {
+          error(uriPath, "'" + uri + "' must start with http:// or https://");
+        } else if (parsed.getUserInfo() != null) {
+          error(
+              uriPath,
+              "must not contain credentials (user:password@); set them on an identity, with a"
+                  + " ${...} placeholder");
+        } else if (parsed.getHost() == null) {
+          error(uriPath, "'" + uri + "' has no host");
+        } else {
+          schemes.add(scheme);
+        }
+      } catch (URISyntaxException e) {
+        error(uriPath, "'" + uri + "' is not a URI: " + e.getReason());
+      }
+    }
+    if (schemes.size() > 1) {
+      error(path + ".uris", "mixes http and https; use one scheme per cluster");
+    }
+    boolean https = schemes.equals(Set.of("https"));
+    boolean plainHttp = schemes.equals(Set.of("http"));
+    if (cluster.ssl() != null && !https) {
+      error(path + ".ssl", "trust is set but the cluster URIs are not https");
+    }
+    checkDefaultIdentity(path, cluster.defaultIdentity(), cluster.identities());
+    cluster
+        .identities()
+        .forEach((name, identity) -> {
+          String identityPath = path + ".identities." + name;
+          checkName(identityPath, "identity", name);
+          checkElasticsearchIdentity(identityPath, identity, https, plainHttp);
+        });
+    ElasticsearchCluster.Bulk bulk = cluster.bulk();
+    checkPositive(path + ".bulk.max-bytes", bulk.maxBytes());
+    checkPositive(path + ".bulk.max-age", bulk.maxAge());
+    ElasticsearchCluster.Client client = cluster.client();
+    checkPositive(path + ".client.connect-timeout", client.connectTimeout());
+    checkPositive(path + ".client.response-timeout", client.responseTimeout());
+    checkBulkFitsResponseTimeout(path, bulk.maxBytes(), client.responseTimeout());
+    checkBulkFitsDefaultContentLength(path, bulk.maxBytes());
+  }
+
+  /**
+   * Warns when a full bulk request can exceed {@link #ES_DEFAULT_MAX_CONTENT_LENGTH}: unless the
+   * cluster raises the limit, it answers such a request with 413, which the sink splits in halves
+   * and sends again (DESIGN §7), so that batch is uploaded more than once. A warning only, because
+   * a cluster may raise the limit.
+   */
+  private void checkBulkFitsDefaultContentLength(String path, @Nullable DataSize maxBytes) {
+    if (maxBytes == null || maxBytes.compareTo(ES_DEFAULT_MAX_CONTENT_LENGTH) <= 0) {
+      return;
+    }
+    warnings.add(
+        path
+            + ".bulk.max-bytes: "
+            + spelled(maxBytes)
+            + " is above Elasticsearch's default http.max_content_length ("
+            + spelled(ES_DEFAULT_MAX_CONTENT_LENGTH)
+            + "); unless the cluster raises that limit, it rejects every larger bulk request with"
+            + " 413 and kafkafim splits the request in halves and sends it again. Lower"
+            + " bulk.max-bytes to "
+            + spelled(ES_DEFAULT_MAX_CONTENT_LENGTH)
+            + " or less");
+  }
+
+  /**
+   * Warns when a full bulk request is unlikely to be answered within the response timeout: a
+   * timeout is a request-level failure that is retried forever (DESIGN §7), so every full batch
+   * would only produce lag. The heuristic assumes {@link #SLOW_BULK_BYTES_PER_SECOND}, a
+   * pessimistic rate for a loaded cluster, so it fires only for clearly mismatched settings.
+   */
+  private void checkBulkFitsResponseTimeout(
+      String path, @Nullable DataSize maxBytes, @Nullable Duration timeout) {
+    if (maxBytes == null || timeout == null || maxBytes.toBytes() <= 0) {
+      return;
+    }
+    if (timeout.isZero() || timeout.isNegative()) {
+      return; // reported as an error
+    }
+    double seconds = (double) maxBytes.toBytes() / SLOW_BULK_BYTES_PER_SECOND.toBytes();
+    // In doubles throughout: no Duration.toMillis() overflow, no sub-millisecond truncation.
+    double timeoutSeconds = timeout.getSeconds() + timeout.getNano() / 1e9;
+    if (seconds > timeoutSeconds) {
+      warnings.add(
+          path
+              + ".bulk.max-bytes: "
+              + spelled(maxBytes)
+              + " takes about "
+              + (long) Math.ceil(seconds)
+              + "s at "
+              + spelled(SLOW_BULK_BYTES_PER_SECOND)
+              + "/s, longer than client.response-timeout ("
+              + spelled(timeout)
+              + "); a slow cluster may time out every full bulk request and retry it forever."
+              + " Lower bulk.max-bytes or raise client.response-timeout");
+    }
+  }
+
+  /** {@code size} as the configuration would spell it: whole MB, KB or bytes. */
+  private static String spelled(DataSize size) {
+    long bytes = size.toBytes();
+    if (bytes % DataSize.ofMegabytes(1).toBytes() == 0) {
+      return size.toMegabytes() + "MB";
+    }
+    if (bytes % DataSize.ofKilobytes(1).toBytes() == 0) {
+      return size.toKilobytes() + "KB";
+    }
+    return bytes + "B";
+  }
+
+  /**
+   * {@code duration} as the configuration would spell it: whole seconds or milliseconds, else the
+   * ISO-8601 form.
+   */
+  private static String spelled(Duration duration) {
+    if (duration.getNano() == 0) {
+      return duration.getSeconds() + "s";
+    }
+    if (duration.getNano() % 1_000_000 == 0 && duration.getSeconds() < Long.MAX_VALUE / 1000) {
+      return duration.toMillis() + "ms";
+    }
+    return duration.toString();
+  }
+
+  private void checkElasticsearchIdentity(
+      String path,
+      ElasticsearchCluster.@Nullable ElasticsearchIdentity identity,
+      boolean https,
+      boolean plainHttp) {
+    if (identity == null) {
+      error(path, "an Elasticsearch identity needs username+password, api-key or an ssl keystore");
+      return;
+    }
+    boolean basic = identity.hasBasic();
+    boolean apiKey = identity.apiKey() != null;
+    boolean keystore = identity.ssl() != null;
+    if (basic && apiKey) {
+      error(path, "set either username+password or api-key, not both");
+    } else if (!basic && !apiKey && !keystore) {
+      error(path, "an Elasticsearch identity needs username+password, api-key or an ssl keystore");
+    }
+    if (basic && isBlank(identity.username())) {
+      error(path + ".username", "basic auth needs a username");
+    }
+    if (basic && isBlank(identity.password())) {
+      error(path + ".password", "basic auth needs a password");
+    }
+    if (apiKey && isBlank(identity.apiKey())) {
+      error(path + ".api-key", "api-key is empty");
+    }
+    if (keystore && !https) {
+      error(path + ".ssl", "a client keystore needs https cluster URIs");
+    }
+    if (plainHttp && (basic || apiKey) && !(basic && apiKey)) {
+      warnings.add(
+          path
+              + ": "
+              + (basic ? "basic-auth" : "api-key")
+              + " credentials are sent over plain http (cluster URIs are not https); fine behind"
+              + " a mesh or for local development, otherwise use https");
+    }
+  }
+
+  // ---------------------------------------------------------------- pipelines
+
+  private void checkPipeline(String path, Pipeline pipeline, KafkafimProperties properties) {
+    Pipeline.Source source = pipeline.source();
+    KafkaCluster kafkaCluster = null;
+    if (source.cluster() != null) {
+      kafkaCluster = properties.kafka().clusters().get(source.cluster());
+      if (kafkaCluster == null) {
+        error(path + ".source.cluster", "unknown Kafka cluster '" + source.cluster() + "'");
+      }
+    }
+    checkTopics(path + ".source.topics", source.topics());
+    if (isBlank(source.groupId())) {
+      error(path + ".source.group-id", "must not be blank");
+    }
+    if (source.concurrency() != null && source.concurrency() < 1) {
+      error(
+          path + ".source.concurrency",
+          "must be at least 1 (was " + source.concurrency() + "); leave it unset for one per CPU");
+    }
+    checkPositive(path + ".source.max-in-flight-bytes", source.maxInFlightBytes());
+    checkPositive(path + ".source.commit-interval", source.commitInterval());
+    checkPositive(path + ".source.max-record-bytes", source.maxRecordBytes());
+    if (source.maxRecordBytes().compareTo(source.maxInFlightBytes()) > 0) {
+      error(
+          path + ".source.max-record-bytes",
+          "must not exceed max-in-flight-bytes ("
+              + source.maxInFlightBytes()
+              + "), or one record could stall the pipeline");
+    }
+    if (kafkaCluster != null) {
+      checkKafkaIdentityReference(
+          path + ".source.identity", source.identity(), source.cluster(), kafkaCluster);
+    }
+
+    checkDocument(path + ".document", pipeline.document());
+    checkRoutes(path, pipeline, properties);
+
+    Pipeline.Dlq dlq = pipeline.dlq();
+    if (isBlank(dlq.topic())) {
+      error(path + ".dlq.topic", "must not be blank");
+    } else if (source.topics().contains(dlq.topic())) {
+      error(path + ".dlq.topic", "'" + dlq.topic() + "' is also a source topic of this pipeline");
+    } else {
+      boolean derived =
+          !source.topics().isEmpty()
+              && (source.topics().get(0) + Pipeline.DLQ_TOPIC_SUFFIX).equals(dlq.topic());
+      checkTopicName(
+          path + ".dlq.topic",
+          dlq.topic(),
+          derived && dlq.topic().length() > TOPIC_MAX_LENGTH
+              ? "; the default name is the first source topic plus '"
+                  + Pipeline.DLQ_TOPIC_SUFFIX
+                  + "', so set dlq.topic explicitly"
+              : "");
+    }
+    checkPositive(path + ".dlq.max-elapsed", dlq.maxElapsed());
+    // Same identity on the same cluster as the source: already checked there, report it once.
+    if (kafkaCluster != null && !Objects.equals(dlq.identity(), source.identity())) {
+      checkKafkaIdentityReference(
+          path + ".dlq.identity", dlq.identity(), source.cluster(), kafkaCluster);
+    }
+    if (pipeline.latency().maxAge() != null) {
+      checkPositive(path + ".latency.max-age", pipeline.latency().maxAge());
+    }
+  }
+
+  private void checkTopics(String path, List<String> topics) {
+    Set<String> seen = new HashSet<>();
+    for (int i = 0; i < topics.size(); i++) {
+      String topic = topics.get(i);
+      if (isBlank(topic)) {
+        error(path + "[" + i + "]", "must not be blank");
+      } else if (!seen.add(topic)) {
+        error(path + "[" + i + "]", "'" + topic + "' is listed twice");
+      } else {
+        checkTopicName(path + "[" + i + "]", topic, "");
+      }
+    }
+  }
+
+  /**
+   * A Kafka topic name: 1 to {@value #TOPIC_MAX_LENGTH} characters of {@code [a-zA-Z0-9._-]}, and
+   * not {@code .} or {@code ..}. An illegal name would fail only at runtime (a source topic never
+   * resolves, the DLQ producer cannot create or write the topic).
+   *
+   * @param hint appended to the message
+   */
+  private void checkTopicName(String path, String topic, String hint) {
+    if (topic.equals(".") || topic.equals("..")) {
+      error(path, "'" + topic + "' is not a legal Kafka topic name" + hint);
+    } else if (topic.length() > TOPIC_MAX_LENGTH) {
+      error(
+          path,
+          "topic name is "
+              + topic.length()
+              + " characters; Kafka allows at most "
+              + TOPIC_MAX_LENGTH
+              + hint);
+    } else if (!TOPIC_NAME.matcher(topic).matches()) {
+      error(
+          path,
+          "'"
+              + topic
+              + "' is not a legal Kafka topic name (letters, digits, '.', '_' and '-')"
+              + hint);
+    }
+  }
+
+  private void checkGroupUnique(
+      String path, String name, Pipeline.Source source, Map<String, String> groupOwners) {
+    if (source.cluster() == null || source.groupId() == null) {
+      return;
+    }
+    String key = source.cluster() + '\u0000' + source.groupId();
+    String owner = groupOwners.putIfAbsent(key, name);
+    if (owner != null) {
+      error(
+          path + ".source.group-id",
+          "consumer group '"
+              + source.groupId()
+              + "' on Kafka cluster '"
+              + source.cluster()
+              + "' is already used by pipeline '"
+              + owner
+              + "'; a consumer group belongs to exactly one pipeline");
+    }
+  }
+
+  private void checkKafkaIdentityReference(
+      String path, @Nullable String identity, String clusterName, KafkaCluster cluster) {
+    SecurityProtocol protocol = cluster.securityProtocol();
+    if (identity == null) {
+      // An invalid default-identity is reported on the cluster; do not send users here too.
+      if (protocol.requiresSasl() && cluster.defaultIdentity() == null) {
+        error(
+            path,
+            "Kafka cluster '"
+                + clusterName
+                + "' uses "
+                + protocol
+                + " and no identity resolves; set this identity or the cluster's"
+                + " default-identity");
+      }
+      return;
+    }
+    KafkaIdentity resolved = cluster.identities().get(identity);
+    if (resolved == null) {
+      error(path, "unknown identity '" + identity + "' on Kafka cluster '" + clusterName + "'");
+    } else if (protocol.requiresSasl() && resolved.sasl() == null) {
+      error(
+          path,
+          "identity '"
+              + identity
+              + "' has no sasl block but Kafka cluster '"
+              + clusterName
+              + "' uses "
+              + protocol);
+    }
+  }
+
+  private void checkDocument(String path, Pipeline.Document document) {
+    pointer(path + ".id-field", document.idField());
+    if (document.versionField() != null) {
+      pointer(path + ".version-field", document.versionField());
+      if (document.op() == Pipeline.Op.CREATE) {
+        // Elasticsearch: "create operations only support internal versioning"; BulkAction rejects
+        // the pair too, but only at runtime.
+        error(
+            path + ".op",
+            "op create does not support external versions; remove document.version-field or"
+                + " use document.op: index");
+      }
+    }
+    if (document.timestampField() != null) {
+      pointer(path + ".timestamp-field", document.timestampField());
+    }
+    String format = document.timestampFormat();
+    if (format.startsWith(Pipeline.Document.PATTERN_PREFIX)) {
+      String pattern = format.substring(Pipeline.Document.PATTERN_PREFIX.length());
+      List<String> problems = TimestampPatternSyntax.errors(pattern);
+      for (String problem : problems) {
+        error(path + ".timestamp-format", problem);
+      }
+      if (problems.isEmpty()) {
+        for (String warning : TimestampPatternSyntax.warnings(pattern)) {
+          warnings.add(path + ".timestamp-format: " + warning);
+        }
+      }
+    } else if (!TIMESTAMP_FORMATS.contains(format)) {
+      error(
+          path + ".timestamp-format",
+          "'"
+              + format
+              + "' is not one of iso-8601, epoch-millis, epoch-seconds,"
+              + " pattern:<DateTimeFormatter>");
+    }
+    if (document.idMissing() == Pipeline.IdMissing.AUTO) {
+      warnings.add(
+          path
+              + ".id-missing=auto: documents without an id get ES-generated ids and are"
+              + " duplicated on retry");
+    }
+  }
+
+  // ---------------------------------------------------------------- routes
+
+  private void checkRoutes(String path, Pipeline pipeline, KafkafimProperties properties) {
+    List<Route> routes = pipeline.routes();
+    boolean firstMode = pipeline.routeMode() == Pipeline.RouteMode.FIRST;
+    int defaults = 0;
+    int drops = 0;
+    List<String> unconditionalDrops = new ArrayList<>();
+    Map<String, Integer> names = new HashMap<>();
+    for (int i = 0; i < routes.size(); i++) {
+      Route route = routes.get(i);
+      String routePath = path + ".routes[" + i + "]";
+      if (route == null) {
+        error(routePath, "must not be empty");
+        continue;
+      }
+      checkRouteName(routePath + ".name", route.name(), i, names);
+      if (route.isDefault()) {
+        defaults++;
+        if (i != routes.size() - 1) {
+          error(routePath + ".default", "the default route must be the last route");
+        }
+        if (!route.when().isEmpty()) {
+          error(routePath + ".when", "the default route takes no conditions");
+        }
+      } else if (firstMode && route.when().isEmpty()) {
+        error(
+            routePath + ".when",
+            "a route without conditions matches everything and hides the routes after it;"
+                + " use default: true, or route-mode: all for unconditional fan-out");
+      }
+      for (int c = 0; c < route.when().size(); c++) {
+        checkCondition(routePath + ".when[" + c + "]", route.when().get(c), pipeline);
+      }
+      if (route.isDrop()) {
+        drops++;
+        if (!firstMode && !route.isDefault() && route.when().isEmpty()) {
+          unconditionalDrops.add(routePath);
+        }
+        checkDropRoute(routePath, route);
+        continue;
+      }
+      TransformRules.check(
+          routePath + ".transform", route.transform(), TransformRules.BUILT_IN, this::error);
+      if (isBlank(route.cluster())) {
+        error(routePath + ".cluster", "must not be blank");
+      }
+      if (isBlank(route.index())) {
+        error(routePath + ".index", "must not be blank");
+      }
+      checkRouteTarget(routePath, route, properties);
+      if (route.pipeline() != null && route.pipeline().isBlank()) {
+        // Elasticsearch rejects the whole bulk request for an empty ingest pipeline name.
+        error(
+            routePath + ".pipeline",
+            "must not be blank; omit it to index without an ingest pipeline");
+      }
+      if (!isBlank(route.index())) {
+        for (String problem : IndexPatternSyntax.errors(route.index())) {
+          error(routePath + ".index", problem);
+        }
+        for (String warning : IndexPatternSyntax.warnings(route.index())) {
+          warnings.add(routePath + ".index: " + warning);
+        }
+      }
+    }
+    if (firstMode && defaults != 1 && !routes.isEmpty()) {
+      error(
+          path + ".routes",
+          "route-mode first needs exactly one default: true route, found " + defaults);
+    } else if (!firstMode && defaults > 1) {
+      error(path + ".routes", "at most one default: true route is allowed, found " + defaults);
+    }
+    if (drops > 0 && drops == routes.size()) {
+      warnings.add(
+          path
+              + ".routes: every route has drop: true; the pipeline consumes and commits its topics"
+              + " without indexing anything");
+    } else {
+      // In all mode a selected drop route cancels every other copy (ADR-0037), so one without
+      // conditions cancels the other routes for every document. A drop default is not affected:
+      // it is taken only when nothing else matched (the allowlist).
+      for (String routePath : unconditionalDrops) {
+        warnings.add(
+            routePath
+                + ": a drop: true route without conditions in route-mode: all selects every"
+                + " document and cancels every other route; the pipeline consumes and commits its"
+                + " topics without indexing anything");
+      }
+    }
+  }
+
+  /**
+   * {@code drop: true} takes the place of the route's target (ADR-0037): it names no cluster,
+   * identity, index or ingest pipeline.
+   */
+  private void checkDropRoute(String path, Route route) {
+    rejectOnDropRoute(path, "cluster", route.cluster());
+    rejectOnDropRoute(path, "identity", route.identity());
+    rejectOnDropRoute(path, "index", route.index());
+    rejectOnDropRoute(path, "pipeline", route.pipeline());
+    if (!route.transform().isEmpty()) {
+      error(
+          path + ".transform",
+          "a drop: true route discards its documents, so there is no copy to transform;"
+              + " remove transform or drop: true");
+    }
+  }
+
+  private void rejectOnDropRoute(String path, String key, String value) {
+    if (value != null) {
+      error(
+          path + "." + key,
+          "a drop: true route discards its documents and takes no "
+              + key
+              + "; remove "
+              + key
+              + " or drop: true");
+    }
+  }
+
+  /**
+   * A route's name is its {@code route} label ({@link Route#label}); an unnamed route is labelled
+   * by its position and a document that failed before routing by {@value Route#NO_ROUTE_LABEL}.
+   * Rejects every name that would make two of those labels collide.
+   */
+  private void checkRouteName(
+      String path, @Nullable String name, int position, Map<String, Integer> names) {
+    if (name == null) {
+      return;
+    }
+    if (name.isBlank()) {
+      error(path, "must not be blank; omit it to label the route by its position");
+    } else if (name.equals(Route.NO_ROUTE_LABEL)) {
+      error(
+          path,
+          "'"
+              + Route.NO_ROUTE_LABEL
+              + "' is reserved: it labels documents that failed before a route was selected");
+    } else if (POSITION_LABEL.matcher(name).matches()) {
+      error(
+          path,
+          "'" + name + "' is reserved: digits-only labels are the positions of unnamed routes");
+    } else {
+      Integer first = names.putIfAbsent(name, position);
+      if (first != null) {
+        error(path, "'" + name + "' is already the name of routes[" + first + "]");
+      }
+    }
+  }
+
+  private void checkRouteTarget(String path, Route route, KafkafimProperties properties) {
+    if (route.cluster() == null) {
+      return;
+    }
+    ElasticsearchCluster cluster = properties.elasticsearch().clusters().get(route.cluster());
+    if (cluster == null) {
+      error(path + ".cluster", "unknown Elasticsearch cluster '" + route.cluster() + "'");
+      return;
+    }
+    if (route.identity() == null) {
+      if (cluster.defaultIdentity() != null) {
+        return; // the cluster's default-identity is invalid and reported there
+      } else if (cluster.usesHttps()) {
+        error(
+            path + ".identity",
+            "Elasticsearch cluster '"
+                + route.cluster()
+                + "' uses https and no identity resolves; set this identity or the cluster's"
+                + " default-identity");
+      } else {
+        warnings.add(
+            path
+                + ": no identity for Elasticsearch cluster '"
+                + route.cluster()
+                + "' over plain http; requests are unauthenticated (local development only)");
+      }
+    } else if (!cluster.identities().containsKey(route.identity())) {
+      error(
+          path + ".identity",
+          "unknown identity '"
+              + route.identity()
+              + "' on Elasticsearch cluster '"
+              + route.cluster()
+              + "'");
+    }
+  }
+
+  private void checkCondition(String path, @Nullable Condition condition, Pipeline pipeline) {
+    if (condition == null) {
+      error(path, "must not be empty");
+      return;
+    }
+    List<String> operators = new ArrayList<>();
+    if (condition.equalTo() != null) {
+      operators.add("equals");
+    }
+    if (condition.oneOf() != null) {
+      operators.add("in");
+    }
+    if (condition.exists() != null) {
+      operators.add("exists");
+    }
+    if (condition.prefix() != null) {
+      operators.add("prefix");
+    }
+    if (condition.matches() != null) {
+      operators.add("matches");
+    }
+    long subjects =
+        Stream.of(condition.field(), condition.header(), condition.topic())
+            .filter(Objects::nonNull)
+            .count();
+    if (subjects != 1) {
+      error(path, "needs exactly one of field, header or topic, found " + subjects);
+      return;
+    }
+    if (condition.field() != null) {
+      pointer(path + ".field", condition.field());
+      if (operators.size() != 1) {
+        error(
+            path,
+            "a field condition needs exactly one of equals, in, exists, prefix or matches, found "
+                + (operators.isEmpty() ? "none" : String.join(", ", operators)));
+      }
+      if (condition.oneOf() != null && condition.oneOf().isEmpty()) {
+        error(path + ".in", "must list at least one value");
+      }
+      if (condition.matches() != null) {
+        try {
+          Pattern.compile(condition.matches());
+        } catch (PatternSyntaxException e) {
+          error(path + ".matches", "invalid regex: " + e.getDescription());
+        }
+      }
+    } else if (condition.header() != null) {
+      if (condition.header().isBlank()) {
+        error(path + ".header", "must not be blank");
+      }
+      if (!operators.equals(List.of("equals"))) {
+        error(path, "a header condition takes exactly one operator, equals");
+      }
+    } else {
+      if (!operators.isEmpty()) {
+        error(path, "a topic condition takes no operator, found " + String.join(", ", operators));
+      }
+      if (!pipeline.source().topics().contains(condition.topic())) {
+        error(
+            path + ".topic",
+            "'" + condition.topic() + "' is not one of this pipeline's source topics");
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------- helpers
+
+  private void checkDefaultIdentity(
+      String path, @Nullable String defaultIdentity, Map<String, ?> identities) {
+    if (defaultIdentity != null && !identities.containsKey(defaultIdentity)) {
+      error(
+          path + ".default-identity",
+          "'"
+              + defaultIdentity
+              + "' is not one of this cluster's identities "
+              + identities.keySet());
+    }
+  }
+
+  private void checkName(String path, String kind, String name) {
+    if (!NAME.matcher(name).matches()) {
+      error(
+          path,
+          kind
+              + " name '"
+              + name
+              + "' must be lower-case letters, digits and '-' (it appears in group ids,"
+              + " metrics and secret paths)");
+    }
+  }
+
+  private void pointer(String path, String pointer) {
+    String problem = JsonPointers.error(pointer);
+    if (problem != null) {
+      error(path, problem);
+    }
+  }
+
+  private void checkPositive(String path, DataSize size) {
+    if (size != null && size.toBytes() <= 0) {
+      error(path, "must be positive");
+    }
+  }
+
+  private void checkPositive(String path, Duration duration) {
+    if (duration != null && (duration.isZero() || duration.isNegative())) {
+      error(path, "must be positive");
+    }
+  }
+
+  private static boolean validPort(String port) {
+    int value = Integer.parseInt(port);
+    return value > 0 && value <= 65535;
+  }
+
+  private static boolean isBlank(@Nullable String value) {
+    return value == null || value.isBlank();
+  }
+
+  private void error(String path, String message) {
+    errors.add(path + ": " + message);
+  }
+}

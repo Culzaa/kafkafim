@@ -1,0 +1,595 @@
+package io.github.culzaa.kafkafim.supervisor;
+
+import io.github.culzaa.kafkafim.config.ElasticsearchCluster;
+import io.github.culzaa.kafkafim.config.KafkaCluster;
+import io.github.culzaa.kafkafim.config.KafkafimProperties;
+import io.github.culzaa.kafkafim.config.Pipeline;
+import io.github.culzaa.kafkafim.decode.StepRegistry;
+import io.github.culzaa.kafkafim.dlq.DlqListener;
+import io.github.culzaa.kafkafim.dlq.DlqOptions;
+import io.github.culzaa.kafkafim.dlq.DlqProducers;
+import io.github.culzaa.kafkafim.sink.es.BreakerSettings;
+import io.github.culzaa.kafkafim.sink.es.ClientSettings;
+import io.github.culzaa.kafkafim.sink.es.ElasticsearchSinks;
+import io.github.culzaa.kafkafim.source.kafka.ConsumerFactories;
+import io.github.culzaa.kafkafim.source.kafka.SourceOptions;
+import io.github.culzaa.kafkafim.telemetry.KafkaClientMeters;
+import io.opentelemetry.instrumentation.kafkaclients.v2_6.KafkaTelemetry;
+import java.time.Clock;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
+import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.SmartLifecycle;
+
+/**
+ * The building blocks pipelines share, across configuration generations (DESIGN §5.6). The {@code
+ * dlq}, {@code sink.es} and {@code source.kafka} registries are each built over one fixed
+ * configuration; this pool keeps one <em>current</em> instance per cluster and hands it to every
+ * pipeline that (re)starts, so pipelines share clients, producers and breakers as before:
+ *
+ * <ul>
+ *   <li><b>Elasticsearch</b>: one {@link ElasticsearchSinks} per cluster definition (clients per
+ *       {@code (cluster, identity)}, one breaker for the cluster). When the cluster's definition
+ *       changes (including any identity or secret), a new instance becomes current; pipelines that
+ *       restart use it, pipelines left untouched keep the old one.
+ *   <li><b>Kafka</b>: one {@link DlqProducers} (shared producer per {@code (cluster, DLQ
+ *       identity)}, a writer per pipeline) and one {@link ConsumerFactories} per cluster
+ *       definition. {@code DlqProducers} caches a pipeline's writer with its topic, so a pipeline
+ *       whose DLQ settings changed, or a pipeline the current instance does not know, also makes a
+ *       new instance current. A restarted pipeline whose DLQ settings and cluster are unchanged
+ *       keeps its writer (and with it a {@code dlq-blocked} state) while its instance is still the
+ *       current one. A pipeline that leaves an instance (it moved to a new one or was removed) has
+ *       its writer there evicted (ADR-0035).
+ * </ul>
+ *
+ * <p>Every instance counts its pipelines and is closed when its last pipeline releases it (an
+ * instance that is no longer current gets no new pipelines). Until then old and new instances
+ * coexist, so for a while two producers or clients may exist for the same {@code (cluster,
+ * identity)}, and a cluster's breaker is per instance (each pipeline follows the breaker of the
+ * instance it sends through).
+ *
+ * <p><b>Failures</b> (ADR-0041): an {@link #acquire} that throws takes nothing and leaves the
+ * current instances as they were. A reload that fails after some of its acquires gives them back
+ * with {@link #rollback}, which also makes the instances of a {@link #checkpoint} current again.
+ *
+ * <p><b>Lifecycle</b>: a {@link SmartLifecycle} in the DLQ producers' phase ({@link
+ * DlqProducers#PHASE}): stopping closes every {@code DlqProducers} after the supervisor drained the
+ * pipelines (DESIGN §7). {@link #close()} (bean destruction) closes the Elasticsearch side.
+ */
+final class PipelineResources implements SmartLifecycle, AutoCloseable {
+
+  private static final Logger LOG = LoggerFactory.getLogger(PipelineResources.class);
+
+  /**
+   * Timings and client settings.
+   *
+   * @param sourceOptions Kafka source timings
+   * @param sinkCloseTimeout how long a stopping pipeline waits for its sinks
+   * @param dlqOptions DLQ producer timings
+   * @param clientSettings Elasticsearch HTTP client pool settings; timeouts come from each cluster
+   * @param breakerSettings per-cluster breaker settings
+   * @param clock clock of the record processor
+   * @param steps the ops a route's {@code transform} can name; {@link StepRegistry#BUILT_IN} in
+   *     production
+   */
+  record Settings(
+      SourceOptions sourceOptions,
+      Duration sinkCloseTimeout,
+      DlqOptions dlqOptions,
+      ClientSettings clientSettings,
+      BreakerSettings breakerSettings,
+      Clock clock,
+      StepRegistry steps) {
+
+    /** Settings with the production transform ops. */
+    Settings(
+        SourceOptions sourceOptions,
+        Duration sinkCloseTimeout,
+        DlqOptions dlqOptions,
+        ClientSettings clientSettings,
+        BreakerSettings breakerSettings,
+        Clock clock) {
+      this(
+          sourceOptions,
+          sinkCloseTimeout,
+          dlqOptions,
+          clientSettings,
+          breakerSettings,
+          clock,
+          StepRegistry.BUILT_IN);
+    }
+
+    static final Settings DEFAULTS =
+        new Settings(
+            SourceOptions.defaults(),
+            PipelineSupervisor.SINK_CLOSE_TIMEOUT,
+            DlqOptions.DEFAULTS,
+            ClientSettings.DEFAULT,
+            BreakerSettings.DEFAULT,
+            Clock.systemUTC());
+  }
+
+  private final ListenerRelay relay;
+  private final Function<KafkafimProperties, Preflight.AuthCheck> authChecks;
+  private final Settings settings;
+  private final @Nullable KafkaTelemetry kafkaTelemetry;
+  private final @Nullable KafkaClientMeters kafkaMeters;
+
+  private final Map<String, KafkaHandle> currentKafka = new HashMap<>(); // guarded by this
+  private final Map<String, EsHandle> currentEs = new HashMap<>(); // guarded by this
+  private final Map<Object, Handle> handles = new IdentityHashMap<>(); // guarded by this
+  private final Map<PipelineRuntime.Context, String> pipelineOf =
+      new IdentityHashMap<>(); // guarded by this
+  private boolean closed; // guarded by this
+  private volatile boolean running;
+
+  PipelineResources(
+      ListenerRelay relay,
+      Function<KafkafimProperties, Preflight.AuthCheck> authChecks,
+      Settings settings) {
+    this(relay, authChecks, settings, null);
+  }
+
+  /**
+   * {@code kafkaTelemetry} instruments the consumers and the DLQ producers; {@code null} leaves
+   * them bare.
+   */
+  PipelineResources(
+      ListenerRelay relay,
+      Function<KafkafimProperties, Preflight.AuthCheck> authChecks,
+      Settings settings,
+      @Nullable KafkaTelemetry kafkaTelemetry) {
+    this(relay, authChecks, settings, kafkaTelemetry, null);
+  }
+
+  /**
+   * As above; {@code kafkaMeters} also binds the Kafka client metrics of the consumers and the DLQ
+   * producers, {@code null} for none.
+   */
+  PipelineResources(
+      ListenerRelay relay,
+      Function<KafkafimProperties, Preflight.AuthCheck> authChecks,
+      Settings settings,
+      @Nullable KafkaTelemetry kafkaTelemetry,
+      @Nullable KafkaClientMeters kafkaMeters) {
+    this.relay = relay;
+    this.authChecks = authChecks;
+    this.settings = settings;
+    this.kafkaTelemetry = kafkaTelemetry;
+    this.kafkaMeters = kafkaMeters;
+  }
+
+  /**
+   * The context a pipeline (re)starts with, taking one use of every instance it gets.
+   *
+   * @param pipeline a pipeline of {@code properties}
+   * @param properties the validated configuration the pipeline runs with
+   * @throws IllegalStateException once closed
+   */
+  PipelineRuntime.Context acquire(String pipeline, KafkafimProperties properties) {
+    Pipeline config = properties.pipelines().get(pipeline);
+    if (config == null) {
+      throw new IllegalArgumentException("Unknown pipeline '" + pipeline + "'");
+    }
+    List<Handle> retired = new ArrayList<>();
+    PipelineRuntime.Context context;
+    try {
+      synchronized (this) {
+        if (closed) {
+          throw new IllegalStateException("Pipeline resources are closed");
+        }
+        List<Handle> before = current();
+        KafkaHandle kafka;
+        Map<String, ElasticsearchSinks> sinks = new LinkedHashMap<>();
+        List<EsHandle> es = new ArrayList<>();
+        Preflight.AuthCheck authCheck;
+        try {
+          kafka = kafka(pipeline, config, properties, retired);
+          for (Pipeline.Route route : config.routes()) {
+            if (route.cluster() != null && !sinks.containsKey(route.cluster())) {
+              EsHandle handle = elasticsearch(route.cluster(), properties, retired);
+              sinks.put(route.cluster(), handle.sinks);
+              es.add(handle);
+            }
+          }
+          authCheck = authChecks.apply(properties);
+        } catch (RuntimeException | Error e) {
+          // Nothing was taken yet: drop the instances created for this call (current, but unused)
+          // and make the ones they replaced current again. A current instance without users
+          // exists only inside the acquire that created it: unuse retires an instance at zero.
+          for (Handle handle : current()) {
+            if (handle.users == 0) {
+              retire(handle, retired);
+            }
+          }
+          restore(before, retired);
+          throw e;
+        }
+        kafka.users++;
+        kafka.pipelines.merge(pipeline, 1, Integer::sum);
+        es.forEach(handle -> handle.users++);
+        context =
+            new PipelineRuntime.Context(
+                properties,
+                kafka.consumerFactories,
+                kafka.dlq,
+                sinks,
+                authCheck,
+                settings.sourceOptions(),
+                settings.sinkCloseTimeout(),
+                settings.clock(),
+                settings.steps());
+        pipelineOf.put(context, pipeline);
+      }
+    } finally {
+      closeAll(retired);
+    }
+    return context;
+  }
+
+  /**
+   * Returns the uses {@link #acquire} took; closes instances no pipeline uses any more. When the
+   * pipeline's last use of a {@code DlqProducers} that stays open goes, its writer there is evicted
+   * (ADR-0035), so a writer left behind by a reload stops retrying.
+   */
+  void release(PipelineRuntime.Context context) {
+    List<Handle> toClose = new ArrayList<>();
+    @Nullable String evict = null;
+    DlqProducers evictFrom = context.dlqProducers();
+    synchronized (this) {
+      String pipeline = pipelineOf.remove(context);
+      Handle dlq = handles.get(evictFrom);
+      if (pipeline != null
+          && dlq instanceof KafkaHandle kafka
+          && kafka.pipelines.merge(pipeline, -1, Integer::sum) <= 0) {
+        kafka.pipelines.remove(pipeline);
+        evict = pipeline;
+      }
+      unuse(dlq, toClose);
+      for (ElasticsearchSinks sinks : context.sinks().values()) {
+        unuse(handles.get(sinks), toClose);
+      }
+    }
+    // Outside the monitor, like closeAll: safe because PipelineSupervisor makes every acquire and
+    // release under its lifecycle lock, so the pipeline cannot re-acquire this instance meanwhile.
+    if (evict != null && toClose.stream().noneMatch(handle -> handle.instance() == evictFrom)) {
+      try {
+        evictFrom.evict(evict);
+      } catch (RuntimeException e) {
+        LOG.warn("Dropping the DLQ writer of pipeline '{}' failed", evict, e);
+      }
+    }
+    closeAll(toClose);
+  }
+
+  /**
+   * Retires current instances whose cluster is gone or defined differently in {@code properties},
+   * so no later pipeline gets them; unused ones close now.
+   */
+  void retireStale(KafkafimProperties properties) {
+    List<Handle> toClose = new ArrayList<>();
+    synchronized (this) {
+      for (KafkaHandle handle : List.copyOf(currentKafka.values())) {
+        if (!handle.definition.equals(properties.kafka().clusters().get(handle.cluster))) {
+          retire(handle, toClose);
+        }
+      }
+      for (EsHandle handle : List.copyOf(currentEs.values())) {
+        if (!handle.definition.equals(properties.elasticsearch().clusters().get(handle.cluster))) {
+          retire(handle, toClose);
+        }
+      }
+    }
+    closeAll(toClose);
+  }
+
+  /** The instances that were current at one moment; see {@link #checkpoint}. */
+  static final class Checkpoint {
+    private final List<Handle> current;
+
+    private Checkpoint(List<Handle> current) {
+      this.current = current;
+    }
+  }
+
+  /**
+   * Remembers which instances are current, before a reload acquires for a new configuration, so
+   * that {@link #rollback} can undo what those acquires change.
+   */
+  synchronized Checkpoint checkpoint() {
+    return new Checkpoint(current());
+  }
+
+  /**
+   * Undoes the acquires of a reload that failed (ADR-0041): releases {@code acquired}, then makes
+   * every instance of {@code checkpoint} that is still open current again, in place of whatever
+   * replaced it. Pipelines that start afterwards on the running configuration get the instances
+   * they had, instead of new ones. The releases and the restore are separate steps; that is safe
+   * because {@code PipelineSupervisor} makes every acquire, release and rollback under its
+   * lifecycle lock.
+   *
+   * @param checkpoint taken before the first of those acquires
+   * @param acquired the contexts to give back
+   */
+  void rollback(Checkpoint checkpoint, Collection<PipelineRuntime.Context> acquired) {
+    acquired.forEach(this::release);
+    List<Handle> toClose = new ArrayList<>();
+    synchronized (this) {
+      if (!closed) {
+        restore(checkpoint.current, toClose);
+      }
+    }
+    closeAll(toClose);
+  }
+
+  private List<Handle> current() {
+    List<Handle> current = new ArrayList<>(currentKafka.values());
+    current.addAll(currentEs.values());
+    return current;
+  }
+
+  /** Makes the still open ones of {@code previous} current again, retiring what replaced them. */
+  private void restore(List<Handle> previous, List<Handle> toClose) {
+    for (Handle handle : previous) {
+      if (handle.current || handles.get(handle.instance()) != handle) {
+        continue;
+      }
+      if (handle instanceof KafkaHandle kafka) {
+        retireCurrent(currentKafka.get(kafka.cluster), toClose);
+        currentKafka.put(kafka.cluster, kafka);
+      } else if (handle instanceof EsHandle es) {
+        retireCurrent(currentEs.get(es.cluster), toClose);
+        currentEs.put(es.cluster, es);
+      }
+      handle.current = true;
+    }
+  }
+
+  private void retireCurrent(@Nullable Handle replaced, List<Handle> toClose) {
+    if (replaced != null) {
+      retire(replaced, toClose);
+    }
+  }
+
+  /** Number of live {@code DlqProducers} and {@code ElasticsearchSinks} instances, for tests. */
+  synchronized int instances() {
+    return handles.size();
+  }
+
+  private KafkaHandle kafka(
+      String pipeline, Pipeline config, KafkafimProperties properties, List<Handle> retired) {
+    String cluster = config.source().cluster();
+    KafkaCluster definition = properties.kafka().clusters().get(cluster);
+    KafkaHandle current = currentKafka.get(cluster);
+    if (current != null
+        && current.definition.equals(definition)
+        && Objects.equals(dlqView(current.properties, pipeline), dlqView(properties, pipeline))) {
+      return current;
+    }
+    if (current != null) {
+      retire(current, retired);
+    }
+    KafkaHandle created = new KafkaHandle(cluster, definition, properties);
+    currentKafka.put(cluster, created);
+    handles.put(created.dlq, created);
+    return created;
+  }
+
+  private EsHandle elasticsearch(
+      String cluster, KafkafimProperties properties, List<Handle> retired) {
+    ElasticsearchCluster definition = properties.elasticsearch().clusters().get(cluster);
+    EsHandle current = currentEs.get(cluster);
+    if (current != null && current.definition.equals(definition)) {
+      return current;
+    }
+    if (current != null) {
+      retire(current, retired);
+    }
+    EsHandle created = new EsHandle(cluster, definition);
+    currentEs.put(cluster, created);
+    handles.put(created.sinks, created);
+    return created;
+  }
+
+  /** What a pipeline's {@code DlqWriter} is built from. */
+  private static @Nullable List<Object> dlqView(KafkafimProperties properties, String pipeline) {
+    Pipeline config = properties.pipelines().get(pipeline);
+    return config == null ? null : List.of(config.source().cluster(), config.dlq());
+  }
+
+  private void retire(Handle handle, List<Handle> toClose) {
+    if (handle.current) {
+      handle.current = false;
+      if (handle instanceof KafkaHandle kafka) {
+        currentKafka.remove(kafka.cluster, kafka);
+      } else if (handle instanceof EsHandle es) {
+        currentEs.remove(es.cluster, es);
+      }
+    }
+    if (handle.users == 0) {
+      forget(handle, toClose);
+    }
+  }
+
+  private void unuse(@Nullable Handle handle, List<Handle> toClose) {
+    if (handle == null) {
+      return;
+    }
+    handle.users--;
+    if (handle.users <= 0) {
+      retire(handle, toClose);
+    }
+  }
+
+  private void forget(Handle handle, List<Handle> toClose) {
+    if (handles.remove(handle.instance()) != null) {
+      toClose.add(handle);
+    }
+  }
+
+  private static void closeAll(List<Handle> toClose) {
+    for (Handle handle : toClose) {
+      try {
+        LOG.info("Closing {}", handle);
+        handle.close();
+      } catch (RuntimeException | Error e) {
+        // An Error (a NoClassDefFoundError in a client's close, say) must not leave the instances
+        // after this one open: nothing else could close them any more.
+        LOG.warn("Closing {} failed", handle, e);
+      }
+    }
+  }
+
+  // ---- lifecycle ----
+
+  @Override
+  public void start() {
+    running = true;
+  }
+
+  /** Closes every DLQ producer, after the supervisor (a higher phase) drained the pipelines. */
+  @Override
+  public void stop() {
+    running = false;
+    List<KafkaHandle> kafka = new ArrayList<>();
+    synchronized (this) {
+      for (Handle handle : handles.values()) {
+        if (handle instanceof KafkaHandle k) {
+          kafka.add(k);
+        }
+      }
+    }
+    for (KafkaHandle handle : kafka) {
+      handle.dlq.close(); // idempotent
+    }
+  }
+
+  @Override
+  public boolean isRunning() {
+    return running;
+  }
+
+  @Override
+  public int getPhase() {
+    return DlqProducers.PHASE;
+  }
+
+  /** Closes every instance; nothing can be acquired afterwards. */
+  @Override
+  public void close() {
+    List<Handle> all;
+    synchronized (this) {
+      closed = true;
+      all = new ArrayList<>(handles.values());
+      handles.clear();
+      pipelineOf.clear();
+      currentKafka.clear();
+      currentEs.clear();
+    }
+    closeAll(all);
+  }
+
+  /** Test seam: makes {@code handle} one of the instances {@link #close} closes. */
+  synchronized void track(Handle handle) {
+    handles.put(handle.instance(), handle);
+  }
+
+  // ---- handles ----
+
+  abstract static class Handle {
+    final String cluster;
+    int users; // guarded by the pool
+    boolean current = true; // guarded by the pool
+
+    Handle(String cluster) {
+      this.cluster = cluster;
+    }
+
+    abstract Object instance();
+
+    abstract void close();
+  }
+
+  private final class KafkaHandle extends Handle {
+    final KafkaCluster definition;
+    final KafkafimProperties properties;
+    final ConsumerFactories consumerFactories;
+    final DlqProducers dlq;
+    final Map<String, Integer> pipelines =
+        new HashMap<>(); // uses per pipeline, guarded by the pool
+
+    KafkaHandle(String cluster, KafkaCluster definition, KafkafimProperties properties) {
+      super(cluster);
+      this.definition = definition;
+      this.properties = properties;
+      this.consumerFactories = new ConsumerFactories(properties, kafkaTelemetry, kafkaMeters);
+      AtomicReference<Object> owner = new AtomicReference<>();
+      DlqListener dlqListener = relay.dlqListener(owner::get);
+      this.dlq =
+          kafkaTelemetry == null
+              ? new DlqProducers(properties, dlqListener, settings.dlqOptions())
+              : new DlqProducers(
+                  properties, dlqListener, settings.dlqOptions(), kafkaTelemetry, kafkaMeters);
+      owner.set(dlq);
+    }
+
+    @Override
+    Object instance() {
+      return dlq;
+    }
+
+    @Override
+    void close() {
+      dlq.close();
+    }
+
+    @Override
+    public String toString() {
+      return "DLQ producers of Kafka cluster '" + cluster + "'";
+    }
+  }
+
+  private final class EsHandle extends Handle {
+    final ElasticsearchCluster definition;
+    final ElasticsearchSinks sinks;
+
+    EsHandle(String cluster, ElasticsearchCluster definition) {
+      super(cluster);
+      this.definition = definition;
+      AtomicReference<Object> owner = new AtomicReference<>();
+      this.sinks =
+          new ElasticsearchSinks(
+              Map.of(cluster, definition),
+              settings.clientSettings(),
+              settings.breakerSettings(),
+              relay.sinkListener(owner::get));
+      owner.set(sinks);
+    }
+
+    @Override
+    Object instance() {
+      return sinks;
+    }
+
+    @Override
+    void close() {
+      sinks.close();
+    }
+
+    @Override
+    public String toString() {
+      return "Elasticsearch clients of cluster '" + cluster + "'";
+    }
+  }
+}
