@@ -8,7 +8,7 @@ fullnameOverride: ""
 image:
   # Overridden to the internal registry in the air gap:
   #   --set image.registry=registry.internal/kafkafim
-  registry: ghcr.io/matabar
+  registry: ghcr.io/culzaa
   repository: kafkafim
   # Defaults to .Chart.AppVersion (set from the git tag at release time). A tag only,
   # never "<tag>@sha256:...": the digest goes in image.digest.

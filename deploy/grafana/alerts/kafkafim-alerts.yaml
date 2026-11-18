@@ -17,7 +17,7 @@ groups:
           description: >-
             A configuration problem (missing topic, DLQ topic, index access or credentials)
             keeps the pipeline stopped until a reload changes it or the pod restarts.
-          runbook_url: https://github.com/matabar/kafkafim/blob/main/docs/RUNBOOK.md#55-failed_preflight-pipelines
+          runbook_url: https://github.com/culzaa/kafkafim/blob/main/docs/RUNBOOK.md#55-failed_preflight-pipelines
 
       - alert: KafkafimPipelineFailed
         # Per pod: the fix (a no-op POST /actuator/reload) is per pod, and other pods may still
@@ -33,7 +33,7 @@ groups:
             The record handler threw or a Kafka consumer stopped on its own. The pipeline is
             stopped on this pod until an accepted reload retries it or the pod restarts; the ERROR
             "Pipeline '<name>': failed while running" line names the cause.
-          runbook_url: https://github.com/matabar/kafkafim/blob/main/docs/RUNBOOK.md#513-failed-pipelines
+          runbook_url: https://github.com/culzaa/kafkafim/blob/main/docs/RUNBOOK.md#513-failed-pipelines
 
       - alert: KafkafimPipelinePaused
         expr: max by (pipeline) (kafkafim_pipeline_state{state="paused"}) == 1
@@ -45,7 +45,7 @@ groups:
           description: >-
             Paused for a supervisor reason: breaker open, identity rejected or DLQ blocked.
             kafkafim_pipeline_pause_reason says which kind, cluster and identity.
-          runbook_url: https://github.com/matabar/kafkafim/blob/main/docs/RUNBOOK.md#31-pipeline-state
+          runbook_url: https://github.com/culzaa/kafkafim/blob/main/docs/RUNBOOK.md#31-pipeline-state
 
       - alert: KafkafimPipelineStuckStarting
         # starting retries transient failures (broker or Elasticsearch unreachable) forever.
@@ -58,7 +58,7 @@ groups:
           description: >-
             Preflight keeps retrying a transient failure: Kafka or Elasticsearch is unreachable.
             The pod logs name the failing check.
-          runbook_url: https://github.com/matabar/kafkafim/blob/main/docs/RUNBOOK.md#512-pipeline-stuck-in-starting
+          runbook_url: https://github.com/culzaa/kafkafim/blob/main/docs/RUNBOOK.md#512-pipeline-stuck-in-starting
 
       - alert: KafkafimE2eLatencyHigh
         # tune: the target is per pipeline; 10s is a default for sub-second pipelines with
@@ -75,7 +75,7 @@ groups:
           description: >-
             Elasticsearch ack time minus the Kafka record timestamp, p99 over 5m, above the
             target for 10m.
-          runbook_url: https://github.com/matabar/kafkafim/blob/main/docs/RUNBOOK.md#58-consumer-lag-growing
+          runbook_url: https://github.com/culzaa/kafkafim/blob/main/docs/RUNBOOK.md#58-consumer-lag-growing
 
       - alert: KafkafimDlqRecords
         expr: >-
@@ -88,7 +88,7 @@ groups:
           description: >-
             DLQ records acknowledged for 10m+ ({{ $value | humanize }}/s). The WARN DLQ log lines
             name each record's source coordinates.
-          runbook_url: https://github.com/matabar/kafkafim/blob/main/docs/RUNBOOK.md#56-dlq-filling-or-dlq-blocked
+          runbook_url: https://github.com/culzaa/kafkafim/blob/main/docs/RUNBOOK.md#56-dlq-filling-or-dlq-blocked
 
       - alert: KafkafimNoAssignedPartitions
         # Normal on pods beyond the partition count; silence it for such groups.
@@ -103,7 +103,7 @@ groups:
           description: >-
             The pipeline runs on this pod but its consumers hold no partitions. Normal only when
             the group has more pods than partitions.
-          runbook_url: https://github.com/matabar/kafkafim/blob/main/docs/RUNBOOK.md#57-pipeline-shows-running-but-consumes-nothing
+          runbook_url: https://github.com/culzaa/kafkafim/blob/main/docs/RUNBOOK.md#57-pipeline-shows-running-but-consumes-nothing
 
       - alert: KafkafimKafkaDisconnected
         expr: >-
@@ -117,7 +117,7 @@ groups:
           description: >-
             A consumer of the pipeline holds no broker connection; kafka-clients reconnects with
             backoff.
-          runbook_url: https://github.com/matabar/kafkafim/blob/main/docs/RUNBOOK.md#53-kafka-unreachable
+          runbook_url: https://github.com/culzaa/kafkafim/blob/main/docs/RUNBOOK.md#53-kafka-unreachable
 
   - name: kafkafim-elasticsearch
     rules:
@@ -130,7 +130,7 @@ groups:
           summary: "Circuit breaker for Elasticsearch {{ $labels.es_cluster }} is open"
           description: >-
             Every pipeline sending to this cluster is paused until the breaker closes.
-          runbook_url: https://github.com/matabar/kafkafim/blob/main/docs/RUNBOOK.md#51-elasticsearch-outage-circuit-breaker-open
+          runbook_url: https://github.com/culzaa/kafkafim/blob/main/docs/RUNBOOK.md#51-elasticsearch-outage-circuit-breaker-open
 
       - alert: KafkafimBulkRejectRatioHigh
         # tune: 1% of bulk requests answered 429 (DESIGN §10).
@@ -144,7 +144,7 @@ groups:
           summary: "{{ $value | humanizePercentage }} of bulk requests to {{ $labels.es_cluster }} rejected (429)"
           description: >-
             Elasticsearch pushes back; kafkafim retries with backoff and lag grows.
-          runbook_url: https://github.com/matabar/kafkafim/blob/main/docs/RUNBOOK.md#58-consumer-lag-growing
+          runbook_url: https://github.com/culzaa/kafkafim/blob/main/docs/RUNBOOK.md#58-consumer-lag-growing
 
       - alert: KafkafimEsAuthFailures
         # Series exist from startup with 0 per cluster and identity, but one whose first
@@ -165,7 +165,7 @@ groups:
           description: >-
             401/403 responses for pipeline {{ $labels.pipeline }}; it pauses until the
             credentials or roles work again. Nothing goes to the DLQ.
-          runbook_url: https://github.com/matabar/kafkafim/blob/main/docs/RUNBOOK.md#52-elasticsearch-authentication-failure-pipeline-paused
+          runbook_url: https://github.com/culzaa/kafkafim/blob/main/docs/RUNBOOK.md#52-elasticsearch-authentication-failure-pipeline-paused
 
   - name: kafkafim-config
     rules:
@@ -178,4 +178,4 @@ groups:
           description: >-
             The pod keeps running the previous generation, and new pods fail to start with this
             configuration. The ERROR "Configuration reload (...) rejected" line lists the violations.
-          runbook_url: https://github.com/matabar/kafkafim/blob/main/docs/RUNBOOK.md#511-reload-failure-alert
+          runbook_url: https://github.com/culzaa/kafkafim/blob/main/docs/RUNBOOK.md#511-reload-failure-alert
