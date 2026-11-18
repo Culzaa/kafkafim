@@ -181,7 +181,7 @@ start_app() {
   echo $! >"$RUN/app-$1.pid"
   for _ in $(seq 1 90); do
     curl -sf -m 3 "localhost:$2/actuator/health/readiness" >/dev/null 2>&1 &&
-      [[ "$(metric "$2" '^kafkafim_assigned_partitions')" -ge "${3:-1}" ]] && return 0
+      [[ "$(metric "$2" kafkafim.assigned.partitions VALUE | cut -d. -f1)" -ge "${3:-1}" ]] && return 0
     sleep 1
   done
   err "kafkafim $1 did not become ready"
@@ -210,21 +210,20 @@ stop_app() {
 }
 
 #######################################
-# Prints the sum of all matching series of an instance (0 when absent).
+# Prints one statistic of a meter, summed over all its tag combinations, read from the actuator
+# (kafkafim exports metrics over OTLP only; /actuator/metrics/<name> serves the same meters as
+# JSON). Prints 0 when the meter does not exist yet or the instance is down.
 # Arguments:
-#   Port, metric name regex
+#   Port, meter name (dotted, e.g. kafkafim.docs), statistic (COUNT, VALUE, TOTAL_TIME, MAX),
+#   optionally a tag filter as key:value
 #######################################
 metric() {
-  curl -sf -m 3 "localhost:$1/actuator/prometheus" 2>/dev/null |
-    awk -v re="$2" '$0 ~ re { s += $NF } END { printf "%.0f\n", s }'
+  local url="localhost:$1/actuator/metrics/$2"
+  [[ -z "${4:-}" ]] || url+="?tag=$4"
+  curl -sf -m 3 "$url" 2>/dev/null |
+    tr '{' '\n' | sed -n 's/.*"statistic":"'"$3"'","value":\([-0-9.eE+]*\).*/\1/p' |
+    awk '{ s += $1 } END { printf "%.3f\n", s }'
 }
-
-#######################################
-# Prints the sum of the series of a Prometheus text exposition (stdin) whose line matches a regex.
-# Arguments:
-#   Regex
-#######################################
-sum_series() { awk -v re="$1" '$0 ~ re { s += $NF } END { printf "%.3f", s }'; }
 
 #######################################
 # Appends one CSV line per second to $RUN/samples.csv, forever (run it in the background):
@@ -234,17 +233,15 @@ sum_series() { awk -v re="$1" '$0 ~ re { s += $NF } END { printf "%.3f", s }'; }
 #   RUN (read)
 #######################################
 sampler() {
-  local pid a b
+  local pid
   echo "t,es_count,indexed_a,indexed_b,in_flight_a,assigned_a,e2e_sum_a,e2e_count_a,rss_kb_a,heap_used_a" >"$RUN/samples.csv"
   while :; do
     pid=$(cat "$RUN/app-a.pid" 2>/dev/null || echo 0)
-    a=$(curl -sf -m 2 localhost:8080/actuator/prometheus || true)
-    b=$(curl -sf -m 2 localhost:8081/actuator/prometheus || true)
     printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' "$(date +%s)" "$(es_count || echo 0)" \
-      "$(sum_series '^kafkafim_docs_total.*outcome="indexed"' <<<"$a")" "$(sum_series '^kafkafim_docs_total.*outcome="indexed"' <<<"$b")" \
-      "$(sum_series '^kafkafim_in_flight_bytes' <<<"$a")" "$(sum_series '^kafkafim_assigned_partitions' <<<"$a")" \
-      "$(sum_series '^kafkafim_e2e_latency_seconds_sum' <<<"$a")" "$(sum_series '^kafkafim_e2e_latency_seconds_count' <<<"$a")" \
-      "$(ps -o rss= -p "$pid" 2>/dev/null | tr -d ' ')" "$(sum_series '^jvm_memory_used_bytes.*area="heap"' <<<"$a")" >>"$RUN/samples.csv"
+      "$(metric 8080 kafkafim.docs COUNT outcome:indexed)" "$(metric 8081 kafkafim.docs COUNT outcome:indexed)" \
+      "$(metric 8080 kafkafim.in.flight.bytes VALUE)" "$(metric 8080 kafkafim.assigned.partitions VALUE)" \
+      "$(metric 8080 kafkafim.e2e.latency TOTAL_TIME)" "$(metric 8080 kafkafim.e2e.latency COUNT)" \
+      "$(ps -o rss= -p "$pid" 2>/dev/null | tr -d ' ')" "$(metric 8080 jvm.memory.used VALUE area:heap)" >>"$RUN/samples.csv"
     sleep 1
   done
 }
@@ -316,12 +313,16 @@ wait_total() {
 }
 
 #######################################
-# Writes the final metrics snapshot and prints the summary.
+# Writes the final e2e latency snapshot and prints the summary.
 # Globals:
 #   RUN, ES, PIPELINES, DOCS (read)
 #######################################
 finish() {
-  curl -sf -m 5 localhost:8080/actuator/prometheus | grep '^kafkafim_' >"$RUN/metrics-final.txt" || true
+  {
+    echo "kafkafim.e2e.latency COUNT $(metric 8080 kafkafim.e2e.latency COUNT)"
+    echo "kafkafim.e2e.latency TOTAL_TIME $(metric 8080 kafkafim.e2e.latency TOTAL_TIME)"
+    echo "kafkafim.e2e.latency MAX $(metric 8080 kafkafim.e2e.latency MAX)"
+  } >"$RUN/metrics-final.txt"
   curl -s "$ES/_refresh" >/dev/null || true
   grep -c OutOfMemoryError "$RUN"/app-*.log | awk -F: '$2>0 { print "OutOfMemoryError in " $1 }' | tee -a "$RUN/run.log" || true
   log "ES documents: $(es_count) of $((PIPELINES * DOCS))"
@@ -371,7 +372,7 @@ main() {
       wait_total 1800 || log "TIMEOUT waiting for the backlog"
       finish
       ;;
-    latency) # steady rate: the e2e histogram is the result
+    latency) # steady rate: the e2e latency mean and max are the result
       up
       gen_config
       start_app a 8080 $((PIPELINES * PARTITIONS))
