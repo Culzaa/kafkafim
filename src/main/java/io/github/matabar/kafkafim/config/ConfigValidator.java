@@ -35,6 +35,9 @@ public final class ConfigValidator {
   /** Only digits: reserved for the position label of unnamed routes. */
   private static final Pattern POSITION_LABEL = Pattern.compile("[0-9]+");
 
+  /** Lower bound of {@code reload.poll-interval}, and the debounce below which a warning shows. */
+  private static final Duration MIN_POLL_INTERVAL = Duration.ofSeconds(1);
+
   /** {@code host:port}, IPv6 in brackets, optional {@code PROTOCOL://} prefix. */
   private static final Pattern BOOTSTRAP_SERVER =
       Pattern.compile("(?:[A-Za-z_]+://)?(\\[[0-9A-Fa-f:.%]+]|[A-Za-z0-9._-]+):(\\d{1,5})");
@@ -121,9 +124,19 @@ public final class ConfigValidator {
     KafkafimProperties.Reload reload = properties.reload();
     if (reload.pollInterval().isNegative() || reload.pollInterval().isZero()) {
       error(prefix + ".reload.poll-interval", "must be positive");
+    } else if (reload.pollInterval().compareTo(MIN_POLL_INTERVAL) < 0) {
+      error(
+          prefix + ".reload.poll-interval",
+          "must be at least 1s: every poll hashes all watched files, so a shorter period is a"
+              + " tight hashing loop");
     }
     if (reload.debounce().isNegative()) {
       error(prefix + ".reload.debounce", "must not be negative");
+    } else if (reload.debounce().compareTo(MIN_POLL_INTERVAL) < 0) {
+      warnings.add(
+          prefix
+              + ".reload.debounce: below 1s, a kubelet update that swaps several files can be read"
+              + " half-applied and reload more than once; the default is 2s");
     }
     if (properties.allowInlineSecrets()) {
       warnings.add(
