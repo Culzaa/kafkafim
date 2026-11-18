@@ -14,7 +14,8 @@ meant to be run by hand on a machine you can leave alone while it runs.
   `localhost:19200`. Ports differ from the development stack, so both can run side by side.
 - kafkafim itself runs from the jar on the host (`java -jar`) with the production `kafkafim`
   profile and a generated `application-kafkafim.yaml` in the run directory. OTLP export is
-  switched off; the numbers come from `/actuator/prometheus` and Elasticsearch `_count`.
+  switched off; the numbers come from the actuator's `/actuator/metrics/<name>` and Elasticsearch `_count`.
+  The actuator has no histogram buckets, so a run reports the e2e latency mean and maximum, not percentiles.
 - [Produce.java](Produce.java) runs on the host (JDK 27, Kafka client jars taken from the kafkafim
   jar) and writes JSON documents with
   a unique id, so Elasticsearch ends with exactly one document per produced record and a
@@ -40,8 +41,8 @@ Settings are environment variables (defaults in [run.sh](run.sh)): `PIPELINES`, 
 | Scenario | What it does | Result |
 |---|---|---|
 | `throughput` | Fills the topics with `DOCS` documents per pipeline, then starts kafkafim and times the drain. | documents/s into Elasticsearch, per run and per pipeline |
-| `latency` | Produces at `RATE` docs/s per pipeline while kafkafim runs. | `kafkafim_e2e_latency_seconds`: mean and percentile bounds |
-| `memory` | Same as `throughput` with a backlog far larger than `MAX_IN_FLIGHT`; vary `MAX_IN_FLIGHT` and `HEAP`. | peak `kafkafim_in_flight_bytes`, peak RSS, throughput |
+| `latency` | Produces at `RATE` docs/s per pipeline while kafkafim runs. | `kafkafim.e2e.latency`: mean and maximum |
+| `memory` | Same as `throughput` with a backlog far larger than `MAX_IN_FLIGHT`; vary `MAX_IN_FLIGHT` and `HEAP`. | peak `kafkafim.in.flight.bytes`, peak RSS, throughput |
 | `outage` | Produces at `RATE`; stops Elasticsearch `OUTAGE_AT` seconds in, for `OUTAGE_FOR` seconds. | in-flight bytes while down, recovery time, final document count |
 | `rebalance` | Produces at `RATE`; a second kafkafim instance joins after `OUTAGE_AT` seconds and leaves `OUTAGE_FOR` seconds later. | latency spike, redelivered documents, final document count |
 

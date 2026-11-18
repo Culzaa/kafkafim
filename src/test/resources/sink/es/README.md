@@ -12,6 +12,7 @@ file name. Setup: index `kfm-orders` (`n: long`), index `kfm-strict` (`dynamic: 
 | `bulk-all-ok.json` | 200 | `index` + `create` of new ids |
 | `bulk-create-conflict-unfiltered.json` | 200 | the same body again **without** `filter_path`: `index` updates (200), `create` conflicts (409, document already exists) |
 | `bulk-mixed-errors.json` | 200 | in order: ok; `n: "not-a-number"` (`document_parsing_exception`); unknown field on the strict index; `create` of an existing id; external version 3 below stored 5; external version 7 above 5; missing index (`index_not_found_exception`); unknown ingest pipeline (`illegal_argument_exception`); object for a `long` |
+| `bulk-item-closed-blocked.json` | 200 | one document to a closed index (item 400 `index_closed_exception`) and one to an index with `index.blocks.write: true` (item 403 `cluster_block_exception`); captured 2026-11-18, security disabled |
 | `bulk-item-forbidden.json` | 200 | user with `write` on `kfm-orders` only, writing to `kfm-orders` and `kfm-strict` (item-level 403 `security_exception`) |
 | `bulk-item-rejected.json` | 200 | `thread_pool.write.size: 1`, `queue_size: 1`, 30-shard index, 8 documents: item-level 429 `es_rejected_execution_exception` |
 | `request-400-malformed.json` | 400 | body without the final line feed |

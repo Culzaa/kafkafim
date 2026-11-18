@@ -462,7 +462,8 @@ public final class BulkSink<H> implements AutoCloseable {
     long elapsed = System.nanoTime() - start;
     int status = result.status();
     listener.onBulkResponse(key, status, entries.size(), bytes, Duration.ofNanos(elapsed));
-    switch (ErrorClassifier.request(status)) {
+    switch (ErrorClassifier.request(
+        status, status == 403 ? ErrorSummary.errorTypeOfResponse(result.body()) : null)) {
       case PARSE_ITEMS -> {
         BulkResponse response;
         try {
