@@ -556,13 +556,16 @@ public final class KafkaPipelineSource implements SmartLifecycle {
     consumer.commitAsync(
         offsets,
         (committed, exception) -> {
-          if (exception == null) {
-            tracker.committed(consumer, committed);
-          } else {
-            LOG.warn(
-                "Pipeline '{}': offset commit failed, retrying next interval: {}",
-                pipeline,
-                exception.toString());
+          // Runs on the consumer thread inside a later poll, outside the scopes above.
+          try (var ignored = PipelineMdc.open(pipeline)) {
+            if (exception == null) {
+              tracker.committed(consumer, committed);
+            } else {
+              LOG.warn(
+                  "Pipeline '{}': offset commit failed, retrying next interval: {}",
+                  pipeline,
+                  exception.toString());
+            }
           }
         });
   }

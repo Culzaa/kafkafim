@@ -357,16 +357,17 @@ public final class BulkSink<H> implements AutoCloseable {
 
   // ---- sending (virtual threads) ----
 
-  /**
-   * One sender task per sealed batch. A task takes whichever batch is oldest once it holds a
-   * permit, so batches start in the order they were sealed even though tasks wake in any order.
-   */
+  /** A sender task with the pipeline in the MDC. */
   private void sendScoped() {
     try (var ignored = PipelineMdc.open(key.pipeline())) {
       sendNext();
     }
   }
 
+  /**
+   * One sender task per sealed batch. A task takes whichever batch is oldest once it holds a
+   * permit, so batches start in the order they were sealed even though tasks wake in any order.
+   */
   private void sendNext() {
     try {
       inFlight.acquire();
