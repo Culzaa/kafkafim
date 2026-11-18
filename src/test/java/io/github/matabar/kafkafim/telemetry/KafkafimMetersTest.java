@@ -173,6 +173,8 @@ class KafkafimMetersTest {
     orders.authFailure("search-eu", "writer");
     orders.authFailure("search-eu", null);
     orders.dlqRecord("es_error");
+    orders.routeRegexBudgetExceeded();
+    orders.routeRegexBudgetExceeded();
 
     String[] base = {"pipeline", "orders", "kafka_cluster", "prod-a"};
     assertThat(counter(TelemetryNames.RECORDS_CONSUMED, with(base, "topic", "orders.v1")))
@@ -182,6 +184,7 @@ class KafkafimMetersTest {
     assertThat(counter(TelemetryNames.DOCS, with(base, "route", "eu", "outcome", "indexed")))
         .isOne();
     assertThat(counter(TelemetryNames.DOCS, with(base, "route", "none", "outcome", "dlq"))).isOne();
+    assertThat(counter(TelemetryNames.ROUTE_REGEX_BUDGET_EXCEEDED, base)).isEqualTo(2);
     assertThat(registry.get(TelemetryNames.E2E_LATENCY).tags(base).timer().count()).isEqualTo(2);
     assertThat(
             registry.get(TelemetryNames.E2E_LATENCY).tags(base).timer().max(TimeUnit.MILLISECONDS))

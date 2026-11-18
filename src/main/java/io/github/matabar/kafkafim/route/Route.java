@@ -32,9 +32,10 @@ public final class Route<T> {
     this.alone = List.of(this);
   }
 
-  boolean matches(JsonNode document, String topic, HeaderLookup headers) {
+  boolean matches(
+      JsonNode document, String topic, HeaderLookup headers, Runnable onBudgetExceeded) {
     for (Condition condition : conditions) {
-      if (!condition.test(document, topic, headers)) {
+      if (!condition.test(document, topic, headers, onBudgetExceeded)) {
         return false;
       }
     }

@@ -67,6 +67,12 @@ public final class TelemetryNames {
   /** {@code kafkafim_dlq_records_total{pipeline,kafka_cluster,error_type}}. */
   public static final String DLQ_RECORDS = "kafkafim.dlq.records";
 
+  /**
+   * {@code kafkafim_route_regex_budget_exceeded_total{pipeline,kafka_cluster}}: a route's {@code
+   * matches} regex ran past its step budget and counted as no match.
+   */
+  public static final String ROUTE_REGEX_BUDGET_EXCEEDED = "kafkafim.route.regex.budget.exceeded";
+
   /** Label key of the pipeline name. */
   public static final String PIPELINE = "pipeline";
 
@@ -108,7 +114,11 @@ public final class TelemetryNames {
           Map.entry(KAFKA_CONNECTED, "1 while the pipeline's consumers hold broker connections"),
           Map.entry(
               PAUSE_REASON, "1 while the pipeline is paused for this supervisor reason, else 0"),
-          Map.entry(DLQ_RECORDS, "DLQ records acknowledged by the broker, by error type"));
+          Map.entry(DLQ_RECORDS, "DLQ records acknowledged by the broker, by error type"),
+          Map.entry(
+              ROUTE_REGEX_BUDGET_EXCEEDED,
+              "Route matches conditions whose regex ran past its step budget (counted as no"
+                  + " match)"));
 
   private TelemetryNames() {}
 
