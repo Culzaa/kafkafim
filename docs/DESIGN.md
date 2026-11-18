@@ -1005,6 +1005,10 @@ in `ConfigValidator`, whose messages never include values.
     ones the new tree removes) start again on the running tree. The generation stays,
     `kafkafim_config_reload_total{result=failure}` counts it, and one ERROR line carries
     the cause.
+    Once the new tree is in effect nothing is rolled back any more: a step after that
+    point (closing an instance the old tree used, starting a pipeline) that throws, an
+    `Error` included, is logged as a WARN (`Reload step '...' failed`) and the remaining
+    steps still run.
   - **`POST /actuator/reload`** returns `{result, generation, added, removed,
     restarted: [{pipeline, reasons}], retried, unchanged, errors}`: 200 for `applied` or
     `unchanged`, 400 with every violation for `rejected`, 503 while the supervisor is

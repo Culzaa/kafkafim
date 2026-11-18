@@ -443,7 +443,9 @@ final class PipelineResources implements SmartLifecycle, AutoCloseable {
       try {
         LOG.info("Closing {}", handle);
         handle.close();
-      } catch (RuntimeException e) {
+      } catch (RuntimeException | Error e) {
+        // An Error (a NoClassDefFoundError in a client's close, say) must not leave the instances
+        // after this one open: nothing else could close them any more.
         LOG.warn("Closing {} failed", handle, e);
       }
     }
