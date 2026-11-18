@@ -134,6 +134,14 @@ Branch protection on `main` (a classic branch protection rule, in force since
 
 The rule requires no approving review; reviews are a process rule (CONTRIBUTING.md).
 
+Merges go through the GitHub merge queue. `ci.yml` also triggers on `merge_group`
+(`checks_requested`), so the four required checks run on the queue's temporary
+`gh-readonly-queue/...` branch, which is `main` plus the queued pull requests. A queue run always
+runs everything: `changes` takes the same path as a push to `main`, so docs-only pull requests are
+not skipped there. Each queue run has its own concurrency group (keyed on the commit SHA) and is
+never cancelled. It builds the image but pushes nothing; `ci.yml` never publishes, and
+`release.yml` runs only on its own triggers.
+
 Dependabot runs weekly, with grouped updates, for Maven, GitHub Actions, and the Docker
 base image.
 Every `uses:` in `.github/workflows` is pinned to a full commit SHA with the released version

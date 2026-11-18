@@ -3,15 +3,21 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The merge queue's temporary gh-readonly-queue/... branch (main plus the queued pull requests).
+  # The required checks must report on it, or the queue never merges the entry.
+  merge_group:
+    types: [checks_requested]
 permissions:
   contents: read
-# A newer push to a pull request cancels its older run. On main every merged commit gets its
-# own complete run (docs/DELIVERY.md): a per-commit group, never cancelled. With one group for
+# A newer push to a pull request cancels its older run. On main and in the merge queue every
+# commit gets its own complete run (docs/DELIVERY.md): a per-commit group, never cancelled. A
+# queue entry's github.ref is a unique gh-readonly-queue/... branch, but a shared group could
+# still replace a pending run, so it is keyed on the commit SHA like main. With one group for
 # main, a run still in progress would survive (cancel-in-progress false) but a pending one
 # would still be replaced by the next merge, leaving that commit without an image build.
 concurrency:
-  group: ci-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: ci-${{ (github.ref == 'refs/heads/main' || github.event_name == 'merge_group') && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   # Decides which gate jobs a pull request needs (docs/DELIVERY.md, "Docs-only pull requests").
   # Skipped jobs report success, so the check names stay usable as required checks; a
@@ -37,7 +43,7 @@ jobs:
           EVENT: ${{ github.event_name }}
         run: |
           if [ "$EVENT" != pull_request ]; then
-            # Pushes to main run everything.
+            # Pushes to main and merge queue runs (merge_group) run everything.
             printf 'docs_only=false\nhelm=true\ngrafana=true\n' >> "$GITHUB_OUTPUT"; exit 0
           fi
           # What merging the PR would change. --no-renames lists both sides of a rename, so
