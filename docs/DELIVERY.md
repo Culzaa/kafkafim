@@ -142,8 +142,12 @@ not skipped there. Each queue run has its own concurrency group (keyed on the co
 never cancelled. It builds the image but pushes nothing; `ci.yml` never publishes, and
 `release.yml` runs only on its own triggers.
 
-Dependabot runs weekly, with grouped updates, for Maven, GitHub Actions, and the Docker
-base image.
+Dependabot runs weekly, with grouped updates, for Maven, GitHub Actions, the Docker
+base image, and the images in `compose.yaml` and `loadtest/compose.yaml` (one group). The
+same images appear in `deploy/local/kafkafim-demo/values.yaml` and as `DockerImageName.parse`
+constants in `src/test`, which Dependabot cannot read; a compose bump PR must update those by
+hand, and the "YAML format" job's "Container image versions agree" step fails until every
+place names one tag per image.
 Every `uses:` in `.github/workflows` is pinned to a full commit SHA with the released version
 in a trailing comment (a retagged action cannot change what runs); Dependabot's
 `github-actions` ecosystem keeps both current. Checkouts set `persist-credentials: false`.
