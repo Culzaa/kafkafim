@@ -140,6 +140,9 @@ same images appear in `deploy/local/kafkafim-demo/values.yaml` and as `DockerIma
 constants in `src/test`, which Dependabot cannot read; a compose bump PR must update those by
 hand, and the "YAML format" job's "Container image versions agree" step fails until every
 place names one tag per image.
+Every `uses:` in `.github/workflows` is pinned to a full commit SHA with the released version
+in a trailing comment (a retagged action cannot change what runs); Dependabot's
+`github-actions` ecosystem keeps both current. Checkouts set `persist-credentials: false`.
 Dependabot ignores `io.opentelemetry.proto:opentelemetry-proto`. No BOM manages it, and
 `pom.xml` declares it at the version `micrometer-registry-otlp` depends on. A
 `maven-enforcer-plugin` `dependencyConvergence` rule fails `validate` when the two
