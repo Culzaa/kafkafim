@@ -1,6 +1,8 @@
 # ADR-0025: Own per-partition offset tracker instead of spring-kafka `asyncAcks`
 
-Status: accepted · Date: 2026-11-07 · Supersedes the `asyncAcks` bullet of [ADR-0004](0004-spring-kafka-programmatic-containers.md)
+Status: accepted · Date: 2026-11-07 · Supersedes the `asyncAcks` bullet of
+[ADR-0004](0004-spring-kafka-programmatic-containers.md); the budget bullet is superseded by
+[ADR-0050](0050-in-flight-budget-counts-headers-and-a-per-record-overhead.md)
 
 ## Context
 

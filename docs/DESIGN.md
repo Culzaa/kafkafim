@@ -316,8 +316,11 @@ element, `kafkafim.doc-index`.
 - **Limits.** `max-record-bytes` bounds every string, number, and token count before
   parsing. Nesting is capped at 500, number literals at 1000 digits, and keys at
   50,000 UTF-8 bytes.
-- **Memory.** `max-in-flight-bytes` counts only the raw key + value bytes of delivered,
-  incomplete records. Decoding and delivery cost more heap than that, in two ways:
+- **Memory.** `max-in-flight-bytes` counts the key, value and header bytes of delivered,
+  incomplete records plus a fixed 256-byte overhead estimate per record, so tombstones and
+  tiny records are not free (ADR-0050); `kafkafim_in_flight_bytes` reports the same sum,
+  while `kafkafim_bytes_consumed_total` stays on key + value. Decoding and delivery cost
+  more heap than that, in two ways:
   - *Decode peak (transient).* A record is decoded, routed, and turned into bulk
     actions on its consumer thread, one record at a time; its parsed trees are garbage
     once that returns. They can take far more heap than the value: an 8 MiB array of
@@ -325,9 +328,9 @@ element, `kafkafim.doc-index`.
     value). So the peak is about one `max-record-bytes` record × 28 per consumer
     thread, whatever the budget.
   - *Held in flight.* Until a record completes, kafkafim keeps the record (its raw
-    bytes, which the budget counts) and one copy of each indexed document's bytes
-    (shared by its routes, so at most the value again; a route with `transform` steps holds
-    its own serialized copy, §8). Per indexed copy it also keeps
+    bytes, which the budget counts with an overhead estimate) and one copy of each indexed
+    document's bytes (shared by its routes, so at most the value again; a route with
+    `transform` steps holds its own serialized copy, §8). Per indexed copy it also keeps
     a bulk action (index name, id, completion handle) and the sink's queue entry with
     its precomputed bulk metadata line: roughly 300–450 bytes of objects, an estimate
     from object layout, not a measurement. A document bound for the DLQ holds its DLQ
@@ -1137,7 +1140,7 @@ are reported together:
 
 | Situation | Behaviour |
 |---|---|
-| ES returns 429 / 5xx / connection error or timeout for a bulk request | Retried with the same documents **forever**, exponential backoff with jitter (100ms doubling to 30s, ±50%); counts as a breaker failure. The pipeline's container is paused when in-flight bytes (key + value of every delivered, incomplete record) reach `max-in-flight-bytes`, and resumes once they drop to half of it. A poll that crosses the budget is delivered whole, so the overshoot is at most one poll per consumer. Kafka lag grows (visible in the Kafka team's consumer-lag monitoring). No local buffering. Never DLQ. |
+| ES returns 429 / 5xx / connection error or timeout for a bulk request | Retried with the same documents **forever**, exponential backoff with jitter (100ms doubling to 30s, ±50%); counts as a breaker failure. The pipeline's container is paused when in-flight bytes (key, value and header bytes plus a 256-byte overhead estimate, of every delivered, incomplete record) reach `max-in-flight-bytes`, and resumes once they drop to half of it. A poll that crosses the budget is delivered whole, so the overshoot is at most one poll per consumer. Kafka lag grows (visible in the Kafka team's consumer-lag monitoring). No local buffering. Never DLQ. |
 | Repeated cluster-level failures | Circuit breaker per ES cluster (Resilience4j, shared by all identities and pipelines): count window of 20 requests, opens at ≥50% failures after at least 10, stays open 10s, then lets 2 probes through. While it is open every sender for that cluster waits; pipelines routing to that cluster pause (supervisor reason `es-breaker:<cluster>`, from open until the breaker is closed again; half-open keeps the pause), others proceed. |
 | Bulk request rejected with 401 / 403 | Configuration failure, not data failure: retried with backoff forever and reported through the sink listener (the supervisor pauses the pipeline; `kafkafim_auth_failures_total` and an alert fire). Not a breaker failure. Nothing goes to the DLQ. The log line and the listener event keep the security error's type and `reason` (user, roles, action, index), never the raw body (ADR-0030). An **item** with 401/403 (the identity may not write that index) is handled the same way. |
 | Bulk request with any other unexpected status (a 400 for the whole request, a 404 from a proxy or a wrong path, a 3xx) or a 2xx body that is not a bulk response | Retried forever with backoff and logged with Elasticsearch's `error.type` and `root_cause[].type`s, never its `reason`, which can quote field values (ADR-0030; a body that is not JSON is logged by its size, an unparsable 2xx body by what was wrong with it; the body itself only at DEBUG on the `BulkSink` logger): it cannot be attributed to one document, so it never reaches the DLQ. An unexpected status is not a cluster-health signal and does not open the breaker; an unparsable 2xx body does. |

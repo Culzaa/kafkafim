@@ -150,7 +150,8 @@ class KafkaPipelineSourceIntegrationTest {
     String topic = createTopic(1);
     produce(topic, 0, 200, 100);
     Recorder recorder = new Recorder(record -> {});
-    KafkaPipelineSource source = start(source(topic, 5, DataSize.ofBytes(1_000)), recorder, 1);
+    // Each record is charged 100 payload bytes plus 256 overhead (ADR-0050): ten fill the budget.
+    KafkaPipelineSource source = start(source(topic, 5, DataSize.ofBytes(3_560)), recorder, 1);
 
     await()
         .atMost(TIMEOUT)
