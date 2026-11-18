@@ -4,6 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.config.SslConfigs;
 import org.junit.jupiter.api.Test;
@@ -167,5 +172,39 @@ class KafkaClientSecurityTest {
         .hasSize(settings.size());
     assertThat(redacted.toString()).doesNotContain("s1", "s2", "s3", "s4", "s5", "s6", "s7");
     assertThat(redacted.values()).filteredOn("[hidden]"::equals).hasSize(7);
+  }
+
+  /** PASSWORD-typed in kafka-clients, but public certificate material, not a secret. */
+  private static final Set<String> PUBLIC_MATERIAL =
+      Set.of("ssl.keystore.certificate.chain", "ssl.truststore.certificates");
+
+  @Test
+  void everyPasswordTypedClientKeyIsClassifiedSecret() {
+    Map<String, ConfigDef> defs =
+        Map.of(
+            "consumer", ConsumerConfig.configDef(),
+            "producer", ProducerConfig.configDef(),
+            "admin", AdminClientConfig.configDef());
+    defs.forEach((client, def) ->
+        def.configKeys()
+            .forEach((name, key) -> {
+              if (key.type() == ConfigDef.Type.PASSWORD && !PUBLIC_MATERIAL.contains(name)) {
+                assertThat(KafkaClientSecurity.isSecretKey(name))
+                    .as("%s %s hidden in logs", client, name)
+                    .isTrue();
+                assertThat(InlineSecretCheck.isSecretPassthroughKey(name))
+                    .as("%s %s rejected inline", client, name)
+                    .isTrue();
+              }
+            }));
+  }
+
+  @Test
+  void passphraseKeysAreSecret() {
+    String key = "sasl.oauthbearer.assertion.private.key.passphrase";
+    assertThat(KafkaClientSecurity.isSecretKey(key)).isTrue();
+    assertThat(InlineSecretCheck.isSecretPassthroughKey(key)).isTrue();
+    assertThat(KafkaClientSecurity.redacted(Map.of(key, "hunter2")).get(key))
+        .isEqualTo(KafkaClientSecurity.HIDDEN);
   }
 }

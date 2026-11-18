@@ -145,8 +145,8 @@ class InlineSecretCheckTest {
             K + ".identities.c.ssl.keystore-password=lit",
             K + ".identities.c.ssl.key-password=lit",
             K + ".properties.sasl.jaas.config=lit",
-            K + ".properties[ssl.key.password]=lit",
-            K + ".properties.client.id=not-a-secret",
+            K + ".properties[ssl.keystore.key]=lit",
+            K + ".properties.fetch.max.bytes=not-a-secret",
             ES + ".identities.b.username=u",
             ES + ".identities.b.password=lit",
             ES + ".identities.a.api-key=lit");
@@ -158,7 +158,7 @@ class InlineSecretCheckTest {
             K + ".identities.c.ssl.keystore-password",
             K + ".identities.c.ssl.key-password",
             K + ".properties.sasl.jaas.config",
-            K + ".properties[ssl.key.password]",
+            K + ".properties[ssl.keystore.key]",
             ES + ".identities.b.password",
             ES + ".identities.a.api-key");
   }
