@@ -1758,6 +1758,36 @@ class ConfigValidationTest {
     }
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = {"0s", "-1s", "999ms", "100ms"})
+  void rejectsPollIntervalBelowOneSecond(String interval) {
+    assertThat(ConfigTestSupport.errors(MINIMAL, "kafkafim.reload.poll-interval=" + interval))
+        .anyMatch(e -> e.startsWith("kafkafim.reload.poll-interval: "));
+  }
+
+  @Test
+  void acceptsPollIntervalOfOneSecondAndWarnsAboutZeroDebounce() {
+    ConfigValidator.Result result =
+        ConfigValidator.validate(
+            ConfigTestSupport.bind(
+                MINIMAL, "kafkafim.reload.poll-interval=1s", "kafkafim.reload.debounce=0s"));
+    assertThat(result.errors()).isEmpty();
+    assertThat(result.warnings()).anyMatch(w -> w.startsWith("kafkafim.reload.debounce: below 1s"));
+  }
+
+  @Test
+  void doesNotWarnAboutDebounceOfOneSecondOrMore() {
+    ConfigValidator.Result result =
+        ConfigValidator.validate(ConfigTestSupport.bind(MINIMAL, "kafkafim.reload.debounce=1s"));
+    assertThat(result.warnings()).noneMatch(w -> w.contains("reload.debounce"));
+  }
+
+  @Test
+  void rejectsNegativeDebounce() {
+    assertThat(ConfigTestSupport.errors(MINIMAL, "kafkafim.reload.debounce=-1s"))
+        .anyMatch(e -> e.equals("kafkafim.reload.debounce: must not be negative"));
+  }
+
   private static String sasl(String identity) {
     return K + ".identities." + identity + ".sasl.mechanism=GSSAPI";
   }

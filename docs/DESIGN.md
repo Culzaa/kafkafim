@@ -1011,12 +1011,12 @@ in `ConfigValidator`, whose messages never include values.
     +1 per applied change); one INFO line per applied reload with the plan, one ERROR
     line per rejected reload listing every violation. `kafkafim_pipeline_state` gains
     and loses series with added and removed pipelines.
-  - **Settings**: `kafkafim.reload.enabled` (default `true`), `poll-interval` (10s),
-    `debounce` (2s), read at startup only. The watched paths are the file and
-    `configtree:` locations of the three properties above; `classpath:` locations are
-    not watched. `POST /actuator/reload` works with the watcher disabled. A reload
-    that changes them is still `applied` and logs a WARN that the watcher settings
-    apply after a restart.
+  - **Settings**: `kafkafim.reload.enabled` (default `true`), `poll-interval` (10s,
+    at least 1s), `debounce` (2s; below 1s only a warning), read at startup only.
+    The watched paths are the file and `configtree:` locations of the three properties
+    above; `classpath:` locations are not watched. `POST /actuator/reload` works with the
+    watcher disabled. A reload that changes them is still `applied` and logs a WARN that
+    the watcher settings apply after a restart.
   - Not reloaded: the `KafkafimProperties` bean stays the startup tree (the supervisor
     holds the one in effect); OTLP export headers (§10) and everything outside
     `kafkafim.*` need a restart.
