@@ -206,9 +206,8 @@ topologySpread:
 # (actuator, /actuator/reload) from the listed peers only. Egress
 # is not restricted; a cluster that default-denies egress writes its own policy (see
 # "Egress the pods need" in docs/HELM.md). The default allows pods in the release's
-# namespace; add another namespace
-# if something outside it calls the actuator. An empty
-# list means any source (Kubernetes semantics for an ingress rule without `from`).
+# namespace; add another namespace if something outside it calls the actuator. An
+# empty list means any source (Kubernetes semantics for an ingress rule without `from`).
 networkPolicy:
   enabled: false
   allowFrom:
