@@ -120,6 +120,36 @@ class PipelineResourcesTest {
     assertThat(b.dlqProducers().writer("b").isBlocked()).isFalse();
   }
 
+  /** A handle whose close fails still lets the others close at shutdown (#366). */
+  @Test
+  void closeStillClosesTheOtherInstancesWhenOneCloseFails() {
+    List<String> attempted = new java.util.concurrent.CopyOnWriteArrayList<>();
+    PipelineResources pool =
+        new PipelineResources(
+            new ListenerRelay(List.of(), List.of()),
+            p -> (cluster, identity) -> Preflight.Status.OK,
+            PipelineSupervisorTest.SETTINGS);
+    for (String name : List.of("one", "two")) {
+      pool.track(
+          new PipelineResources.Handle(name) {
+            @Override
+            Object instance() {
+              return this;
+            }
+
+            @Override
+            void close() {
+              attempted.add(name);
+              throw new IllegalStateException("close failed: " + name);
+            }
+          });
+    }
+
+    pool.close();
+
+    assertThat(attempted).containsExactlyInAnyOrder("one", "two");
+  }
+
   @Test
   void failedAcquireTakesNothingAndLeavesTheCurrentInstancesCurrent() {
     KafkafimProperties first = config(A);
