@@ -1570,7 +1570,7 @@ one WARN line per request-level retry (429, 5xx, 401/403, unexpected status) wit
 status and Elasticsearch's error types, plus the security `reason` for 401/403, or, for
 an unparsable 2xx body, what was wrong with it; never other response text, which can
 quote field values (the response body, cut to 1024 characters, only at DEBUG on the
-`io.github.matabar.kafkafim.sink.es.BulkSink` logger, ADR-0030); one WARN line per DLQ
+`io.github.culzaa.kafkafim.sink.es.BulkSink` logger, ADR-0030); one WARN line per DLQ
 record (pipeline, source coordinates, error type, attempts, target, where the DLQ
 record landed; never the reason or the record);
 one INFO or ERROR line per reload (§5.6). Document bodies are never
@@ -1659,7 +1659,7 @@ Summary; see [TECH_STACK.md](TECH_STACK.md) and the ADRs.
 ```text
 pom.xml, mvnw                    Maven build (Spring Boot parent)
 compose.yaml                     local Kafka + Elasticsearch + Grafana LGTM; one-shot kafka-init creates the demo topics
-src/main/java/io/github/matabar/kafkafim/
+src/main/java/io/github/culzaa/kafkafim/
   config/         @ConfigurationProperties model, validators, watcher, Binder reload, diff
   supervisor/     pipeline lifecycle, hot reload orchestration, reload endpoint
   source/kafka/   consumer factories per cluster, container per pipeline, offset tracker

@@ -45,7 +45,7 @@ change. Option 4 is the leak.
   index, which an operator needs to fix the grant, and no document data. Response headers
   echoed in the body (`WWW-Authenticate`) are dropped.
 - The response body itself, cut to 1024 characters, is logged at DEBUG on the
-  `io.github.matabar.kafkafim.sink.es.BulkSink` logger, one line per failed attempt. It is
+  `io.github.culzaa.kafkafim.sink.es.BulkSink` logger, one line per failed attempt. It is
   off by default; an operator enables it for that one logger while diagnosing.
 - `SinkListener.onAuthFailure` carries the same summary (type, root-cause types,
   reason), never the raw body, for request-level and item-level auth failures.

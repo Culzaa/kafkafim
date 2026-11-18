@@ -1,0 +1,75 @@
+package io.github.culzaa.kafkafim.supervisor;
+
+import io.github.culzaa.kafkafim.source.kafka.SourceRecord;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.jspecify.annotations.Nullable;
+
+/**
+ * The part of {@link SourceRecord} the {@link RecordProcessor} uses: the raw record and its
+ * completion handle. A seam so the completion accounting is unit-testable without a consumer.
+ */
+interface InboundRecord {
+
+  /** The raw record. */
+  ConsumerRecord<byte[], byte[]> record();
+
+  /** Whether the value exceeds {@code max-record-bytes}; such a record is never decoded. */
+  boolean oversize();
+
+  /** Declares how many {@link #complete()} calls complete the record; zero completes it now. */
+  void expectParts(int parts);
+
+  /** Completes one part. */
+  void complete();
+
+  /** Whether the record's partition was revoked or lost; completing it is then a no-op. */
+  boolean isAbandoned();
+
+  /**
+   * The {@code traceparent} of the record's Kafka {@code process} span, or {@code null} when the
+   * consumer is not traced.
+   */
+  default @Nullable String processTraceParent() {
+    return null;
+  }
+
+  /** Adapts a source record. */
+  static InboundRecord of(SourceRecord source) {
+    return new InboundRecord() {
+      @Override
+      public ConsumerRecord<byte[], byte[]> record() {
+        return source.record();
+      }
+
+      @Override
+      public boolean oversize() {
+        return source.oversize();
+      }
+
+      @Override
+      public void expectParts(int parts) {
+        source.expectParts(parts);
+      }
+
+      @Override
+      public void complete() {
+        source.complete();
+      }
+
+      @Override
+      public boolean isAbandoned() {
+        return source.isAbandoned();
+      }
+
+      @Override
+      public @Nullable String processTraceParent() {
+        return source.processTraceParent();
+      }
+
+      @Override
+      public String toString() {
+        return source.toString();
+      }
+    };
+  }
+}

@@ -455,7 +455,7 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
   ```yaml
   extraEnv:
     - name: SPRING_APPLICATION_JSON
-      value: '{"logging":{"level":{"io.github.matabar.kafkafim.sink.es.BulkSink":"DEBUG"}}}'
+      value: '{"logging":{"level":{"io.github.culzaa.kafkafim.sink.es.BulkSink":"DEBUG"}}}'
   ```
 
   A `LOGGING_LEVEL_..._BULKSINK` variable does not work: Spring lowercases
@@ -463,6 +463,10 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
   done: the body can hold document field values.
   `kafkafim_breaker_state{es_cluster="<es>"} == 2`,
   `kafkafim_bulk_requests_total{status=~"5..|429|io_error"}` rising.
+
+  **Breaking change** in the release that moved the Java package to `io.github.culzaa`: logger
+  names changed with it, so a `logging.level` override that still names the previous
+  `io.github.<old owner>.kafkafim...` package no longer matches and must be renamed.
 - **Check**: the ES cluster itself (its own monitoring; kafkafim never calls cluster
   health). Is it down, overloaded (429s, `es_rejected_execution_exception`), or is
   the network path broken? Pipelines writing to other ES clusters are unaffected. If
