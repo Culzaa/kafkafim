@@ -1527,8 +1527,9 @@ Every log event goes to two places (ADR-0044):
 - **OTLP**, the structured copy, for the backend. OpenTelemetry's Logback appender
   (`logback-spring.xml`) feeds the logger provider Spring Boot auto-configures; records
   are batched off the logging thread and sent to `/v1/logs`. A record carries the
-  severity, the logger name (its instrumentation scope), `thread.name`, MDC entries and
-  key-value pairs as attributes, an exception's type, message, and stack trace, the trace
+  severity, the logger name (its instrumentation scope), `thread.name` and the allowlisted
+  MDC entries as attributes (SLF4J key-value pairs are not captured, ADR-0048), an
+  exception's type, message, and stack trace, the trace
   and span id of the span in scope, and the resource attributes above. Lines logged
   before the OpenTelemetry SDK exists (Spring Boot's startup lines, configuration
   warnings) are kept, up to 1000, and replayed. Export never blocks a pipeline: a full
