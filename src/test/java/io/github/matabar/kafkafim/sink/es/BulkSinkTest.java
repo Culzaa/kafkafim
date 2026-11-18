@@ -893,6 +893,45 @@ class BulkSinkTest {
   }
 
   @Test
+  void theBodyIsBuiltOncePerSendAndReusedByEveryRetry() throws Exception {
+    List<byte[]> bodies = new CopyOnWriteArrayList<>();
+    AtomicInteger calls = new AtomicInteger();
+    BulkTransport transport =
+        body -> {
+          bodies.add(body);
+          return calls.incrementAndGet() <= 2 ? FakeTransport.status(503) : FakeTransport.allOk();
+        };
+    BulkSink<String> sink = sink(poison(10, HOUR), transport);
+
+    submitAll(sink, "a", "b");
+
+    assertThat(sink.awaitIdle(WAIT)).isTrue();
+    assertThat(bodies).hasSize(3);
+    assertThat(bodies.get(1)).isSameAs(bodies.get(0));
+    assertThat(bodies.get(2)).isSameAs(bodies.get(0));
+  }
+
+  @Test
+  void a413SplitBuildsItsOwnBodyPerHalf() throws Exception {
+    List<byte[]> bodies = new CopyOnWriteArrayList<>();
+    BulkTransport transport =
+        body -> {
+          bodies.add(body);
+          return FakeTransport.decode(body).actions().size() > 2
+              ? FakeTransport.status(413)
+              : FakeTransport.allOk();
+        };
+    BulkSink<String> sink = sink(settings(4, 1 << 20, HOUR, 1), transport);
+
+    submitAll(sink, "a", "b", "c", "d");
+
+    assertThat(sink.awaitIdle(WAIT)).isTrue();
+    assertThat(bodies).hasSize(3);
+    assertThat(bodies.get(1)).isNotSameAs(bodies.get(0)).hasSizeLessThan(bodies.get(0).length);
+    assertThat(bodies.get(2)).isNotSameAs(bodies.get(1));
+  }
+
+  @Test
   void requestRejectedWith413IsSplitInHalves() throws Exception {
     FakeTransport transport =
         new FakeTransport((request, call) ->
