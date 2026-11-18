@@ -143,7 +143,11 @@ For each `groups.<g>`:
   own `pdb: { minAvailable: 1 }`.
 - The ConfigMap is mounted as a directory, never with `subPath`, so kubelet updates
   the file in place and hot reload sees it. A `/tmp` `emptyDir` backs the read-only
-  root filesystem.
+  root filesystem. It is unbounded by default; `tmpSizeLimit` (for example `256Mi`) sets its
+  `sizeLimit`, so a runaway JFR or heap dump evicts only the kafkafim pod instead of filling
+  the node's ephemeral storage. To also reserve space, set `ephemeral-storage` under
+  `resources.requests` (and a limit if wanted); a group's own `resources` replaces
+  the top-level block, so repeat it there. Both are unset by default.
 - `NetworkPolicy` (opt-in) is ingress-only: TCP 8080 from `networkPolicy.allowFrom`
   (default: pods in the release namespace). Egress is not restricted
   (what the pods need to reach, for a cluster that default-denies egress:
