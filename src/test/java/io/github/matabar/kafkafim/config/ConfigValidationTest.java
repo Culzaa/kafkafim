@@ -238,6 +238,40 @@ class ConfigValidationTest {
     }
 
     @Test
+    void rejectsUserInfoWithoutEchoingIt() {
+      List<String> errors =
+          ConfigTestSupport.errors(
+              MINIMAL, ES + ".uris=https://elastic:hunter2@a:9200,https://u:hunter2@");
+      assertThat(errors)
+          .anyMatch(e -> e.startsWith(ES + ".uris[0]: must not contain credentials"))
+          .anyMatch(e -> e.startsWith(ES + ".uris[1]: 'https://[hidden]@' has no host"));
+      assertThat(String.join("\n", errors)).doesNotContain("hunter2");
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+        strings = {
+          "elastic:hunter2@a:9200",
+          "https://u:hun/ter2@a:9200",
+          "https://u:hun?ter2@a:9200",
+          "https://u:hun#ter2@a:9200",
+          "https:u:hunter2@a:9200"
+        })
+    void malformedUrisNeverEchoTheCredential(String uri) {
+      List<String> errors = ConfigTestSupport.errors(MINIMAL, ES + ".uris=" + uri);
+      assertThat(errors).anyMatch(e -> e.startsWith(ES + ".uris[0]"));
+      assertThat(String.join("\n", errors)).doesNotContain("hunter2").doesNotContain("ter2");
+    }
+
+    @Test
+    void syntaxErrorsDoNotEchoUserInfo() {
+      List<String> errors =
+          ConfigTestSupport.errors(MINIMAL, ES + ".uris=https://elastic:hunter2@a b:9200");
+      assertThat(errors).anyMatch(e -> e.startsWith(ES + ".uris[0]"));
+      assertThat(String.join("\n", errors)).doesNotContain("hunter2");
+    }
+
+    @Test
     void rejectsMixedSchemes() {
       assertInvalid(
           MINIMAL, ES + ".uris: mixes http and https", ES + ".uris=http://a:9200,https://b:9200");

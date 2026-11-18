@@ -1061,7 +1061,8 @@ are reported together:
   `PLAINTEXT` need none (client certificates are the broker's choice). A `sasl` block is
   only allowed on a `SASL_*` cluster, a keystore and cluster `ssl` trust only on a TLS
   one. `PLAIN`/`SCRAM-*` need `username` and `password`.
-- **Elasticsearch**: `uris` are `http(s)://host[:port]`, one scheme per cluster;
+- **Elasticsearch**: `uris` are `http(s)://host[:port]`, one scheme per cluster, without
+  `user:password@` (credentials belong on an identity; a URI with userinfo is rejected and never echoed);
   `ssl` trust and keystores only with `https`. An identity is exactly one of
   `username`+`password` or `api-key`, optionally with a keystore, or a keystore alone.
   A route on an `https` cluster without a resolvable identity fails; on `http` it binds
