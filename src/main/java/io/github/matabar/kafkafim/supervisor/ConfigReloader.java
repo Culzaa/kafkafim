@@ -4,6 +4,7 @@ import io.github.matabar.kafkafim.config.ConfigDiff;
 import io.github.matabar.kafkafim.config.ConfigLoader;
 import io.github.matabar.kafkafim.config.ConfigWatcher;
 import io.github.matabar.kafkafim.config.KafkafimProperties;
+import io.github.matabar.kafkafim.config.ValidateProfile;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -27,6 +28,11 @@ import org.springframework.core.env.Environment;
  * and validates it whole ({@link ConfigLoader}), diffs it by pipeline ({@link ConfigDiff}) and lets
  * the {@link PipelineSupervisor} apply it. The file watcher and {@code POST /actuator/reload} both
  * end here; reloads run one at a time, a second caller waits for the first.
+ *
+ * <p>A tree that defines nothing (no cluster, no pipeline) while pipelines are running is rejected
+ * the same way (ADR-0051): it is almost always an empty or unread file, and applying it would drain
+ * every pipeline. A tree that keeps clusters and drops the pipelines is a deliberate wipe and
+ * applies.
  *
  * <p>An invalid or unreadable tree is rejected whole: the running configuration stays, {@code
  * kafkafim_config_reload_total{result="failure"}} increments and one {@code ERROR} record lists
@@ -156,6 +162,16 @@ final class ConfigReloader implements SmartLifecycle {
         return rejected(trigger, loaded.problems());
       }
       KafkafimProperties next = loaded.properties();
+      if (ValidateProfile.definesNothing(next) && !running.pipelines().isEmpty()) {
+        return rejected(
+            trigger,
+            List.of(
+                "the new configuration defines no Kafka cluster, no Elasticsearch cluster and no"
+                    + " pipeline while "
+                    + running.pipelines().size()
+                    + " pipeline(s) are running; the file is probably empty or was not read."
+                    + " Keep the clusters defined to remove every pipeline on purpose"));
+      }
       if (next.equals(running)) {
         ConfigDiff diff = ConfigDiff.between(running, next);
         List<String> retried = supervisor.retryFailedPipelines(diff.unchanged());

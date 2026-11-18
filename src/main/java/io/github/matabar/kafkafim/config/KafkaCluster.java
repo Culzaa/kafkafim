@@ -123,6 +123,10 @@ public record KafkaCluster(
     private static final Set<String> PASSWORD_MECHANISMS =
         Set.of("PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512");
 
+    /** The mechanisms kafkafim accepts, spelled exactly as kafka-clients expects them. */
+    static final Set<String> MECHANISMS =
+        Set.of("PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512", "GSSAPI", "OAUTHBEARER");
+
     /** Whether the mechanism authenticates with a username and password. */
     public boolean needsUsernameAndPassword() {
       return mechanism != null && PASSWORD_MECHANISMS.contains(mechanism);

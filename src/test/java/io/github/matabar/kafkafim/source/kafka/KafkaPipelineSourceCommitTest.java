@@ -135,6 +135,17 @@ class KafkaPipelineSourceCommitTest {
   }
 
   @Test
+  void consumerThreadCallbacksCarryThePipelineInTheMdc() {
+    deliver(1);
+    rebalance.onPartitionsRevokedBeforeCommit(consumer, List.of(P0));
+    rebalance.onPartitionsAssigned(consumer, List.of(P0));
+    rebalance.onPartitionsLost(consumer, List.of(P0));
+
+    assertThat(handler.mdc).containsExactly("p", "p", "p");
+    assertThat(org.slf4j.MDC.get("pipeline")).as("released after each callback").isNull();
+  }
+
+  @Test
   void revokeCommitsWhatCompletedAndAbandonsTheRest() {
     List<SourceRecord> records = deliver(4);
     records.get(0).complete();
@@ -233,15 +244,18 @@ class KafkaPipelineSourceCommitTest {
     final List<SourceRecord> records = new ArrayList<>();
     final List<TopicPartition> revoked = new ArrayList<>();
     final List<TopicPartition> lost = new ArrayList<>();
+    final List<String> mdc = new ArrayList<>();
     boolean failures;
 
     @Override
     public void onBatch(List<SourceRecord> batch) {
+      mdc.add(String.valueOf(org.slf4j.MDC.get("pipeline")));
       records.addAll(batch);
     }
 
     @Override
     public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
+      mdc.add(String.valueOf(org.slf4j.MDC.get("pipeline")));
       revoked.addAll(partitions);
       if (failures) {
         throw new IllegalStateException("revoke handler");
@@ -250,6 +264,7 @@ class KafkaPipelineSourceCommitTest {
 
     @Override
     public void onPartitionsLost(Collection<TopicPartition> partitions) {
+      mdc.add(String.valueOf(org.slf4j.MDC.get("pipeline")));
       lost.addAll(partitions);
       if (failures) {
         throw new IllegalStateException("lost handler");
