@@ -150,6 +150,36 @@ class PipelineResourcesTest {
     assertThat(attempted).containsExactlyInAnyOrder("one", "two");
   }
 
+  /** An Error from one close (a NoClassDefFoundError, say) must not skip the others either. */
+  @Test
+  void closeStillClosesTheOtherInstancesWhenOneCloseThrowsAnError() {
+    List<String> attempted = new java.util.concurrent.CopyOnWriteArrayList<>();
+    PipelineResources pool =
+        new PipelineResources(
+            new ListenerRelay(List.of(), List.of()),
+            p -> (cluster, identity) -> Preflight.Status.OK,
+            PipelineSupervisorTest.SETTINGS);
+    for (String name : List.of("one", "two")) {
+      pool.track(
+          new PipelineResources.Handle(name) {
+            @Override
+            Object instance() {
+              return this;
+            }
+
+            @Override
+            void close() {
+              attempted.add(name);
+              throw new NoClassDefFoundError("some/Client " + name);
+            }
+          });
+    }
+
+    pool.close();
+
+    assertThat(attempted).containsExactlyInAnyOrder("one", "two");
+  }
+
   @Test
   void failedAcquireTakesNothingAndLeavesTheCurrentInstancesCurrent() {
     KafkafimProperties first = config(A);
