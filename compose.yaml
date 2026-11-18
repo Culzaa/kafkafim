@@ -50,6 +50,11 @@ services:
       discovery.type: single-node
       xpack.security.enabled: 'false'
       ES_JAVA_OPTS: '-Xms512m -Xmx512m'
+    healthcheck:   # `up --wait` and Spring Boot Docker Compose then wait for ES; the preflight needs it up
+      test: ['CMD-SHELL', 'curl -sf localhost:9200/_cluster/health >/dev/null']
+      interval: 5s
+      timeout: 10s
+      retries: 30
   grafana-lgtm:
     image: 'grafana/otel-lgtm:0.11.0'
     ports:
