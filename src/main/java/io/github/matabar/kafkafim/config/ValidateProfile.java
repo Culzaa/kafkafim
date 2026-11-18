@@ -39,6 +39,20 @@ public final class ValidateProfile {
   }
 
   /**
+   * Whether the tree defines no Kafka cluster, no Elasticsearch cluster and no pipeline: nothing
+   * was read, or the file is empty. A tree with clusters and no pipelines is a deliberately empty
+   * group, not nothing. Shared with the reload (ADR-0051).
+   *
+   * @param properties the bound tree
+   * @return true if the tree defines nothing
+   */
+  public static boolean definesNothing(KafkafimProperties properties) {
+    return properties.pipelines().isEmpty()
+        && properties.kafka().clusters().isEmpty()
+        && properties.elasticsearch().clusters().isEmpty();
+  }
+
+  /**
    * Refuses a tree that defines nothing: no Kafka cluster, no Elasticsearch cluster and no
    * pipeline. A normal start accepts it with a warning, but under this profile it almost always
    * means the configuration was not found (a wrong mount path, a missing {@code
@@ -52,9 +66,7 @@ public final class ValidateProfile {
    * @throws IllegalStateException if the tree defines no cluster and no pipeline
    */
   static void requireConfiguration(KafkafimProperties properties) {
-    if (properties.pipelines().isEmpty()
-        && properties.kafka().clusters().isEmpty()
-        && properties.elasticsearch().clusters().isEmpty()) {
+    if (definesNothing(properties)) {
       throw new IllegalStateException(
           "No kafkafim configuration found: no Kafka cluster, no Elasticsearch cluster and no"
               + " pipeline is defined. Check that application-kafkafim.yaml is mounted where"

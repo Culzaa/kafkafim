@@ -924,10 +924,13 @@ in `ConfigValidator`, whose messages never include values.
   meant for the infrastructure repository's CI, where the per-cluster values live.
   This repository's CI does not use it; it builds the image and smoke-tests it with a
   liveness probe ([DELIVERY.md](DELIVERY.md)).
-- **Reload** (ADR-0028): a watcher on the config and secret directories (Java
+- **Reload** (ADR-0028, ADR-0051): a watcher on the config and secret directories (Java
   `WatchService` + 10s hash poll, because kubelet updates volumes by symlink swap with
   up to ~1 min delay) plus `POST /actuator/reload`. The new tree is loaded with
-  Spring's `Binder` into a fresh model and validated as a whole. On success the
+  Spring's `Binder` into a fresh model and validated as a whole. A tree that defines
+  no cluster and no pipeline is rejected while pipelines run (an empty or unread file
+  would drain them all); keeping the clusters and dropping the pipelines is a deliberate
+  wipe and applies. On success the
   supervisor diffs by pipeline: changed pipelines are drained (stop fetching, flush
   in-flight, commit, leave group) and restarted; added start; removed drain and stop;
   unchanged are untouched. Cluster definition changes restart every pipeline using
