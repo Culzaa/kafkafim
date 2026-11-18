@@ -166,7 +166,7 @@ Each pipeline on each pod is in one `PipelineState`
 | `running` | Source started and fetching (it may still be throttled by the in-flight byte budget, which is ordinary backpressure). | Yes. |
 | `paused` | Source started, fetching stopped for a supervisor reason: `es-breaker:<cluster>`, `es-auth:<cluster>/<identity>` or `dlq-blocked`. Resumes by itself when the reason clears. | No; see [Incidents (§5)](#5-incidents). |
 | `failed_preflight` | A preflight or start check found a **configuration** problem. Stays stopped until the next accepted reload (any `applied` or `unchanged` one, including a no-op `POST /actuator/reload`) retries it, or the pod restarts. | No. |
-| `failed` | Was running, then the record handler threw or a Kafka consumer stopped on its own. kafkafim stopped the pipeline (drained, committed, left the group); it stays stopped until the next accepted reload retries it, or the pod restarts ([`failed` pipelines (§5.13)](#513-failed-pipelines)). | No. |
+| `failed` | Was running, then the record handler threw or a Kafka consumer stopped on its own. kafkafim stopped the pipeline (committed what completed, left the group); it stays stopped until the next accepted reload retries it, or the pod restarts ([`failed` pipelines (§5.13)](#513-failed-pipelines)). | No. |
 | `stopped` | Not started yet, or stopped by a reload or shutdown. | Only transiently. |
 
 **Alerts**: [`KafkafimPipelinePaused`](../deploy/grafana/alerts/kafkafim-alerts.yaml) (a pipeline
@@ -742,9 +742,10 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
   after a `java.lang.OutOfMemoryError` (`-XX:+ExitOnOutOfMemoryError` makes the JVM
   exit rather than limp on). Either way, records not yet committed are re-delivered;
   nothing is lost.
-- **Check**: per pipeline, `source.max-in-flight-bytes` (default 64MB) bounds the raw
-  key + value bytes delivered and not yet completed; the source pauses at the budget
-  and resumes at half of it. That bound is **per pipeline and in raw bytes**:
+- **Check**: per pipeline, `source.max-in-flight-bytes` (default 64MB) bounds the key, value
+  and header bytes plus a fixed 256-byte per-record overhead estimate of the records delivered
+  and not yet completed; the source pauses at the budget and resumes at half of it. That
+  bound is **per pipeline and in payload bytes plus the overhead estimate**:
   - a pod's in-flight memory is the sum over all its pipelines;
   - a poll that crosses the budget is delivered whole, so the overshoot is up to one
     poll per consumer (`max-poll-records` records);
@@ -826,9 +827,10 @@ usually starts on new pods, unless the cause in the ERROR line also applies at s
   failed`, or `starting -> failed` if it failed right after its source started). The pipeline
   consumes nothing on this pod. It left the consumer group, so
   the group's other pods take its partitions; records it had not finished are
-  re-delivered to them (idempotent by `_id`). After a handler failure the stop waits
-  the full drain timeout (30s) for the failed batch before it leaves the group, and a
-  shutdown or reload in that time waits with it. Other pipelines of the pod keep running;
+  re-delivered to them (idempotent by `_id`). After a handler failure the stop does not
+  wait for in-flight records (the failed batch never completes), so it leaves the group at
+  once; records other consumers had already handed to the sinks but not yet completed are
+  re-delivered too. Other pipelines of the pod keep running;
   the pod goes unready only if this was its last started pipeline.
 - **Check**: the cause, and the ERROR line just before it, which carries the stack
   trace:
