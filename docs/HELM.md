@@ -14,9 +14,10 @@ in [DELIVERY.md](DELIVERY.md#importing-into-the-air-gapped-environment).
   `PodDisruptionBudget`, `Service` (actuator), optional `HorizontalPodAutoscaler`.
 - Renders once: `ServiceAccount` (no token automount), optional `NetworkPolicy`.
 - Creates **no** `Secret`. Secrets are referenced by name and mounted.
-- Uses only core and `apps/autoscaling/policy/networking` APIs. No CRDs, so no
-  `ServiceMonitor` by default (opt-in flag for clusters that have the Prometheus
-  Operator); scrape annotations are on by default.
+- Uses only core and `apps/autoscaling/policy/networking` APIs. No CRDs. Metrics leave
+  over OTLP; the chart has no Prometheus scrape support (no `ServiceMonitor`, no scrape
+  annotations), and a values file that still sets `serviceMonitor` is rejected by the
+  schema.
 - Has no subcharts and pulls no other images. Air-gap safe by construction.
 - Needs Kubernetes 1.27 or newer (`kubeVersion: ">=1.27.0-0"` in `Chart.yaml`): the
   default topology spread constraint sets `matchLabelKeys`. Helm refuses to install or
@@ -76,9 +77,8 @@ terminationGracePeriodSeconds: 90    # > Spring lifecycle timeout (60s)
 pdb: { minAvailable: 1 }
 topologySpread: { enabled: true, topologyKey: topology.kubernetes.io/zone }
 networkPolicy: { enabled: false }
-serviceMonitor: { enabled: false }   # needs the Prometheus Operator CRD
 extraObjects: []                     # extra manifests shipped with the release: strings (tpl) or maps; not schema-validated
-podAnnotations: { prometheus.io/scrape: "true", prometheus.io/path: /actuator/prometheus, prometheus.io/port: "8080" }
+podAnnotations: {}
 ```
 
 ## Rendering rules
@@ -127,7 +127,7 @@ For each `groups.<g>`:
   alphanumeric character, the label is left out.
 - Names: a group's resources are `<fullname>-<group>`; with the conventional release
   name `kafkafim` that is `kafkafim-<group>`. The ServiceAccount (and the opt-in
-  `NetworkPolicy` / `ServiceMonitor`) are named `<fullname>` and select every group.
+  `NetworkPolicy`) are named `<fullname>` and select every group.
 - Group defaults: top-level `resources`, `nodeSelector`, `tolerations`, `affinity`,
   and `pdb` apply to every group that does not set its own (a group's value replaces the
   default, it is not merged). An empty group value (`tolerations: []`,
