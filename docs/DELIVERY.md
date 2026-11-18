@@ -166,8 +166,12 @@ against the Spring Boot BOM's OpenTelemetry SDK (instrumentation 2.N pairs with 
 
 ## CD (`.github/workflows/release.yml`) on tag `v*`
 
-1. Job `verify` (token: `contents: read` only): `./mvnw -Drevision=<ver> verify` (tests run again on
-   the exact tagged commit). Job `release` needs it, so nothing below runs or publishes unless it
+1. Job `verify` (token: `contents: read` only) first validates the tag: it must match
+   `^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$` (so `v1.0` or `vfoo` publishes nothing) and the
+   tagged commit must be an ancestor of `origin/main` (a tag on an unmerged branch commit publishes
+   nothing). No tag ruleset and no other gate: the release does not wait for CI on the commit
+   (Matan, 2026-11-18, #404). Then it runs `./mvnw -Drevision=<ver> verify` (tests run again on the
+   exact tagged commit). Job `release` needs it, so nothing below runs or publishes unless it
    passes, and the write, `packages` and `id-token` permissions are held by a job that runs no
    Maven; steps 2 onward are that job. `verify` uploads the tested jar as an artifact and `release`
    downloads it into `target/`, where the Dockerfile's `COPY target/*.jar` expects it, so the image

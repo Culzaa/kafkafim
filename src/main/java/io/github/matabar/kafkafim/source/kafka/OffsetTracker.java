@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.header.Header;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +35,13 @@ import org.slf4j.LoggerFactory;
  * new owner's records.
  */
 final class OffsetTracker {
+
+  /**
+   * Estimated heap a pending record costs beyond its bytes (the record object, its coordinates, the
+   * completion handle and the tracker's bookkeeping), charged to the in-flight budget so that
+   * records with no or tiny payload cannot pile up unbounded (ADR-0050).
+   */
+  static final long RECORD_OVERHEAD_BYTES = 256;
 
   private static final Logger LOG = LoggerFactory.getLogger(OffsetTracker.class);
   private static final long UNOWNED_WARN_INTERVAL_NANOS = TimeUnit.SECONDS.toNanos(10);
@@ -107,22 +115,34 @@ final class OffsetTracker {
       owner.close();
       warnUnowned(tp);
     }
+    long budgetBytes = RECORD_OVERHEAD_BYTES + valueBytes + keyBytes + headerBytes(record);
     SourceRecord handle =
         new SourceRecord(
             record,
             valueBytes > maxRecordBytes,
             (long) valueBytes + keyBytes,
+            budgetBytes,
             owner,
             this,
             ProcessSpanContexts.take(record));
     synchronized (idle) {
       pending++;
     }
-    budget.acquire(handle.sizeBytes());
+    budget.acquire(handle.budgetBytes());
     if (!owner.add(handle) && handle.abandon()) {
       finished(handle, false);
     }
     return handle;
+  }
+
+  private static long headerBytes(ConsumerRecord<byte[], byte[]> record) {
+    long bytes = 0;
+    for (Header header : record.headers()) {
+      bytes += header.key().length();
+      byte[] value = header.value();
+      bytes += value == null ? 0 : value.length;
+    }
+    return bytes;
   }
 
   /** At most one warning per interval; records keep being abandoned in between. */
@@ -148,7 +168,7 @@ final class OffsetTracker {
     if (completed) {
       record.owner().completed(record);
     }
-    budget.release(record.sizeBytes());
+    budget.release(record.budgetBytes());
     synchronized (idle) {
       pending--;
       if (pending == 0) {

@@ -26,6 +26,7 @@ public final class SourceRecord {
   private final ConsumerRecord<byte[], byte[]> record;
   private final boolean oversize;
   private final long sizeBytes;
+  private final long budgetBytes;
   private final PartitionOffsets owner;
   private final OffsetTracker tracker;
   private final @Nullable String processTraceParent;
@@ -35,12 +36,14 @@ public final class SourceRecord {
       ConsumerRecord<byte[], byte[]> record,
       boolean oversize,
       long sizeBytes,
+      long budgetBytes,
       PartitionOffsets owner,
       OffsetTracker tracker,
       @Nullable String processTraceParent) {
     this.record = record;
     this.oversize = oversize;
     this.sizeBytes = sizeBytes;
+    this.budgetBytes = budgetBytes;
     this.owner = owner;
     this.tracker = tracker;
     this.processTraceParent = processTraceParent;
@@ -67,9 +70,20 @@ public final class SourceRecord {
     return processTraceParent;
   }
 
-  /** Bytes this record counts against the in-flight budget: key plus value length. */
+  /**
+   * Payload bytes of this record: key plus value length (what the consumed-bytes metric counts).
+   */
   public long sizeBytes() {
     return sizeBytes;
+  }
+
+  /**
+   * Bytes this record counts against the in-flight budget: key, value and header bytes plus a fixed
+   * per-record overhead estimate (256 bytes), so that a tombstone or a tiny record is not free
+   * (ADR-0050).
+   */
+  public long budgetBytes() {
+    return budgetBytes;
   }
 
   /** The record's topic and partition. */

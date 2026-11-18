@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Summarises one run directory: ./summary.sh results/<run>
 # Reads <run>/samples.csv (one line per second, written by run.sh) and <run>/metrics-final.txt
-# (the final kafkafim_* Prometheus snapshot), and prints four lines on stdout.
+# (the final kafkafim.e2e.latency COUNT / TOTAL_TIME / MAX read from the actuator), and prints three lines on stdout.
 set -euo pipefail
 
 #######################################
@@ -14,35 +14,28 @@ print_throughput_and_peaks() {
   awk -F, 'NR>1 && $2+0>0 { if (!s) { s=$1; c0=$2 } e=$1; c1=$2; n++
             if ($5>m) m=$5; if ($9>r) r=$9; if ($10>h) h=$10 }
     END { if (e>s) printf "ES documents/s over the run (first non-empty sample to last): %.0f\n", (c1-c0)/(e-s);
-          printf "peak kafkafim_in_flight_bytes: %.1f MiB; peak kafkafim RSS: %.0f MiB; peak sampled JVM heap in use: %.0f MiB\n", m/1048576, r/1024, h/1048576 }' "$1/samples.csv"
+          printf "peak kafkafim.in.flight.bytes: %.1f MiB; peak kafkafim RSS: %.0f MiB; peak sampled JVM heap in use: %.0f MiB\n", m/1048576, r/1024, h/1048576 }' "$1/samples.csv"
 }
 
 #######################################
-# Prints the mean and the p50/p95/p99 upper bounds of the e2e latency histogram.
+# Prints the count and mean of the e2e latency timer. The actuator serves no histogram buckets,
+# so there are no percentiles (use an OTLP backend for those).
 # Arguments:
 #   Run directory
 #######################################
-print_latency_percentiles() {
-  # Sums the buckets over all series; a percentile is the smallest bucket bound holding that share.
-  awk '/^kafkafim_e2e_latency_seconds_bucket/ {
-         match($0, /le="[^"]*"/); le=substr($0, RSTART+4, RLENGTH-5); v[le]+=$NF; if (le!="+Inf") k[le]=le+0 }
-       /^kafkafim_e2e_latency_seconds_count/ { tot+=$NF }
-       /^kafkafim_e2e_latency_seconds_sum/ { sum+=$NF }
-       END { if (!tot) { print "no e2e histogram buckets"; exit }
-         printf "e2e latency: n=%d mean=%.3fs", tot, sum/tot
-         split("0.5 0.95 0.99", q, " ")
-         for (i=1;i<=3;i++) { best=""; for (l in k) if (v[l] >= q[i]*tot && (best=="" || k[l]<k[best])) best=l
-           printf "  p%d<=%ss", q[i]*100, (best==""?"+Inf":best) }
-         print "" }' "$1/metrics-final.txt"
+print_latency_mean() {
+  awk '$2=="COUNT" { n=$3 } $2=="TOTAL_TIME" { sum=$3 }
+       END { if (!n) { print "no e2e latency samples"; exit }
+             printf "e2e latency: n=%d mean=%.3fs\n", n, sum/n }' "$1/metrics-final.txt"
 }
 
 #######################################
-# Prints the largest value of the decaying-window e2e latency maximum gauge.
+# Prints the e2e latency maximum, a decaying-window value (it can understate the run's maximum).
 # Arguments:
 #   Run directory
 #######################################
 print_latency_max() {
-  awk '/^kafkafim_e2e_latency_seconds_max/ { if ($NF>m) m=$NF } END { printf "e2e latency max (kafkafim_e2e_latency_seconds_max, decaying window): %.3fs\n", m }' "$1/metrics-final.txt"
+  awk '$2=="MAX" { m=$3 } END { printf "e2e latency max (kafkafim.e2e.latency MAX, decaying window): %.3fs\n", m }' "$1/metrics-final.txt"
 }
 
 #######################################
@@ -68,7 +61,7 @@ main() {
   fi
   local -r run_dir="$1"
   print_throughput_and_peaks "$run_dir"
-  print_latency_percentiles "$run_dir"
+  print_latency_mean "$run_dir"
   print_latency_max "$run_dir"
   print_worst_second "$run_dir"
 }
