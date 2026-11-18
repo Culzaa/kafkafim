@@ -28,7 +28,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * The sink against a real Elasticsearch 8.19 (security off, like the local compose stack): ids,
+ * The sink against a real Elasticsearch 9.5 (security off, like the local compose stack): ids,
  * byte-for-byte sources, item errors, external versions and an outage mid-stream. The test creates
  * its indices through its own admin client; kafkafim never does (ADR-0021).
  */
@@ -38,7 +38,7 @@ class ElasticsearchSinkIntegrationTest {
   @Container
   static final ElasticsearchContainer ES =
       new ElasticsearchContainer(
-              DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.19.0"))
+              DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:9.5.6"))
           .withEnv("xpack.security.enabled", "false")
           .withEnv("action.auto_create_index", "false")
           .withEnv("ES_JAVA_OPTS", "-Xms512m -Xmx512m -XX:TieredStopAtLevel=1")

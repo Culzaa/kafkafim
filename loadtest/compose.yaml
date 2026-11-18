@@ -3,7 +3,7 @@
 name: kafkafim-loadtest
 services:
   kafka:
-    image: 'apache/kafka:4.1.0'   # JVM image: it carries the CLI scripts run.sh uses to create topics
+    image: 'apache/kafka:4.3.1'   # JVM image: it carries the CLI scripts run.sh uses to create topics
     ports:
       - '19092:9092'              # not 9092: leaves the development Compose stack's port free
     environment:
@@ -28,7 +28,7 @@ services:
       timeout: 10s
       retries: 30
   elasticsearch:
-    image: 'docker.elastic.co/elasticsearch/elasticsearch:8.19.0'
+    image: 'docker.elastic.co/elasticsearch/elasticsearch:9.5.6'
     ports:
       - '19200:9200'
     environment:

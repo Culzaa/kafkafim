@@ -61,7 +61,7 @@ import tools.jackson.databind.json.JsonMapper;
  * Hot reload end to end (DESIGN §5.6): the application reads its pipelines from a config directory
  * and its Elasticsearch passwords from a configtree, both written the way kubelet updates mounted
  * volumes (a new {@code ..timestamp} directory and an atomic {@code ..data} symlink swap), against
- * a real broker and a secured Elasticsearch 8.19.
+ * a real broker and a secured Elasticsearch 9.5.
  */
 class HotReloadIntegrationTest {
 
@@ -72,7 +72,7 @@ class HotReloadIntegrationTest {
 
   private static final ElasticsearchContainer ES =
       new ElasticsearchContainer(
-              DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.19.0"))
+              DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:9.5.6"))
           .withPassword(ADMIN_PASSWORD)
           .withEnv("ES_JAVA_OPTS", "-Xms512m -Xmx512m -XX:TieredStopAtLevel=1")
           // Parallel Failsafe forks can boot several nodes at once; the 60 s default is tight.

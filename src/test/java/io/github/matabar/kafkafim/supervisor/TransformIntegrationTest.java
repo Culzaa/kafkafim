@@ -43,7 +43,7 @@ import org.testcontainers.utility.DockerImageName;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Route transforms end to end (DESIGN §8, ADR-0047) against a real broker and Elasticsearch 8.19,
+ * Route transforms end to end (DESIGN §8, ADR-0047) against a real broker and Elasticsearch 9.5,
  * with the framework's test ops (the transform framework ships without a production op): a copy of
  * a transformed route reaches Elasticsearch with its rewritten bytes, a copy of a plain route keeps
  * the record's bytes, and a copy whose step fails is dead-lettered with the original value, its
@@ -56,7 +56,7 @@ class TransformIntegrationTest {
 
   private static final ElasticsearchContainer ES =
       new ElasticsearchContainer(
-              DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.19.0"))
+              DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:9.5.6"))
           .withEnv("xpack.security.enabled", "false")
           .withEnv("ES_JAVA_OPTS", "-Xms512m -Xmx512m -XX:TieredStopAtLevel=1")
           // Parallel Failsafe forks can boot several nodes at once; the 60 s default is tight.

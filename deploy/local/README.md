@@ -26,10 +26,10 @@ One release, `kafkafim`, in namespace `kafkafim-demo`:
 
 | Piece | From | Notes |
 |---|---|---|
-| `kafka` | [templates/kafka.yaml](kafkafim-demo/templates/kafka.yaml) | `apache/kafka:4.1.0`, one KRaft node, data in the pod's `emptyDir` only. SASL/PLAIN on `kafka:9092` for kafkafim; plaintext on the pod's loopback for the demo's own `kubectl exec` commands. Topic auto-creation off. |
+| `kafka` | [templates/kafka.yaml](kafkafim-demo/templates/kafka.yaml) | `apache/kafka:4.3.1`, one KRaft node, data in the pod's `emptyDir` only. SASL/PLAIN on `kafka:9092` for kafkafim; plaintext on the pod's loopback for the demo's own `kubectl exec` commands. Topic auto-creation off. |
 | Topics `demo.events`, `demo.events.kafkafim-dlq` | the `topics` container of the `kafka` pod | kafkafim never creates topics (ADR-0021). The pod becomes ready, and the `kafka` Service gets its endpoint, only once they exist, so kafkafim never sees the broker without them. |
-| `elasticsearch` | [templates/elasticsearch.yaml](kafkafim-demo/templates/elasticsearch.yaml) | `elasticsearch:8.19.0`, single node, security on (basic auth), TLS off, no persistence. |
-| `lgtm` | [templates/lgtm.yaml](kafkafim-demo/templates/lgtm.yaml) | `grafana/otel-lgtm:0.11.0` (the Compose version): OpenTelemetry Collector, Prometheus, Tempo, Loki, and Grafana in one container, no persistence. Both dashboards of [deploy/grafana](../grafana/README.md) are loaded into the *kafkafim* folder. |
+| `elasticsearch` | [templates/elasticsearch.yaml](kafkafim-demo/templates/elasticsearch.yaml) | `elasticsearch:9.5.6`, single node, security on (basic auth), TLS off, no persistence. |
+| `lgtm` | [templates/lgtm.yaml](kafkafim-demo/templates/lgtm.yaml) | `grafana/otel-lgtm:0.41.0` (the Compose version): OpenTelemetry Collector, Prometheus, Tempo, Loki, and Grafana in one container, no persistence. Both dashboards of [deploy/grafana](../grafana/README.md) are loaded into the *kafkafim* folder. |
 | Secrets `kafka-demo-kafkafim`, `es-demo-kafkafim` | [templates/secrets.yaml](kafkafim-demo/templates/secrets.yaml) | `username` + a random `password`, generated on install and kept on upgrade. The broker and Elasticsearch read them as env vars; kafkafim mounts them as configtree files. |
 | kafkafim (`deploy/kafkafim-demo`) | `charts/kafkafim` as a subchart, values under `kafkafim:` in [values.yaml](kafkafim-demo/values.yaml) | Group `demo` (one replica) running the Compose demo's `demo` pipeline; image `kafkafim:dev` built from this checkout. OTLP export goes to `http://lgtm:4318` through the chart's one endpoint value, `otel.endpoint`. |
 
