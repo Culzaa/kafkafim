@@ -35,6 +35,10 @@ public final class ConfigValidator {
   private static final Pattern POSITION_LABEL = Pattern.compile("[0-9]+");
 
   /** {@code host:port}, IPv6 in brackets, optional {@code PROTOCOL://} prefix. */
+  private static final int TOPIC_MAX_LENGTH = 249;
+
+  private static final Pattern TOPIC_NAME = Pattern.compile("[a-zA-Z0-9._-]+");
+
   private static final Pattern BOOTSTRAP_SERVER =
       Pattern.compile("(?:[A-Za-z_]+://)?(\\[[0-9A-Fa-f:.%]+]|[A-Za-z0-9._-]+):(\\d{1,5})");
 
@@ -379,6 +383,18 @@ public final class ConfigValidator {
       error(path + ".dlq.topic", "must not be blank");
     } else if (source.topics().contains(dlq.topic())) {
       error(path + ".dlq.topic", "'" + dlq.topic() + "' is also a source topic of this pipeline");
+    } else {
+      boolean derived =
+          !source.topics().isEmpty()
+              && (source.topics().get(0) + Pipeline.DLQ_TOPIC_SUFFIX).equals(dlq.topic());
+      checkTopicName(
+          path + ".dlq.topic",
+          dlq.topic(),
+          derived && dlq.topic().length() > TOPIC_MAX_LENGTH
+              ? "; the default name is the first source topic plus '"
+                  + Pipeline.DLQ_TOPIC_SUFFIX
+                  + "', so set dlq.topic explicitly"
+              : "");
     }
     checkPositive(path + ".dlq.max-elapsed", dlq.maxElapsed());
     // Same identity on the same cluster as the source: already checked there, report it once.
@@ -399,7 +415,37 @@ public final class ConfigValidator {
         error(path + "[" + i + "]", "must not be blank");
       } else if (!seen.add(topic)) {
         error(path + "[" + i + "]", "'" + topic + "' is listed twice");
+      } else {
+        checkTopicName(path + "[" + i + "]", topic, "");
       }
+    }
+  }
+
+  /**
+   * A Kafka topic name: 1 to {@value #TOPIC_MAX_LENGTH} characters of {@code [a-zA-Z0-9._-]}, and
+   * not {@code .} or {@code ..}. An illegal name would fail only at runtime (a source topic never
+   * resolves, the DLQ producer cannot create or write the topic).
+   *
+   * @param hint appended to the message
+   */
+  private void checkTopicName(String path, String topic, String hint) {
+    if (topic.equals(".") || topic.equals("..")) {
+      error(path, "'" + topic + "' is not a legal Kafka topic name" + hint);
+    } else if (topic.length() > TOPIC_MAX_LENGTH) {
+      error(
+          path,
+          "topic name is "
+              + topic.length()
+              + " characters; Kafka allows at most "
+              + TOPIC_MAX_LENGTH
+              + hint);
+    } else if (!TOPIC_NAME.matcher(topic).matches()) {
+      error(
+          path,
+          "'"
+              + topic
+              + "' is not a legal Kafka topic name (letters, digits, '.', '_' and '-')"
+              + hint);
     }
   }
 

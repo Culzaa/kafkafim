@@ -1576,6 +1576,46 @@ class ConfigValidationTest {
     }
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = {"has space", "ünï", "a/b", "a:b", ".", ".."})
+  void rejectsIllegalSourceTopicNames(String topic) {
+    assertInvalid(
+        MINIMAL,
+        P + ".source.topics[0]: ",
+        P + ".source.topics[0]=" + topic,
+        P + ".dlq.topic=ok-dlq");
+  }
+
+  @Test
+  void rejectsTopicNameOverTheKafkaLimit() {
+    assertInvalid(
+        MINIMAL,
+        P + ".source.topics[0]: topic name is 250 characters; Kafka allows at most 249",
+        P + ".source.topics[0]=" + "t".repeat(250),
+        P + ".dlq.topic=ok-dlq");
+  }
+
+  @Test
+  void acceptsTopicNamesAtTheLimitAndWithEveryAllowedCharacter() {
+    assertValid(
+        MINIMAL, P + ".source.topics[0]=" + "t".repeat(236), P + ".dlq.topic=" + "d".repeat(249));
+    assertValid(MINIMAL, P + ".source.topics[0]=Abc.def_ghi-123");
+  }
+
+  @Test
+  void derivedDlqNameThatIsTooLongSaysToSetItExplicitly() {
+    assertInvalid(
+        MINIMAL,
+        P + ".dlq.topic: topic name is 253 characters; Kafka allows at most 249" + "; the default",
+        P + ".source.topics[0]=" + "t".repeat(240));
+  }
+
+  @Test
+  void rejectsAnIllegalExplicitDlqTopic() {
+    assertInvalid(
+        MINIMAL, P + ".dlq.topic: 'bad topic' is not a legal", P + ".dlq.topic=bad topic");
+  }
+
   @Nested
   class Transforms {
 
