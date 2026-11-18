@@ -462,9 +462,9 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
   environment-variable keys, and logger names are case-sensitive. Remove the entry when
   done: the body can hold document field values.
 
-  Breaking change in the release that moved the Java package from `io.github.matabar` to
-  `io.github.culzaa`: logger names changed with it, so any `logging.level` override that
-  names `io.github.matabar.kafkafim...` no longer matches and must be renamed.
+  Breaking change in the release that moved the Java package to `io.github.culzaa`: logger
+  names changed with it, so a `logging.level` override that still names the previous
+  `io.github.<old owner>.kafkafim...` package no longer matches and must be renamed.
   `kafkafim_breaker_state{es_cluster="<es>"} == 2`,
   `kafkafim_bulk_requests_total{status=~"5..|429|io_error"}` rising.
 - **Check**: the ES cluster itself (its own monitoring; kafkafim never calls cluster
