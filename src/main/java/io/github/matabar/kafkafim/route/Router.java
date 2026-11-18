@@ -89,11 +89,25 @@ public final class Router<T> {
    *     a single drop route when the document is to be discarded
    */
   public List<Route<T>> select(JsonNode document, String topic, HeaderLookup headers) {
+    return select(document, topic, headers, () -> {});
+  }
+
+  /**
+   * As {@link #select(JsonNode, String, HeaderLookup)}, reporting a {@code matches} condition whose
+   * regex ran past its step budget: it counts as not matching and {@code onBudgetExceeded} runs
+   * once per such evaluation, on the calling thread. Pass one long-lived callback, not a lambda per
+   * document.
+   *
+   * @param onBudgetExceeded called per overrun; must not throw
+   */
+  public List<Route<T>> select(
+      JsonNode document, String topic, HeaderLookup headers, Runnable onBudgetExceeded) {
     Objects.requireNonNull(document, "document");
     Objects.requireNonNull(headers, "headers");
+    Objects.requireNonNull(onBudgetExceeded, "onBudgetExceeded");
     if (mode == RouteMode.FIRST) {
       for (Route<T> route : conditional) {
-        if (route.matches(document, topic, headers)) {
+        if (route.matches(document, topic, headers, onBudgetExceeded)) {
           return route.alone();
         }
       }
@@ -102,7 +116,7 @@ public final class Router<T> {
     Route<T> first = null;
     List<Route<T>> all = null;
     for (Route<T> route : conditional) {
-      if (route.matches(document, topic, headers)) {
+      if (route.matches(document, topic, headers, onBudgetExceeded)) {
         if (route.isDrop()) {
           return route.alone(); // a drop cancels every other copy (DESIGN §5.3)
         }

@@ -2,6 +2,7 @@ package io.github.matabar.kafkafim.route;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 import io.github.matabar.kafkafim.route.ConditionSpec.FieldEquals;
 import io.github.matabar.kafkafim.route.ConditionSpec.FieldExists;
@@ -12,8 +13,10 @@ import io.github.matabar.kafkafim.route.ConditionSpec.HeaderEquals;
 import io.github.matabar.kafkafim.route.ConditionSpec.TopicEquals;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -175,6 +178,54 @@ class ConditionTest {
 
   @Nested
   class Matches {
+
+    @ParameterizedTest
+    @CsvSource({"25", "45", "5000"})
+    void catastrophicBacktrackingIsNoMatchAndCounted(int length) {
+      // (a+)+$ is memoized by the JDK's engine; (.*a){12} still backtracks without bound.
+      Condition condition = Condition.compile(new FieldMatches("/s", "(.*a){12}"));
+      JsonNode hostile = doc("{\"s\":\"" + "a".repeat(length) + "!\"}");
+      AtomicInteger overruns = new AtomicInteger();
+
+      boolean matched =
+          assertTimeoutPreemptively(
+              Duration.ofSeconds(20),
+              () -> condition.test(hostile, "t", HeaderLookup.NONE, overruns::incrementAndGet));
+
+      assertThat(matched).isFalse();
+      assertThat(overruns).hasValue(1);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"40", "50"})
+    void nestedQuantifierOnLongAsFollowedByBangStaysFast(int length) {
+      Condition condition = Condition.compile(new FieldMatches("/s", "(a+)+$"));
+      JsonNode hostile = doc("{\"s\":\"" + "a".repeat(length) + "!\"}");
+      AtomicInteger overruns = new AtomicInteger();
+
+      boolean matched =
+          assertTimeoutPreemptively(
+              Duration.ofSeconds(20),
+              () -> condition.test(hostile, "t", HeaderLookup.NONE, overruns::incrementAndGet));
+
+      assertThat(matched).isFalse();
+    }
+
+    @Test
+    void ordinaryMatchesAndMismatchesAreNotCounted() {
+      Condition condition = Condition.compile(new FieldMatches("/s", "(a+)+b"));
+      AtomicInteger overruns = new AtomicInteger();
+
+      assertThat(
+              condition.test(
+                  doc("{\"s\":\"aaab\"}"), "t", HeaderLookup.NONE, overruns::incrementAndGet))
+          .isTrue();
+      assertThat(
+              condition.test(
+                  doc("{\"s\":\"aac\"}"), "t", HeaderLookup.NONE, overruns::incrementAndGet))
+          .isFalse();
+      assertThat(overruns).hasValue(0);
+    }
 
     @Test
     void stackOverflowOnLongValueIsNoMatch() throws InterruptedException {

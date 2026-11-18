@@ -7,11 +7,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.github.matabar.kafkafim.route.ConditionSpec.FieldEquals;
 import io.github.matabar.kafkafim.route.ConditionSpec.FieldExists;
 import io.github.matabar.kafkafim.route.ConditionSpec.FieldIn;
+import io.github.matabar.kafkafim.route.ConditionSpec.FieldMatches;
 import io.github.matabar.kafkafim.route.ConditionSpec.HeaderEquals;
 import io.github.matabar.kafkafim.route.ConditionSpec.TopicEquals;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 /** Route selection in both modes, with and without the default route. */
@@ -236,5 +238,31 @@ class RouterTest {
                 RouteMode.FIRST, List.of(new RouteSpec<>("a", List.of(), true, "bad%{"))))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageStartingWith("route 0: unterminated");
+  }
+
+  @Test
+  void regexBudgetOverrunIsNoMatchFallsToTheDefaultAndIsReported() {
+    Router<String> router =
+        Router.compile(
+            RouteMode.FIRST,
+            List.of(
+                new RouteSpec<>(
+                    "slow", List.of(new FieldMatches("/s", "(.*a){12}")), false, "slow-index"),
+                new RouteSpec<>("unrouted", List.of(), true, "unrouted")));
+    AtomicInteger overruns = new AtomicInteger();
+
+    List<String> selected =
+        router
+            .select(
+                doc("{\"s\":\"" + "a".repeat(45) + "!\"}"),
+                "orders.v2",
+                HeaderLookup.NONE,
+                overruns::incrementAndGet)
+            .stream()
+            .map(Route::target)
+            .toList();
+
+    assertThat(selected).containsExactly("unrouted");
+    assertThat(overruns).hasValue(1);
   }
 }

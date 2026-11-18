@@ -109,6 +109,7 @@ public final class PipelineMeters {
         counter(TelemetryNames.DOCS, Tags.of("route", route, "outcome", outcome.label()));
       }
     }
+    counter(TelemetryNames.ROUTE_REGEX_BUDGET_EXCEEDED, Tags.empty());
     // Documents that fail before a route is selected only ever end in the DLQ.
     counter(
         TelemetryNames.DOCS,
@@ -209,6 +210,11 @@ public final class PipelineMeters {
       counters[outcome.ordinal()] = counter;
     }
     counter.increment();
+  }
+
+  /** A route's {@code matches} regex ran past its step budget and counted as no match. */
+  public void routeRegexBudgetExceeded() {
+    counter(TelemetryNames.ROUTE_REGEX_BUDGET_EXCEEDED, Tags.empty()).increment();
   }
 
   /**

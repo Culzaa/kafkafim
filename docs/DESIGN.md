@@ -720,17 +720,20 @@ A route matches when **all** of its `when` conditions hold. Condition types:
   and infinities equal nothing); a JSON boolean equals `true`/`false` exactly. A
   string never equals a number (`"1"` in the document does not match `equals: 1.0`);
   objects, arrays, `null`, and a missing field match nothing.
-- `prefix`/`matches` apply to string fields only; any other type does not match. A
+- `prefix`/`matches` apply to string fields only; any other type does not match.
+  `matches` runs on a step budget (ADR-0053): the regex may read at most 10,000,000
+  characters plus 1,000 per character of the value, counted through a `CharSequence`
+  wrapper, so a catastrophic-backtracking pattern such as `(.*a){12}` on a hostile value
+  cannot stall the consumer thread (and trigger a rebalance). A budget overrun, like a
   value long enough to overflow `java.util.regex`'s stack (constructs like `(a|b)*`
-  recurse per repetition) counts as no match instead of failing the record. That is
-  deliberately silent: no log line and no metric say that the guard was hit
-  (kafkafim stays light, and `route` may depend only on the JDK and Jackson,
-  ADR-0003: no SLF4J, no Micrometer). The route is then treated as not matching, and
-  selection continues as described below: the document can miss that route's copy,
-  fall to the default route, or (in `all`, with no default) go to the DLQ as
-  `no_route`; a drop route guarded by such a condition does not drop it. Prefer
-  patterns without such constructs (`[ab]*` instead of `(a|b)*`) where values can be
-  long.
+  recurse per repetition), counts as no match instead of failing the record, and an
+  overrun increments `kafkafim_route_regex_budget_exceeded_total` (no log line; the
+  `route` package stays free of SLF4J and Micrometer, ADR-0003, by taking a callback).
+  The route is then treated as not matching, and selection continues as described
+  below: the document can miss that route's copy, fall to the default route, or (in
+  `all`, with no default) go to the DLQ as `no_route`; a drop route guarded by such a
+  condition does not drop it. Prefer patterns without nested or alternating repetition
+  (`[ab]*` instead of `(a|b)*`) where values can be long.
 - `header` compares the UTF-8 bytes of `v` with the value of the **last** header of
   that name (Kafka allows repeats); a missing header or a null value does not match.
 
@@ -1370,6 +1373,7 @@ Exact label sets (`telemetry/TelemetryNames`, `telemetry/PipelineMeters`):
 | `kafkafim_in_flight_bytes`, `kafkafim_assigned_partitions`, `kafkafim_kafka_connected` (1/0) | — | the pipeline's running source, read on scrape |
 | `kafkafim_pipeline_pause_reason` (1/0) | `reason=es_breaker\|es_auth\|dlq_blocked`, `es_cluster`, `identity` | the supervisor's pause reasons, read on scrape: 1 while the pipeline is `paused` for that reason, else 0 (more than one can be 1). `es_breaker` has one series per cluster the pipeline routes to (`identity=none`), `es_auth` one per `(cluster, identity)` a route writes with (`identity=none` for an unauthenticated cluster), `dlq_blocked` one (`es_cluster=none`, `identity=none`) |
 | `kafkafim_dlq_records_total` | `error_type` | every DLQ record the broker acknowledged |
+| `kafkafim_route_regex_budget_exceeded_total` | — | every `matches` condition whose regex ran past its step budget and counted as no match (§5.3, ADR-0053) |
 | `kafkafim_breaker_state` | only `es_cluster`: 0 closed, 1 half-open, 2 open | the breakers the pipelines send through (the worst one while a reload leaves two generations alive) |
 | `kafkafim_pipeline_state` | only `pipeline`, `state=starting\|running\|paused\|failed_preflight\|failed\|stopped` | 1 for the current state, 0 for the others; `paused` means a supervisor reason: breaker open, identity rejected, or DLQ blocked (`kafkafim_pipeline_pause_reason` says which), not the byte-budget backpressure |
 | `kafkafim_config_reload_total{result=success\|failure}`, `kafkafim_config_generation` | none | §5.6 (1 at startup, +1 per applied reload) |

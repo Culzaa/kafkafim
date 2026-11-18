@@ -69,6 +69,7 @@ final class RecordProcessor {
   private final DeadLetters deadLetters;
   private final Clock clock;
   private final PipelineMeters meters;
+  private final Runnable regexBudgetExceeded;
 
   /**
    * Creates the processor.
@@ -101,6 +102,7 @@ final class RecordProcessor {
     this.deadLetters = Objects.requireNonNull(deadLetters, "deadLetters");
     this.clock = Objects.requireNonNull(clock, "clock");
     this.meters = Objects.requireNonNull(meters, "meters");
+    this.regexBudgetExceeded = meters::routeRegexBudgetExceeded;
   }
 
   /** Where routed actions go: one bulk sink per {@code (cluster, identity)}. */
@@ -196,7 +198,8 @@ final class RecordProcessor {
         case DocumentOutcome.Routable routable -> {
           // Route first: whether an id, version or timestamp problem applies depends on where the
           // document goes (DESIGN §4.2).
-          List<Route<RouteTarget>> routes = router.select(routable.node(), record.topic(), headers);
+          List<Route<RouteTarget>> routes =
+              router.select(routable.node(), record.topic(), headers, regexBudgetExceeded);
           if (routes.size() == 1 && routes.getFirst().isDrop()) {
             // Discarded (ADR-0037): no copy, no DLQ record, no id, version or timestamp check, no
             // source bytes, so nothing of it counts toward max-in-flight-bytes beyond the record.
