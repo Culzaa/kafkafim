@@ -8,6 +8,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * The checks a pipeline passes before its source starts (DESIGN §4.6, ADR-0021): the DLQ topic
@@ -23,6 +25,8 @@ import org.jspecify.annotations.Nullable;
  * starting during a short outage should not need a restart.
  */
 final class Preflight {
+
+  private static final Logger LOG = LoggerFactory.getLogger(Preflight.class);
 
   private Preflight() {}
 
@@ -121,22 +125,30 @@ final class Preflight {
             + config.source().cluster()
             + "')";
     TopicStatus topic;
+    @Nullable String dlqCause = null;
     try {
       topic = dlqTopic.get();
     } catch (RuntimeException e) {
+      LOG.warn("Preflight: checking {} failed", dlq, e);
       topic = TopicStatus.UNREACHABLE;
+      dlqCause = e.toString();
     }
     if (topic == TopicStatus.MISSING) {
       configuration.add(dlq + " does not exist");
     } else if (topic == TopicStatus.NOT_AUTHORIZED) {
       configuration.add(dlq + ": identity may not describe it");
     } else if (topic != TopicStatus.EXISTS) {
-      transientProblems.add(dlq + ": broker did not answer");
+      transientProblems.add(
+          dlq + ": broker did not answer" + (dlqCause == null ? "" : ": " + dlqCause));
     }
     SourceAccess access;
     try {
       access = source.get();
     } catch (RuntimeException e) {
+      LOG.warn(
+          "Preflight: checking consumer group '{}' and its topics failed",
+          config.source().groupId(),
+          e);
       access = new SourceAccess(Status.unreachable(e.toString()), Map.of());
     }
     Status groupStatus = access.group();
@@ -170,6 +182,11 @@ final class Preflight {
       try {
         status = auth.check(stream.cluster(), stream.identity());
       } catch (RuntimeException e) {
+        LOG.warn(
+            "Preflight: checking Elasticsearch identity '{}' on cluster '{}' failed",
+            stream.identity(),
+            stream.cluster(),
+            e);
         status = Status.unreachable(e.toString());
       }
       String what =
