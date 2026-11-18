@@ -1082,10 +1082,13 @@ are reported together:
   with a startup warning. An identity with `username`+`password` or `api-key` on an `http`
   cluster also binds with a warning that the credential travels in clear (an error would
   break a service-mesh setup that terminates TLS outside kafkafim).
-- **Pipelines**: `topics` are non-empty and distinct; the DLQ topic is not one of the
-  source topics; `max-record-bytes ≤ max-in-flight-bytes`; sizes and durations are
-  positive. A consumer group belongs to exactly one pipeline: two pipelines with the same
-  `(source.cluster, group-id)` are rejected (the same topic in two groups is fine).
+- **Pipelines**: `topics` are non-empty and distinct; every topic and the DLQ topic is a
+  legal Kafka name (`[a-zA-Z0-9._-]`, 1 to 249 characters, not `.` or `..`; the default DLQ
+  name adds 13 characters to the first topic, so a very long one needs `dlq.topic` set); the
+  DLQ topic is not one of the source topics; `max-record-bytes ≤ max-in-flight-bytes`; sizes
+  and durations are positive. A consumer group belongs to exactly one pipeline: two pipelines
+  with the same `(source.cluster, group-id)` are rejected (the same topic in two groups is
+  fine).
 - **Routes**: in `route-mode: first` exactly one `default: true` route, and every other
   route has at least one `when` condition (an unconditional route would hide the rest);
   in `all` at most one default, and unconditional routes are allowed (fan-out). The
