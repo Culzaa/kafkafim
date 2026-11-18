@@ -17,6 +17,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.CooperativeStickyAssignor;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
@@ -114,6 +115,25 @@ class ConsumerSettingsTest {
     assertThat(settings)
         .containsEntry("fetch.max.bytes", "1048576")
         .containsEntry("session.timeout.ms", "30000");
+  }
+
+  @Test
+  void ownedKeysArePinnedToTheKafkaClientsConstants() {
+    assertThat(ConsumerSettings.OWNED_KEYS)
+        .containsExactlyInAnyOrder(
+            CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG,
+            CommonClientConfigs.SECURITY_PROTOCOL_CONFIG,
+            ConsumerConfig.GROUP_ID_CONFIG,
+            ConsumerConfig.GROUP_INSTANCE_ID_CONFIG,
+            ConsumerConfig.GROUP_PROTOCOL_CONFIG,
+            ConsumerConfig.CLIENT_ID_CONFIG,
+            ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG,
+            ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,
+            ConsumerConfig.MAX_POLL_RECORDS_CONFIG,
+            ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
+            ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
+            ConsumerConfig.PARTITION_ASSIGNMENT_STRATEGY_CONFIG,
+            ConsumerConfig.ALLOW_AUTO_CREATE_TOPICS_CONFIG);
   }
 
   static List<String> ownedKeys() {

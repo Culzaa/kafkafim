@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Stream;
@@ -33,6 +34,9 @@ public final class ConfigValidator {
 
   /** Only digits: reserved for the position label of unnamed routes. */
   private static final Pattern POSITION_LABEL = Pattern.compile("[0-9]+");
+
+  /** Lower bound of {@code reload.poll-interval}, and the debounce below which a warning shows. */
+  private static final Duration MIN_POLL_INTERVAL = Duration.ofSeconds(1);
 
   /** {@code host:port}, IPv6 in brackets, optional {@code PROTOCOL://} prefix. */
   private static final Pattern BOOTSTRAP_SERVER =
@@ -120,9 +124,19 @@ public final class ConfigValidator {
     KafkafimProperties.Reload reload = properties.reload();
     if (reload.pollInterval().isNegative() || reload.pollInterval().isZero()) {
       error(prefix + ".reload.poll-interval", "must be positive");
+    } else if (reload.pollInterval().compareTo(MIN_POLL_INTERVAL) < 0) {
+      error(
+          prefix + ".reload.poll-interval",
+          "must be at least 1s: every poll hashes all watched files, so a shorter period is a"
+              + " tight hashing loop");
     }
     if (reload.debounce().isNegative()) {
       error(prefix + ".reload.debounce", "must not be negative");
+    } else if (reload.debounce().compareTo(MIN_POLL_INTERVAL) < 0) {
+      warnings.add(
+          prefix
+              + ".reload.debounce: below 1s, a kubelet update that swaps several files can be read"
+              + " half-applied and reload more than once; the default is 2s");
     }
     if (properties.allowInlineSecrets()) {
       warnings.add(
@@ -152,6 +166,33 @@ public final class ConfigValidator {
           checkName(identityPath, "identity", name);
           checkKafkaIdentity(identityPath, identity, protocol);
         });
+    checkOwnedProperties(path, cluster);
+  }
+
+  /**
+   * A passthrough key kafkafim owns fails at pipeline start (and {@code validate} would pass it),
+   * so it is rejected here: the keys of {@link OwnedKafkaKeys} for either client, and the security
+   * keys derived from the cluster's {@code ssl} block or any identity's {@code sasl}/{@code ssl}
+   * block. Names only, never values.
+   */
+  private void checkOwnedProperties(String path, KafkaCluster cluster) {
+    Set<String> owned = new TreeSet<>();
+    cluster.properties().keySet().stream()
+        .filter(
+            key -> OwnedKafkaKeys.CONSUMER.contains(key) || OwnedKafkaKeys.PRODUCER.contains(key))
+        .forEach(owned::add);
+    // The cluster's own trust keys, also derived when the cluster has no identity.
+    Set<String> derived = new TreeSet<>(KafkaClientSecurity.properties(cluster, null).keySet());
+    cluster
+        .identities()
+        .values()
+        .forEach(
+            identity -> derived.addAll(KafkaClientSecurity.properties(cluster, identity).keySet()));
+    cluster.properties().keySet().stream().filter(derived::contains).forEach(owned::add);
+    owned.forEach(key ->
+        error(
+            path + ".properties[" + key + "]",
+            "kafkafim sets this key itself; remove it from the passthrough"));
   }
 
   private void checkKafkaIdentity(
@@ -185,26 +226,33 @@ public final class ConfigValidator {
   private void checkElasticsearchCluster(String path, ElasticsearchCluster cluster) {
     Set<String> schemes = new HashSet<>();
     for (int i = 0; i < cluster.uris().size(); i++) {
-      String uri = cluster.uris().get(i);
+      String raw = cluster.uris().get(i);
+      String uri = ElasticsearchCluster.maskUserInfo(raw);
       String uriPath = path + ".uris[" + i + "]";
       try {
-        URI parsed = new URI(uri == null ? "" : uri);
+        URI parsed = new URI(raw == null ? "" : raw);
         String scheme = parsed.getScheme();
         if (!"http".equals(scheme) && !"https".equals(scheme)) {
           error(uriPath, "'" + uri + "' must start with http:// or https://");
+        } else if (parsed.getUserInfo() != null) {
+          error(
+              uriPath,
+              "must not contain credentials (user:password@); set them on an identity, with a"
+                  + " ${...} placeholder");
         } else if (parsed.getHost() == null) {
           error(uriPath, "'" + uri + "' has no host");
         } else {
           schemes.add(scheme);
         }
       } catch (URISyntaxException e) {
-        error(uriPath, "'" + uri + "' is not a URI: " + e.getMessage());
+        error(uriPath, "'" + uri + "' is not a URI: " + e.getReason());
       }
     }
     if (schemes.size() > 1) {
       error(path + ".uris", "mixes http and https; use one scheme per cluster");
     }
     boolean https = schemes.equals(Set.of("https"));
+    boolean plainHttp = schemes.equals(Set.of("http"));
     if (cluster.ssl() != null && !https) {
       error(path + ".ssl", "trust is set but the cluster URIs are not https");
     }
@@ -214,7 +262,7 @@ public final class ConfigValidator {
         .forEach((name, identity) -> {
           String identityPath = path + ".identities." + name;
           checkName(identityPath, "identity", name);
-          checkElasticsearchIdentity(identityPath, identity, https);
+          checkElasticsearchIdentity(identityPath, identity, https, plainHttp);
         });
     ElasticsearchCluster.Bulk bulk = cluster.bulk();
     checkPositive(path + ".bulk.max-bytes", bulk.maxBytes());
@@ -309,7 +357,10 @@ public final class ConfigValidator {
   }
 
   private void checkElasticsearchIdentity(
-      String path, ElasticsearchCluster.@Nullable ElasticsearchIdentity identity, boolean https) {
+      String path,
+      ElasticsearchCluster.@Nullable ElasticsearchIdentity identity,
+      boolean https,
+      boolean plainHttp) {
     if (identity == null) {
       error(path, "an Elasticsearch identity needs username+password, api-key or an ssl keystore");
       return;
@@ -333,6 +384,14 @@ public final class ConfigValidator {
     }
     if (keystore && !https) {
       error(path + ".ssl", "a client keystore needs https cluster URIs");
+    }
+    if (plainHttp && (basic || apiKey) && !(basic && apiKey)) {
+      warnings.add(
+          path
+              + ": "
+              + (basic ? "basic-auth" : "api-key")
+              + " credentials are sent over plain http (cluster URIs are not https); fine behind"
+              + " a mesh or for local development, otherwise use https");
     }
   }
 

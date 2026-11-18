@@ -214,9 +214,10 @@ public final class KafkaPipelineSource implements SmartLifecycle {
   }
 
   /**
-   * Pauses fetching, waits up to the drain timeout for in-flight records, then stops the container
-   * (revoking, committing and leaving the group) and waits for its consumer threads, up to the
-   * shutdown timeout. Records still incomplete are re-delivered to the next owner.
+   * Pauses fetching, waits up to the drain timeout for in-flight records (not after a handler
+   * failure or once the container stopped itself, when they can never complete), then stops the
+   * container (revoking, committing and leaving the group) and waits for its consumer threads, up
+   * to the shutdown timeout. Records still incomplete are re-delivered to the next owner.
    */
   @Override
   public void stop() {
@@ -227,7 +228,15 @@ public final class KafkaPipelineSource implements SmartLifecycle {
       }
       pauseReasons.add(STOPPING_REASON);
       try {
-        if (!tracker.awaitIdle(options.drainTimeout())) {
+        if (!drainable(running)) {
+          // Records the failed handler never took, or those of a consumer that died, can never
+          // complete: waiting would only burn the drain timeout. They are re-delivered.
+          LOG.info(
+              "Pipeline '{}': not waiting for {} in-flight records after a failure; they will be"
+                  + " re-delivered",
+              pipeline,
+              tracker.pendingRecords());
+        } else if (!tracker.awaitIdle(options.drainTimeout())) {
           LOG.warn(
               "Pipeline '{}': {} records still in flight after {}; they will be re-delivered",
               pipeline,
@@ -265,6 +274,14 @@ public final class KafkaPipelineSource implements SmartLifecycle {
             callback.run();
           }
         });
+  }
+
+  /**
+   * Whether in-flight records can still complete: not after a handler failure (the records it did
+   * not take are never completed) nor once the container stopped itself.
+   */
+  private boolean drainable(ConcurrentMessageListenerContainer<byte[], byte[]> running) {
+    return running.isRunning() && !pauseReasons.active().contains(HANDLER_FAILURE_REASON);
   }
 
   /**
