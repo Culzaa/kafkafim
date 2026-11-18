@@ -4,11 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import java.io.IOException;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.List;
+import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -59,15 +61,15 @@ class ConfigWatcherTest {
     ConfigWatcher w =
         new ConfigWatcher(List.of(dir), Duration.ofMinutes(1), Duration.ZERO, () -> {});
     watcher = w;
-    var files = new java.util.TreeMap<String, Path>();
+    var files = new TreeMap<String, Path>();
     var failures = new java.util.ArrayList<String>();
     ConfigWatcher.Collector collector = w.new Collector(dir, files, failures);
 
     // What walkFileTree reports when a directory cannot be iterated to its end.
     assertThat(collector.postVisitDirectory(dir.resolve("sub"), new IOException("gone")))
-        .isEqualTo(java.nio.file.FileVisitResult.CONTINUE);
+        .isEqualTo(FileVisitResult.CONTINUE);
     assertThat(collector.postVisitDirectory(dir.resolve("sub"), null))
-        .isEqualTo(java.nio.file.FileVisitResult.CONTINUE);
+        .isEqualTo(FileVisitResult.CONTINUE);
 
     assertThat(failures).containsExactly("<unreadable-dir:sub:IOException>");
   }
