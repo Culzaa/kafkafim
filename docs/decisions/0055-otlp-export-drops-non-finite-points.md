@@ -16,7 +16,7 @@ that bulk are lost. kafkafim's own gauges are always finite (issue 475).
 - **A decorator on the OTLP metrics sender drops every non-finite point** before the request
   leaves (`FiniteMetricsSender`): `NaN` and infinite gauge and sum points, and non-finite
   `sum`, `min` and `max` of a histogram point. A metric left with no point is omitted. The
-  body is decoded and encoded again only when something is dropped; a body that does not
+  body is re-encoded only when something is dropped; a body that does not
   parse is sent unchanged.
 - **Skip, do not substitute.** "No value" stays "no value": a zero would claim a measurement
   that never happened and pull averages down in dashboards.

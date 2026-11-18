@@ -1370,7 +1370,8 @@ Prometheus registry and no `/actuator/prometheus`
 ([ADR-0054](decisions/0054-metrics-leave-over-otlp-only.md)), so a collector or a
 backend with OTLP ingestion is required and a pod that cannot reach one exports
 nothing. The metrics export drops `NaN` and infinite points, which the APM Server cannot
-index ([ADR-0055](decisions/0055-otlp-export-drops-non-finite-points.md)). Micrometer Tracing with the OTel bridge → OTLP; Logback →
+index ([ADR-0055](decisions/0055-otlp-export-drops-non-finite-points.md)). Micrometer
+Tracing with the OTel bridge → OTLP; Logback →
 OTLP. Metrics, traces, and logs always travel together, to
 `${OTEL_EXPORTER_OTLP_ENDPOINT}/v1/metrics`, `/v1/traces`, and `/v1/logs`. APM Server
 (or later an OpenTelemetry Collector) pre-exists in production; switching between

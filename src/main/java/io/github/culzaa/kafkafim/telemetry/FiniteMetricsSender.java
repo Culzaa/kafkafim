@@ -20,8 +20,8 @@ import org.slf4j.LoggerFactory;
  * Elasticsearch rejects, and the points are lost. Skipping a point says "no value", which is what
  * {@code NaN} meant; a substituted zero would claim a measurement that never happened.
  *
- * <p>The body is decoded and encoded again only when there is something to drop. A body that does
- * not parse is sent unchanged: a filter never costs the export.
+ * <p>The body is parsed on every export and encoded again only when there is something to drop. A
+ * body that does not parse is sent unchanged: a filter never costs the export.
  */
 public final class FiniteMetricsSender implements OtlpMetricsSender {
 
