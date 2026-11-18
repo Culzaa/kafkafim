@@ -1,0 +1,62 @@
+{{- $labels := include "kafkafim-demo.labels" (dict "root" . "name" "apm-server") }}
+# One APM Server receiving OTLP/HTTP on 8200 (logs, metrics and traces from kafkafim), as in
+# production, where the APM Server is external (ADR-0015). It writes to the demo
+# Elasticsearch with the same credentials as kafkafim's. No secret token, TLS off: demo only.
+apiVersion: v1
+kind: Service
+metadata:
+  name: apm-server
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: apm-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - { name: otlp-http, port: 8200, targetPort: otlp-http }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apm-server
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: apm-server
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- $labels | nindent 8 }}
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: apm-server
+          image: {{ .Values.apmServer.image | quote }}
+          ports:
+            - { name: otlp-http, containerPort: 8200 }
+          # The image's apm-server.yml has no environment substitution for the output, so the
+          # output is set with -E flags; Kubernetes expands $(ELASTICSEARCH_PASSWORD) from env.
+          args:
+            - -e
+            - -E
+            - "output.elasticsearch.hosts=[http://elasticsearch:9200]"
+            - -E
+            - "output.elasticsearch.username=elastic"
+            - -E
+            - "output.elasticsearch.password=$(ELASTICSEARCH_PASSWORD)"
+          env:
+            - name: ELASTICSEARCH_PASSWORD
+              valueFrom: { secretKeyRef: { name: es-demo-kafkafim, key: password } }
+          readinessProbe:
+            httpGet: { path: /, port: otlp-http }
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 512Mi }
