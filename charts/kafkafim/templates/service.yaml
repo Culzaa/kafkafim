@@ -1,7 +1,7 @@
 {{- include "kafkafim.validate" . -}}
 {{- range $g, $group := .Values.groups }}
 ---
-# Actuator only: health, Prometheus scrape, /actuator/reload. In-cluster.
+# Actuator only: health, /actuator/reload. In-cluster.
 apiVersion: v1
 kind: Service
 metadata:

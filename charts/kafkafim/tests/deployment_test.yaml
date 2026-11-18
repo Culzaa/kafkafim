@@ -300,19 +300,12 @@ tests:
     values:
       - ../ci/two-groups-values.yaml
     asserts:
-      - equal:
+      - notExists:
           path: spec.template.metadata.annotations
-          value:
-            prometheus.io/scrape: "true"
-            prometheus.io/path: /actuator/prometheus
-            prometheus.io/port: "8080"
         documentIndex: 0
       - equal:
           path: spec.template.metadata.annotations
           value:
-            prometheus.io/scrape: "true"
-            prometheus.io/path: /actuator/prometheus
-            prometheus.io/port: "8080"
             team: platform
         documentIndex: 1
       - notExists:
@@ -556,9 +549,6 @@ tests:
       - equal:
           path: spec.template.metadata.annotations.owner
           value: top
-      - equal:
-          path: spec.template.metadata.annotations["prometheus.io/scrape"]
-          value: "true"
 
   - it: podLabels are added to the pod template next to the selector labels
     values:
