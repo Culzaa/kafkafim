@@ -1,5 +1,6 @@
 package io.github.matabar.kafkafim.dlq;
 
+import io.github.matabar.kafkafim.telemetry.PipelineMdc;
 import io.github.matabar.kafkafim.telemetry.TraceParent;
 import io.opentelemetry.context.Scope;
 import java.time.Duration;
@@ -205,8 +206,20 @@ public final class DlqWriter {
       return DlqWriter.this;
     }
 
+    private void scoped(Runnable task) {
+      try (var ignored = PipelineMdc.open(pipeline)) {
+        task.run();
+      }
+    }
+
     /** One attempt, on a DLQ thread: check the topic, then hand the record to the producer. */
     void attempt() {
+      try (var ignored = PipelineMdc.open(pipeline)) {
+        attemptScoped();
+      }
+    }
+
+    private void attemptScoped() {
       if (stopped()) {
         abandon();
         return;
@@ -232,9 +245,10 @@ public final class DlqWriter {
                     if (exception == null) {
                       // Synchronously, so a close that follows sees this send as acknowledged.
                       owner.unregister(this);
-                      owner.dispatch(() -> succeeded(metadata), () -> succeeded(metadata));
+                      owner.dispatch(
+                          () -> scoped(() -> succeeded(metadata)), () -> succeeded(metadata));
                     } else {
-                      owner.dispatch(() -> failed(exception), this::abandon);
+                      owner.dispatch(() -> scoped(() -> failed(exception)), this::abandon);
                     }
                   });
         }

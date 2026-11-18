@@ -1,6 +1,7 @@
 package io.github.matabar.kafkafim.sink.es;
 
 import io.github.matabar.kafkafim.sink.es.ErrorClassifier.ItemVerdict;
+import io.github.matabar.kafkafim.telemetry.PipelineMdc;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -323,7 +324,7 @@ public final class BulkSink<H> implements AutoCloseable {
       listener.onFlush(key, batch.reason, batch.entries.size(), batch.bytes);
       ready.add(batch);
       try {
-        senders.execute(this::sendNext);
+        senders.execute(this::sendScoped);
       } catch (RejectedExecutionException e) {
         LOG.debug("Bulk sink {} stopped; batch of {} not sent", key, batch.entries.size());
       }
@@ -355,6 +356,13 @@ public final class BulkSink<H> implements AutoCloseable {
   }
 
   // ---- sending (virtual threads) ----
+
+  /** A sender task with the pipeline in the MDC. */
+  private void sendScoped() {
+    try (var ignored = PipelineMdc.open(key.pipeline())) {
+      sendNext();
+    }
+  }
 
   /**
    * One sender task per sealed batch. A task takes whichever batch is oldest once it holds a

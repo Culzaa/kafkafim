@@ -6,7 +6,9 @@ import static io.github.matabar.kafkafim.config.ConfigTestSupport.MINIMAL;
 import static io.github.matabar.kafkafim.config.ConfigTestSupport.pipeline;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -168,6 +170,64 @@ class ConfigValidationTest {
           K + ".security-protocol=SASL_SSL",
           K + ".identities.reader.sasl.mechanism=SCRAM-SHA-256",
           K + ".identities.reader.sasl.username=u");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512", "GSSAPI", "OAUTHBEARER"})
+    void acceptsEveryKnownMechanism(String mechanism) {
+      boolean password = mechanism.equals("PLAIN") || mechanism.startsWith("SCRAM");
+      List<String> overrides = new ArrayList<>();
+      overrides.add(K + ".security-protocol=SASL_SSL");
+      overrides.add(K + ".identities.r.sasl.mechanism=" + mechanism);
+      if (password) {
+        overrides.add(K + ".identities.r.sasl.username=u");
+        overrides.add(K + ".identities.r.sasl.password=p");
+      }
+      overrides.add(K + ".default-identity=r");
+      overrides.add("kafkafim.allow-inline-secrets=true");
+      assertValid(MINIMAL, overrides.toArray(String[]::new));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"plain", "Scram-Sha-256", "scram-sha-512", "gssapi", "OAuthBearer"})
+    void rejectsMisCasedMechanismWithHint(String mechanism) {
+      List<String> errors =
+          ConfigTestSupport.errors(
+              MINIMAL,
+              K + ".security-protocol=SASL_SSL",
+              K + ".identities.r.sasl.mechanism=" + mechanism,
+              K + ".identities.r.sasl.username=u",
+              K + ".identities.r.sasl.password=p");
+      assertThat(errors)
+          .anyMatch(e ->
+              e.startsWith(K + ".identities.r.sasl.mechanism: '" + mechanism + "'")
+                  && e.contains("did you mean '" + mechanism.toUpperCase(Locale.ROOT) + "'"));
+    }
+
+    @Test
+    void rejectsUnknownMechanismWithoutHint() {
+      List<String> errors =
+          ConfigTestSupport.errors(
+              MINIMAL, K + ".security-protocol=SASL_SSL", K + ".identities.r.sasl.mechanism=NTLM");
+      assertThat(errors)
+          .anyMatch(e ->
+              e.startsWith(K + ".identities.r.sasl.mechanism: 'NTLM' is not a supported")
+                  && !e.contains("did you mean"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"GSSAPI", "OAUTHBEARER"})
+    void rejectsUsernameAndPasswordOnPropertiesDrivenMechanisms(String mechanism) {
+      List<String> errors =
+          ConfigTestSupport.errors(
+              MINIMAL,
+              K + ".security-protocol=SASL_SSL",
+              K + ".identities.r.sasl.mechanism=" + mechanism,
+              K + ".identities.r.sasl.username=u",
+              K + ".identities.r.sasl.password=p");
+      assertThat(errors)
+          .anyMatch(e -> e.startsWith(K + ".identities.r.sasl.username: " + mechanism))
+          .anyMatch(e -> e.startsWith(K + ".identities.r.sasl.password: " + mechanism));
     }
 
     @ParameterizedTest
@@ -1724,6 +1784,55 @@ class ConfigValidationTest {
       assertThat(result.isValid()).isTrue();
       assertThat(result.warnings()).anyMatch(w -> w.contains("no pipelines configured"));
     }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"has space", "ünï", "a/b", "a:b", ".", ".."})
+  void rejectsIllegalSourceTopicNames(String topic) {
+    assertInvalid(
+        MINIMAL,
+        P + ".source.topics[0]: ",
+        P + ".source.topics[0]=" + topic,
+        P + ".dlq.topic=ok-dlq");
+  }
+
+  @Test
+  void rejectsTopicNameOverTheKafkaLimit() {
+    assertInvalid(
+        MINIMAL,
+        P + ".source.topics[0]: topic name is 250 characters; Kafka allows at most 249",
+        P + ".source.topics[0]=" + "t".repeat(250),
+        P + ".dlq.topic=ok-dlq");
+  }
+
+  @Test
+  void acceptsTopicNamesAtTheLimitAndWithEveryAllowedCharacter() {
+    assertValid(
+        MINIMAL, P + ".source.topics[0]=" + "t".repeat(236), P + ".dlq.topic=" + "d".repeat(249));
+    assertValid(MINIMAL, P + ".source.topics[0]=Abc.def_ghi-123");
+  }
+
+  @Test
+  void derivedDlqNameThatIsTooLongSaysToSetItExplicitly() {
+    assertInvalid(
+        MINIMAL,
+        P + ".dlq.topic: topic name is 253 characters; Kafka allows at most 249" + "; the default",
+        P + ".source.topics[0]=" + "t".repeat(240));
+  }
+
+  @Test
+  void blankAndDuplicateTopicsGetNoLegalityError() {
+    List<String> errors =
+        ConfigTestSupport.errors(MINIMAL, P + ".source.topics=t,t, ", P + ".dlq.topic=ok-dlq");
+    assertThat(errors)
+        .anyMatch(e -> e.contains("'t' is listed twice"))
+        .noneMatch(e -> e.contains("legal Kafka topic name"));
+  }
+
+  @Test
+  void rejectsAnIllegalExplicitDlqTopic() {
+    assertInvalid(
+        MINIMAL, P + ".dlq.topic: 'bad topic' is not a legal", P + ".dlq.topic=bad topic");
   }
 
   @Nested

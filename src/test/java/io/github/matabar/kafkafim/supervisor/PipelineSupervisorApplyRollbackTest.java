@@ -289,13 +289,19 @@ class PipelineSupervisorApplyRollbackTest {
     final KafkafimProperties running = supervisor.properties();
     // b is removed and a restarts: two release steps, and one retire step, all fail.
     KafkafimProperties next = deadBroker(A.replace("index: a", "index: a2"));
+    List<String> steps = new java.util.concurrent.CopyOnWriteArrayList<>();
     supervisor.commitProbe =
         step -> {
-          throw new LinkageError("close: " + step);
+          steps.add(step);
+          if (!step.startsWith("start:")) {
+            throw new LinkageError("close: " + step);
+          }
         };
 
     supervisor.apply(next, ConfigDiff.between(running, next));
 
+    // Every step ran although the ones before it failed.
+    assertThat(steps).containsExactly("release", "release:b", "retire", "start:a");
     assertThat(supervisor.properties()).isSameAs(next);
     assertThat(supervisor.pipelineNames()).containsExactly("a");
     // The restarted pipeline was started on its new context despite the failed cleanup.
@@ -307,6 +313,31 @@ class PipelineSupervisorApplyRollbackTest {
     KafkafimProperties after = deadBroker(A.replace("index: a", "index: a3"));
     supervisor.apply(after, ConfigDiff.between(supervisor.properties(), after));
     assertThat(supervisor.properties()).isSameAs(after);
+  }
+
+  /**
+   * Starting a pipeline can throw too (an Error, or start() refusing a pipeline that is stopping):
+   * the pipelines after it must still start (#431).
+   */
+  @Test
+  void pipelineThatCannotStartDoesNotLeaveTheNextOnesUnstarted() {
+    start(deadBroker(A));
+    final KafkafimProperties running = supervisor.properties();
+    // a restarts and b is new: both start; the start of a throws.
+    KafkafimProperties next = deadBroker(A.replace("index: a", "index: a2") + B);
+    supervisor.commitProbe =
+        step -> {
+          if (step.equals("start:a")) {
+            throw new LinkageError("start: " + step);
+          }
+        };
+
+    supervisor.apply(next, ConfigDiff.between(running, next));
+
+    assertThat(supervisor.properties()).isSameAs(next);
+    await()
+        .atMost(Duration.ofSeconds(10))
+        .until(() -> supervisor.state("b") == PipelineState.STARTING);
   }
 
   /** The starter thread must exist for every starting pipeline, or nothing ever retries it. */
