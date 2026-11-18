@@ -56,7 +56,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The whole application against a real broker (auto-creation off, as in production) and
- * Elasticsearch 8.19: records in, documents and DLQ records out, offsets committed only for what is
+ * Elasticsearch 9.5: records in, documents and DLQ records out, offsets committed only for what is
  * done (DESIGN §4, §7, §9). Each test starts its own application context with its own pipelines,
  * topics and indices; the containers are shared.
  */
@@ -67,7 +67,7 @@ class PipelineSupervisorIntegrationTest {
 
   private static final ElasticsearchContainer ES =
       new ElasticsearchContainer(
-              DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.19.0"))
+              DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:9.5.6"))
           .withEnv("xpack.security.enabled", "false")
           .withEnv("ES_JAVA_OPTS", "-Xms512m -Xmx512m -XX:TieredStopAtLevel=1")
           // Parallel Failsafe forks can boot several nodes at once; the 60 s default is tight.
