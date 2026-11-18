@@ -187,7 +187,12 @@ spec:
             name: {{ $name }}
         # readOnlyRootFilesystem: Tomcat and the JVM need a writable /tmp.
         - name: tmp
+          {{- with $.Values.tmpSizeLimit }}
+          emptyDir:
+            sizeLimit: {{ . | quote }}
+          {{- else }}
           emptyDir: {}
+          {{- end }}
         {{- range $i, $s := $.Values.secrets }}
         - name: secret-{{ $i }}
           secret:

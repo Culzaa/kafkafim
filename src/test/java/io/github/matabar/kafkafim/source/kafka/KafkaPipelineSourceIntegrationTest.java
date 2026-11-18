@@ -150,7 +150,8 @@ class KafkaPipelineSourceIntegrationTest {
     String topic = createTopic(1);
     produce(topic, 0, 200, 100);
     Recorder recorder = new Recorder(record -> {});
-    KafkaPipelineSource source = start(source(topic, 5, DataSize.ofBytes(1_000)), recorder, 1);
+    // Each record is charged 100 payload bytes plus 256 overhead (ADR-0050): ten fill the budget.
+    KafkaPipelineSource source = start(source(topic, 5, DataSize.ofBytes(3_560)), recorder, 1);
 
     await()
         .atMost(TIMEOUT)
@@ -265,6 +266,50 @@ class KafkaPipelineSourceIntegrationTest {
     assertThat(recorder.failures.getFirst()).contains("record handler failed").contains("boom");
     assertThat(source.pauseReasons()).contains(KafkaPipelineSource.HANDLER_FAILURE_REASON);
     assertThat(committed(groupOf(topic), topic, 0)).as("nothing completed").isLessThan(1);
+  }
+
+  @Test
+  void stopAfterHandlerFailureDoesNotWaitForTheDrainTimeout() throws Exception {
+    assertFastStopAfter(record -> {
+      throw new IllegalStateException("boom");
+    });
+  }
+
+  @Test
+  void stopAfterTheConsumerDiedDoesNotWaitForTheDrainTimeout() throws Exception {
+    assertFastStopAfter(record -> {
+      throw new LinkageError("fatal");
+    });
+  }
+
+  /** Records the failed handler never took stay pending forever; stop must not wait for them. */
+  private void assertFastStopAfter(Consumer<SourceRecord> handler) throws Exception {
+    String topic = createTopic(1);
+    produce(topic, 0, 3, 10);
+    Recorder recorder = new Recorder(handler);
+    Duration drainTimeout = Duration.ofSeconds(60);
+    KafkaPipelineSource source =
+        new KafkaPipelineSource(
+            "failed-stop",
+            source(topic, 500, DataSize.ofMegabytes(1)),
+            factories.get("local", null),
+            recorder,
+            SourceOptions.defaults().withDesiredConcurrency(1).withDrainTimeout(drainTimeout));
+    source.start();
+    started.add(source);
+    await().atMost(TIMEOUT).until(() -> !recorder.failures.isEmpty());
+    // An Error stops the container asynchronously; the handler-failure pause is set already.
+    await()
+        .atMost(TIMEOUT)
+        .until(() ->
+            !source.isRunning()
+                || source.pauseReasons().contains(KafkaPipelineSource.HANDLER_FAILURE_REASON));
+
+    long begin = System.nanoTime();
+    source.stop();
+    assertThat(Duration.ofNanos(System.nanoTime() - begin))
+        .as("stop() after a failure")
+        .isLessThan(drainTimeout.dividedBy(2));
   }
 
   @Test

@@ -10,7 +10,7 @@ import org.apache.kafka.common.serialization.ByteArraySerializer;
  * Arguments: bootstrap topic firstSeq count ratePerSecond(0 = unthrottled) docBytes.
  * Documents are JSON objects with a unique id (the sequence number), so every document is a
  * new Elasticsearch document and a re-delivery overwrites instead of adding. The Kafka record
- * timestamp is the send time (CreateTime), which is what kafkafim_e2e_latency_seconds measures.
+ * timestamp is the send time (CreateTime), which is what kafkafim.e2e.latency measures.
  */
 public final class Produce {
   private static final int ARGUMENT_COUNT = 6;
