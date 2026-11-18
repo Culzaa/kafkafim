@@ -1776,6 +1776,13 @@ class ConfigValidationTest {
   }
 
   @Test
+  void warnsAboutDebounceJustBelowOneSecond() {
+    ConfigValidator.Result result =
+        ConfigValidator.validate(ConfigTestSupport.bind(MINIMAL, "kafkafim.reload.debounce=999ms"));
+    assertThat(result.warnings()).anyMatch(w -> w.startsWith("kafkafim.reload.debounce: below 1s"));
+  }
+
+  @Test
   void doesNotWarnAboutDebounceOfOneSecondOrMore() {
     ConfigValidator.Result result =
         ConfigValidator.validate(ConfigTestSupport.bind(MINIMAL, "kafkafim.reload.debounce=1s"));

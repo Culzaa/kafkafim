@@ -34,7 +34,7 @@ public final class ConfigValidator {
   /** Only digits: reserved for the position label of unnamed routes. */
   private static final Pattern POSITION_LABEL = Pattern.compile("[0-9]+");
 
-  /** Lower bound of {@code reload.poll-interval}; a debounce below it draws a warning. */
+  /** Lower bound of {@code reload.poll-interval}, and the debounce below which a warning shows. */
   private static final Duration MIN_POLL_INTERVAL = Duration.ofSeconds(1);
 
   /** {@code host:port}, IPv6 in brackets, optional {@code PROTOCOL://} prefix. */
