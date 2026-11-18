@@ -356,13 +356,15 @@ final class InlineSecretCheck {
 
   /**
    * Passthrough kafka-clients keys that carry secrets: {@code *password} (for example {@code
-   * ssl.key.password}), {@code *secret*}, {@code sasl.jaas.config} (embeds credentials), {@code
-   * ssl.keystore.key} (an inline PEM private key) and {@code *user.info} (basic-auth pairs).
+   * ssl.key.password}), {@code *passphrase}, {@code *secret*}, {@code sasl.jaas.config} (embeds
+   * credentials), {@code ssl.keystore.key} (an inline PEM private key) and {@code *user.info}
+   * (basic-auth pairs).
    */
   static boolean isSecretPassthroughKey(String key) {
     String lower = key.toLowerCase(Locale.ROOT);
     return lower.endsWith("password")
         || lower.contains("secret")
+        || lower.endsWith("passphrase")
         || lower.equals("sasl.jaas.config")
         || lower.endsWith("keystore.key")
         || lower.endsWith("user.info");

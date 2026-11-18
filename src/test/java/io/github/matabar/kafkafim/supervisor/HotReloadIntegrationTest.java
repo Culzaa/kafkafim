@@ -514,7 +514,7 @@ class HotReloadIntegrationTest {
     String yaml =
         """
         kafkafim:
-          reload: { enabled: %s, poll-interval: 300ms, debounce: 200ms }
+          reload: { enabled: %s, poll-interval: 1s, debounce: 200ms }
           kafka:
             clusters:
               local: { bootstrap-servers: ["%s"] }
