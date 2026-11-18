@@ -44,6 +44,12 @@ final class ErrorClassifier {
     DLQ_VERSION_CONFLICT,
     /** Retry the item; counts against {@code max-attempts}/{@code max-elapsed}, then DLQ. */
     RETRY,
+    /**
+     * Cluster pressure (item 429 {@code es_rejected_execution_exception}, item 503 {@code
+     * unavailable_shards_exception}): retry with a capped backoff; does not count against {@code
+     * max-attempts}, only against a long safety valve (ADR-0050).
+     */
+    RETRY_PRESSURE,
     /** The identity may not write this index: retry forever, never DLQ, report an auth failure. */
     AUTH_FAILURE
   }
@@ -75,6 +81,7 @@ final class ErrorClassifier {
 
   static final String VERSION_CONFLICT = "version_conflict_engine_exception";
   static final String INDEX_NOT_FOUND = "index_not_found_exception";
+  static final String UNAVAILABLE_SHARDS = "unavailable_shards_exception";
 
   /** The item table, first match wins. */
   static final List<ItemRule> ITEM_RULES =
@@ -101,9 +108,13 @@ final class ErrorClassifier {
               i -> i.status() == 401 || i.status() == 403,
               ItemVerdict.AUTH_FAILURE),
           new ItemRule(
-              "429 (es_rejected_execution_exception): retry, poison-bounded",
+              "429 (es_rejected_execution_exception): cluster pressure, retry, not poison-bounded",
               i -> i.status() == 429,
-              ItemVerdict.RETRY),
+              ItemVerdict.RETRY_PRESSURE),
+          new ItemRule(
+              "503 unavailable_shards_exception: cluster pressure, retry, not poison-bounded",
+              i -> i.status() == 503 && UNAVAILABLE_SHARDS.equals(i.errorType()),
+              ItemVerdict.RETRY_PRESSURE),
           new ItemRule(
               "404 index_not_found_exception: provisioning gap or race; retry, poison-bounded",
               i -> i.status() == 404 && INDEX_NOT_FOUND.equals(i.errorType()),
