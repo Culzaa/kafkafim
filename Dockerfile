@@ -14,7 +14,7 @@ COPY ${JAR_FILE} application.jar
 RUN java -Djarmode=tools -jar application.jar extract --layers --destination extracted
 
 FROM eclipse-temurin:27-jre@sha256:acfb350b50e707addf3dcbb47f7052d1882d1e5f1670ce838a9c7838d82d4fe5
-LABEL org.opencontainers.image.source="https://github.com/matabar/kafkafim" \
+LABEL org.opencontainers.image.source="https://github.com/culzaa/kafkafim" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.title="kafkafim" \
       org.opencontainers.image.description="Kafka to Elasticsearch ingest for Kubernetes"

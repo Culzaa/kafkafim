@@ -13,8 +13,8 @@ deploys. The team carries an image and a chart into production and installs them
   ArchUnit), Dockerfile build from the tested jar with a read-only liveness smoke
   run, Helm lint/template/kubeconform/unittest. All required for merge.
 - **CD** (tag `v*`): rebuild and re-test at the tag, multi-arch image to
-  `ghcr.io/matabar/kafkafim`, SBOM (Syft), Cosign keyless signatures for image and
-  chart, chart to `oci://ghcr.io/matabar/charts/kafkafim`, and an **air-gap bundle**
+  `ghcr.io/culzaa/kafkafim`, SBOM (Syft), Cosign keyless signatures for image and
+  chart, chart to `oci://ghcr.io/culzaa/charts/kafkafim`, and an **air-gap bundle**
   attached to the GitHub Release: the pushed image saved by digest with
   `cosign save` (every platform plus signature and attestations), chart tgz, SBOM,
   checksums, import instructions. The bundle is never a second build.

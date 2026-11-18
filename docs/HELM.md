@@ -27,7 +27,7 @@ in [DELIVERY.md](DELIVERY.md#importing-into-the-air-gapped-environment).
 
 ```yaml
 image:
-  registry: ghcr.io/matabar          # overridden to the internal registry in the air gap
+  registry: ghcr.io/culzaa          # overridden to the internal registry in the air gap
   repository: kafkafim
   tag: ""                            # defaults to .Chart.AppVersion; a tag only, never "<tag>@sha256:..."
   digest: ""                         # sha256:<64 hex> pins the exact signed image (DELIVERY.md)
@@ -330,7 +330,7 @@ against the real application.
 ## Egress the pods need
 
 The chart's `NetworkPolicy` is ingress-only and the chart ships no egress policy
-(decided on [#83](https://github.com/matabar/kafkafim/issues/83)). Egress rules need
+(decided on [#83](https://github.com/culzaa/kafkafim/issues/83)). Egress rules need
 IP ranges: a `NetworkPolicy` cannot match the host names in `bootstrap-servers`,
 `uris`, or `otel.endpoint`, and only the infrastructure repository knows the ranges
 behind them. A cluster with default-deny egress therefore needs its own policy in that

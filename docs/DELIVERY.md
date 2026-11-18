@@ -30,8 +30,8 @@ chart that the team transfers into the air-gapped environment and deploys there.
 
 | Artifact | Location |
 |---|---|
-| Container image | `ghcr.io/matabar/kafkafim` |
-| Helm chart (OCI) | `oci://ghcr.io/matabar/charts/kafkafim` |
+| Container image | `ghcr.io/culzaa/kafkafim` |
+| Helm chart (OCI) | `oci://ghcr.io/culzaa/charts/kafkafim` |
 | Release bundle for the air gap | GitHub Release assets on the tag |
 
 Alternatives considered: Docker Hub (anonymous pull rate limits hurt air-gap
@@ -192,7 +192,7 @@ against the Spring Boot BOM's OpenTelemetry SDK (instrumentation 2.N pairs with 
    Cosign attestation (`cosign attest`), so the layout holds none. There is no
    second build.
 6. Chart packaged with `--version <ver> --app-version <ver>`, pushed to
-   `oci://ghcr.io/matabar/charts`, signed with Cosign (keyless, the same classic
+   `oci://ghcr.io/culzaa/charts`, signed with Cosign (keyless, the same classic
    format and flags as the image, on the pushed chart digest). The signature lives
    in GHCR only: the air-gap bundle carries the chart `.tgz` and its `SHA256SUMS`
    entry, not the chart's signature. The chart is verified on the internet side
@@ -227,12 +227,17 @@ bundle instead, versioned with the image (decided on #91, 2026-11-13).
 On a machine with internet access:
 
 ```bash
-gh release download v1.2.3 --repo matabar/kafkafim --pattern 'kafkafim-1.2.3-airgap.tar.gz'
+gh release download v1.2.3 --repo culzaa/kafkafim --pattern 'kafkafim-1.2.3-airgap.tar.gz'
 ```
 
 ```bash
-cosign verify ghcr.io/matabar/kafkafim:1.2.3 --certificate-identity-regexp 'https://github.com/matabar/kafkafim/' --certificate-oidc-issuer https://token.actions.githubusercontent.com
+cosign verify ghcr.io/culzaa/kafkafim:1.2.3 --certificate-identity-regexp 'https://github.com/culzaa/kafkafim/' --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
+
+Releases signed before the repository moved to the `culzaa` organization (2026-11-18) carry
+the old signing identity. They verify only with the old pattern
+`--certificate-identity-regexp 'https://github.com/matabar/kafkafim/'`, and their image and
+chart live under `ghcr.io/matabar`, not `ghcr.io/culzaa`.
 
 The chart's signature is checked the same way, on this internet-side machine, before
 you carry anything across (`cosign verify` accepts the classic format the release
@@ -240,7 +245,7 @@ signs with, without flags). The reference is the chart's GHCR OCI reference, tag
 included:
 
 ```bash
-cosign verify ghcr.io/matabar/charts/kafkafim:1.2.3 --certificate-identity-regexp 'https://github.com/matabar/kafkafim/' --certificate-oidc-issuer https://token.actions.githubusercontent.com
+cosign verify ghcr.io/culzaa/charts/kafkafim:1.2.3 --certificate-identity-regexp 'https://github.com/culzaa/kafkafim/' --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
 The bundle's `kafkafim-1.2.3.tgz` is the chart that was pushed. To tie it to the
@@ -249,7 +254,7 @@ signed GHCR artifact, extract the bundle, pull the chart into a separate directo
 checksum with the bundle's `SHA256SUMS` (the two hashes must be identical):
 
 ```bash
-helm pull oci://ghcr.io/matabar/charts/kafkafim --version 1.2.3 --destination "$(mktemp -d)"
+helm pull oci://ghcr.io/culzaa/charts/kafkafim --version 1.2.3 --destination "$(mktemp -d)"
 ```
 
 ```bash
@@ -303,7 +308,7 @@ registry holds the same signed artifact as GHCR. To re-check the signature insid
 the air gap, pass the trusted root you carried across:
 
 ```bash
-cosign verify registry.internal/kafkafim/kafkafim:1.2.3 --trusted-root trusted_root.json --certificate-identity-regexp 'https://github.com/matabar/kafkafim/' --certificate-oidc-issuer https://token.actions.githubusercontent.com
+cosign verify registry.internal/kafkafim/kafkafim:1.2.3 --trusted-root trusted_root.json --certificate-identity-regexp 'https://github.com/culzaa/kafkafim/' --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
 This needs no network access: the signature manifest carries the signing
@@ -348,7 +353,7 @@ For a manual install from the extracted bundle, pass the same values as
 `image.digest` pins the pods to the exact image that was signed and checksummed,
 so a tag moved or overwritten in the internal registry cannot change what runs.
 `kafkafim-1.2.3-image.digest` holds the full reference
-(`ghcr.io/matabar/kafkafim@sha256:...`); the chart takes only the `sha256:<64 hex>`
+(`ghcr.io/culzaa/kafkafim@sha256:...`); the chart takes only the `sha256:<64 hex>`
 part after `@` (the registry comes from `image.registry`), and its schema rejects
 anything else. `cosign load` and `skopeo copy --all --preserve-digests` push the same
 bytes, so the digest is the same in the internal registry. To check it, run the following
@@ -432,14 +437,14 @@ and thresholds can change between versions:
 
 Every alert has a `runbook_url` annotation. In the release's copy it names the
 `RUNBOOK.md` of this tag
-(`https://github.com/matabar/kafkafim/blob/v1.2.3/docs/RUNBOOK.md#...`, so section
+(`https://github.com/culzaa/kafkafim/blob/v1.2.3/docs/RUNBOOK.md#...`, so section
 anchors match the version that is running), which the air gap cannot open. The bundle
 therefore carries `kafkafim-1.2.3-grafana/RUNBOOK.md`: host it inside the air gap (a
 wiki, a static web server) and rewrite the prefix in the rules file before loading it,
 keeping the `#...` anchors:
 
 ```bash
-sed -i 's#https://github.com/matabar/kafkafim/blob/v1.2.3/docs/RUNBOOK.md#https://docs.internal/kafkafim/RUNBOOK#' \
+sed -i 's#https://github.com/culzaa/kafkafim/blob/v1.2.3/docs/RUNBOOK.md#https://docs.internal/kafkafim/RUNBOOK#' \
   kafkafim-1.2.3-grafana/alerts/kafkafim-alerts.yaml
 ```
 

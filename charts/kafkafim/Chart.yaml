@@ -8,9 +8,9 @@ appVersion: 0.0.0-dev
 # topologySpreadConstraints[].matchLabelKeys (rendered by default) needs Kubernetes 1.27 (beta,
 # on by default). The -0 suffix lets managed-cluster versions such as 1.27.3-gke.100 match.
 kubeVersion: ">=1.27.0-0"
-home: https://github.com/matabar/kafkafim
+home: https://github.com/culzaa/kafkafim
 sources:
-  - https://github.com/matabar/kafkafim
+  - https://github.com/culzaa/kafkafim
 keywords:
   - kafka
   - elasticsearch

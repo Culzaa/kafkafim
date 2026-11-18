@@ -1684,7 +1684,7 @@ Idempotent `_id`s make this low-risk:
 See [DELIVERY.md](DELIVERY.md) and [HELM.md](HELM.md). In one paragraph: GitHub
 Actions CI runs unit, integration (Testcontainers), architecture (ArchUnit), image
 and chart checks on every PR; a `v*` tag publishes a signed multi-arch image to
-`ghcr.io/matabar/kafkafim`, a signed OCI chart to `ghcr.io/matabar/charts/kafkafim`
+`ghcr.io/culzaa/kafkafim`, a signed OCI chart to `ghcr.io/culzaa/charts/kafkafim`
 and an air-gap bundle (the signed multi-arch image saved by digest with `cosign
 save`, its digest file, chart, SBOM, the alert rules and dashboards of
 `deploy/grafana`, checksums, import instructions) on the GitHub

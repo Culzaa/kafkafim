@@ -187,7 +187,7 @@ tests:
 
   - it: rejects a full image reference in image.digest
     set:
-      image.digest: ghcr.io/matabar/kafkafim@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      image.digest: ghcr.io/culzaa/kafkafim@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
     asserts:
       - failedTemplate:
           errorPattern: "image.digest.*does not match pattern"

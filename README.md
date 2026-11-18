@@ -7,7 +7,7 @@ per-event routing, a real DLQ, hot-reloaded Spring configuration rendered by Hel
 and built-in OpenTelemetry. MVP scope: a shipper, not a pipeline engine (only per-route
 `remove`, `rename`, and `set` transformations, no expression language, no CLI).
 
-Status: released (see [GitHub Releases](https://github.com/matabar/kafkafim/releases) for the
+Status: released (see [GitHub Releases](https://github.com/culzaa/kafkafim/releases) for the
 latest version). Each release publishes a signed multi-arch image, a signed Helm chart, an SBOM,
 and an air-gap bundle ([Delivery](docs/DELIVERY.md)). Throughput and sizing are measured in the
 [load test](docs/LOADTEST.md).
@@ -21,9 +21,9 @@ signatures and import into an air-gapped registry, see
 [Delivery](docs/DELIVERY.md#importing-into-the-air-gapped-environment).
 
 ```bash
-helm upgrade --install kafkafim oci://ghcr.io/matabar/charts/kafkafim \
+helm upgrade --install kafkafim oci://ghcr.io/culzaa/charts/kafkafim \
   --version <release> -f values-<cluster>.yaml     # <release>: a tag without the leading v
-docker pull ghcr.io/matabar/kafkafim:<release>     # the chart already references this image
+docker pull ghcr.io/culzaa/kafkafim:<release>     # the chart already references this image
 ```
 
 ## Documents
