@@ -27,7 +27,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
@@ -35,6 +34,9 @@ import java.util.function.Consumer;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.apache.hc.core5.http.ConnectionRequestTimeoutException;
+import org.apache.hc.core5.util.Deadline;
+import org.apache.hc.core5.util.DeadlineTimeoutException;
+import org.apache.hc.core5.util.Timeout;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -345,16 +347,22 @@ class BulkSinkTest {
                 new IOException(
                     "a", new IOException("b", new ConnectionRequestTimeoutException("c")))))
         .isTrue();
-    // The real chain of the async client: IOException -> RuntimeException -> TimeoutException.
+    // The real chain of the async client: IOException -> RuntimeException ->
+    // DeadlineTimeoutException.
     assertThat(
             BulkSink.isPoolLeaseTimeout(
                 new IOException(
                     "bulk request failed",
                     new RuntimeException(
-                        "error while performing request", new TimeoutException()))))
+                        "error while performing request",
+                        DeadlineTimeoutException.from(
+                            Deadline.calculate(Timeout.ofMilliseconds(1)))))))
         .isTrue();
     assertThat(BulkSink.isPoolLeaseTimeout(new ConnectException("refused"))).isFalse();
     assertThat(BulkSink.isPoolLeaseTimeout(new java.net.SocketTimeoutException("read"))).isFalse();
+    assertThat(BulkSink.isPoolLeaseTimeout(new java.util.concurrent.TimeoutException("other")))
+        .as("only the pool's own deadline exception is a lease timeout")
+        .isFalse();
     assertThat(BulkSink.isPoolLeaseTimeout(new IOException("plain"))).isFalse();
   }
 

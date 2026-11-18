@@ -24,6 +24,8 @@ import org.junit.jupiter.api.Test;
  * java.util.concurrent.TimeoutException}, not with the blocking client's {@code
  * ConnectionRequestTimeoutException}; if a client upgrade changes the shape, this test says so
  * before the circuit breaker starts counting local pool exhaustion as cluster failures again.
+ * HttpClient 5 expires a waiting lease lazily, when the pool next processes a release, so the
+ * server holds the only connection for two seconds: long past the 300 ms lease timeout.
  */
 class Rest5ClientPoolLeaseContractTest {
 
@@ -38,7 +40,7 @@ class Rest5ClientPoolLeaseContractTest {
         exchange -> {
           firstRequestArrived.countDown();
           try {
-            release.await(30, TimeUnit.SECONDS);
+            release.await(2, TimeUnit.SECONDS);
           } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
           }

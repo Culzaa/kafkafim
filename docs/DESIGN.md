@@ -217,7 +217,8 @@ pauses nothing yet and reads 0.
   writing to one cluster with one identity can have up to N times `bulk.in-flight` requests
   outstanding against that client's shared connection pool (32 connections per node, 128 per
   client). A request that cannot lease a pooled connection within 30 s fails locally with a
-  lease timeout. That is local pool exhaustion, not a sign of a sick cluster: it is retried with
+  lease timeout (HttpClient 5 expires a waiting lease lazily, so it can surface a little
+  later when every connection is stuck on a slow response). That is local pool exhaustion, not a sign of a sick cluster: it is retried with
   the usual backoff and a WARN that says so, and it does not count against the circuit breaker
   (§7). With many pipelines on one cluster, lower `in-flight` or spread them over identities.
 - **Backpressure**: `submit` never blocks, because the consumer thread must keep
