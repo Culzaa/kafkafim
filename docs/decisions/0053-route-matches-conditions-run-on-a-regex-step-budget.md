@@ -27,6 +27,9 @@ leave it silent (kafkafim stays light, and `route` may not use SLF4J or Micromet
 - Recent JDKs memoize some nested-quantifier patterns (`(a+)+$` is polynomial on JDK 27),
   but not all: `(.*a){12}` on a few dozen `a` still never finishes. The budget covers
   whatever the engine does not.
+- Worst case per `matches` condition and record, measured on JDK 27: about 80 ms on a short
+  value, about 300 ms at 100,000 characters (the budget grows with the value, so a megabyte
+  value allows about 3 s). Bounded and far below the poll interval.
 - A pattern that needs more than the budget on a legitimate value silently stops matching;
   the counter is how an operator notices. A rising counter means a pattern to simplify.
 - The budget is a constant, not configuration (kafkafim stays light); changing it is a code
