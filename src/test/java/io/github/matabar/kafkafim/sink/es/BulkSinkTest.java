@@ -146,6 +146,23 @@ class BulkSinkTest {
   // ---- batching ----
 
   @Test
+  void senderTasksCarryThePipelineInTheMdc() throws Exception {
+    List<String> seen = new CopyOnWriteArrayList<>();
+    FakeTransport transport =
+        new FakeTransport((request, call) -> {
+          seen.add(String.valueOf(org.slf4j.MDC.get("pipeline")));
+          return FakeTransport.allOk();
+        });
+    BulkSink<String> sink = sink(settings(3, 1 << 20, HOUR, 1), transport);
+
+    submitAll(sink, ids(3));
+
+    assertThat(sink.awaitIdle(WAIT)).isTrue();
+    assertThat(seen).containsExactly("orders");
+    assertThat(org.slf4j.MDC.get("pipeline")).as("not leaked to the caller").isNull();
+  }
+
+  @Test
   void flushesOnMaxDocs() throws Exception {
     FakeTransport transport = new FakeTransport((request, call) -> FakeTransport.allOk());
     BulkSink<String> sink = sink(settings(3, 1 << 20, HOUR, 1), transport);
