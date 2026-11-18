@@ -11,6 +11,7 @@ import io.github.matabar.kafkafim.config.KafkaCluster.SecurityProtocol;
 import io.github.matabar.kafkafim.config.KafkaCluster.Trust;
 import java.util.List;
 import java.util.Map;
+import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -193,6 +194,23 @@ class ProducerSettingsTest {
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("enable.idempotence")
         .hasMessageContaining("prod-a");
+  }
+
+  @Test
+  void ownedKeysArePinnedToTheKafkaClientsConstants() {
+    assertThat(ProducerSettings.OWNED_KEYS)
+        .containsExactlyInAnyOrder(
+            CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG,
+            CommonClientConfigs.SECURITY_PROTOCOL_CONFIG,
+            ProducerConfig.CLIENT_ID_CONFIG,
+            ProducerConfig.ACKS_CONFIG,
+            ProducerConfig.RETRIES_CONFIG,
+            ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION,
+            ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG,
+            ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+            ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
+            ProducerConfig.TRANSACTIONAL_ID_CONFIG,
+            ProducerConfig.INTERCEPTOR_CLASSES_CONFIG);
   }
 
   @ParameterizedTest

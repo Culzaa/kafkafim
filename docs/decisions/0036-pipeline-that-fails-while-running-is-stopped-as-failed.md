@@ -34,7 +34,9 @@ the runbook listed this as a known gap (#19).
   pipeline goes to `failed` at once, then is stopped like any other stop, on its own thread
   (the report comes on a consumer thread, which a container stop waits for): the source
   drains (up to the drain timeout), commits what completed, leaves the group, and the
-  sinks close. Records still incomplete are re-delivered to the next owner. A stop
+  sinks close. Records still incomplete are re-delivered to the next owner. (Since #355 the
+  source does not wait for the drain after a handler failure or once the container stopped
+  itself: the failed batch can never complete.) A stop
   that comes meanwhile (shutdown, reload) waits for this one, and nothing can start
   the pipeline before it is done. A report from the source of an earlier run is ignored,
   and so is one that comes while the pipeline is being stopped anyway.

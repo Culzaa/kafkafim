@@ -86,4 +86,13 @@ class ErrorSummaryTest {
     assertThat(ofResponse("{\"error\":{\"type\":\"x\",\"root_cause\":[" + causes + "]}}", false))
         .isEqualTo("type=x, root_cause=[c0, c1, c2, c3, c4]");
   }
+
+  @Test
+  void errorTypeOfResponse() {
+    assertThat(ErrorSummary.errorTypeOfResponse(Fixtures.load("request-403.json")))
+        .isEqualTo("security_exception");
+    assertThat(ErrorSummary.errorTypeOfResponse("{\"status\":403}".getBytes(UTF_8))).isNull();
+    assertThat(ErrorSummary.errorTypeOfResponse("<html>".getBytes(UTF_8))).isNull();
+    assertThat(ErrorSummary.errorTypeOfResponse(new byte[0])).isNull();
+  }
 }
