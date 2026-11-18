@@ -1,6 +1,7 @@
 package io.github.matabar.kafkafim.config;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -43,7 +44,7 @@ public record ConfigDiff(
   public ConfigDiff {
     added = List.copyOf(added);
     removed = List.copyOf(removed);
-    restarted = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(restarted));
+    restarted = Collections.unmodifiableMap(new LinkedHashMap<>(restarted));
     unchanged = List.copyOf(unchanged);
   }
 
