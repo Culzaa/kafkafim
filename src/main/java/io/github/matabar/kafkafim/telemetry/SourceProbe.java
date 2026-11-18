@@ -12,7 +12,10 @@ public interface SourceProbe {
   /** A probe of a pipeline without a running source. */
   SourceProbe NONE = new SourceProbe() {};
 
-  /** Key plus value bytes delivered and not yet completed ({@code kafkafim_in_flight_bytes}). */
+  /**
+   * Budget bytes (key, value, headers and a per-record overhead estimate, ADR-0050) of records
+   * delivered and not yet completed ({@code kafkafim_in_flight_bytes}).
+   */
   default long inFlightBytes() {
     return 0;
   }

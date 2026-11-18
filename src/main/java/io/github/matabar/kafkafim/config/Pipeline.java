@@ -66,7 +66,9 @@ public record Pipeline(
    * @param identity consumer identity; default: the cluster's {@code default-identity}
    * @param offsetReset where a new group starts; default {@code latest}
    * @param maxPollRecords records per poll; default 500
-   * @param maxInFlightBytes memory bound per pipeline, fetching pauses above it; default 64MB
+   * @param maxInFlightBytes memory bound per pipeline, fetching pauses above it; counts each
+   *     pending record's key, value and header bytes plus a fixed 256-byte per-record overhead
+   *     estimate; default 64MB
    * @param commitInterval offset commit cadence; default 1s
    * @param maxRecordBytes largest accepted record value; default 8MB
    * @param concurrency consumers per pod for this pipeline; optional, unset means one per available

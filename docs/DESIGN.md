@@ -316,8 +316,11 @@ element, `kafkafim.doc-index`.
 - **Limits.** `max-record-bytes` bounds every string, number, and token count before
   parsing. Nesting is capped at 500, number literals at 1000 digits, and keys at
   50,000 UTF-8 bytes.
-- **Memory.** `max-in-flight-bytes` counts only the raw key + value bytes of delivered,
-  incomplete records. Decoding and delivery cost more heap than that, in two ways:
+- **Memory.** `max-in-flight-bytes` counts the key, value and header bytes of delivered,
+  incomplete records plus a fixed 256-byte overhead estimate per record, so tombstones and
+  tiny records are not free (ADR-0050); `kafkafim_in_flight_bytes` reports the same sum,
+  while `kafkafim_bytes_consumed_total` stays on key + value. Decoding and delivery cost
+  more heap than that, in two ways:
   - *Decode peak (transient).* A record is decoded, routed, and turned into bulk
     actions on its consumer thread, one record at a time; its parsed trees are garbage
     once that returns. They can take far more heap than the value: an 8 MiB array of
@@ -325,9 +328,9 @@ element, `kafkafim.doc-index`.
     value). So the peak is about one `max-record-bytes` record × 28 per consumer
     thread, whatever the budget.
   - *Held in flight.* Until a record completes, kafkafim keeps the record (its raw
-    bytes, which the budget counts) and one copy of each indexed document's bytes
-    (shared by its routes, so at most the value again; a route with `transform` steps holds
-    its own serialized copy, §8). Per indexed copy it also keeps
+    bytes, which the budget counts with an overhead estimate) and one copy of each indexed
+    document's bytes (shared by its routes, so at most the value again; a route with
+    `transform` steps holds its own serialized copy, §8). Per indexed copy it also keeps
     a bulk action (index name, id, completion handle) and the sink's queue entry with
     its precomputed bulk metadata line: roughly 300–450 bytes of objects, an estimate
     from object layout, not a measurement. A document bound for the DLQ holds its DLQ
@@ -445,7 +448,7 @@ fetch then succeeds, a topic without `Read` still shows `running`.
 After a successful start, a pipeline whose source cannot go on (the record handler
 threw, or a consumer of the listener container stopped on its own: any
 `ConsumerStoppedEvent` reason but `NORMAL`) goes to **`failed`** and is stopped like
-any other stop: drained, committed, out of the group, sinks closed (ADR-0036). Like
+any other stop: committed what completed, out of the group, sinks closed (ADR-0036). Like
 `failed_preflight`, it stays stopped until the next accepted reload or a restart;
 nothing restarts it on its own.
 
@@ -534,8 +537,10 @@ kafkafim:
 ```
 
 A Kafka cluster's `properties` are passed to kafka-clients under kafkafim's own
-consumer settings (`source/kafka/ConsumerSettings`). A key kafkafim owns is rejected when
-the pipeline's consumer factory is built, naming the key but never its value:
+consumer settings (`source/kafka/ConsumerSettings`). A key kafkafim owns, for the
+consumer or for the DLQ producer, is rejected at bind and reload (`config/OwnedKafkaKeys`,
+plus the security keys derived from the cluster's and identities' blocks) and again when a
+client is built, naming the key but never its value. The consumer's:
 `bootstrap.servers`, `security.protocol`, `group.id`, `group.instance.id`,
 `group.protocol` (always `classic`, which the cooperative-sticky assignor needs),
 `client.id` (`kafkafim-<pipeline>-<n>`), `enable.auto.commit` (always `false`),
@@ -545,9 +550,9 @@ deserializers (always byte arrays), `partition.assignment.strategy` (always
 The security keys kafkafim derives from the cluster's `ssl` block and the identity's
 `sasl`/`ssl` blocks (`ssl.truststore.*`, `ssl.keystore.*`, `ssl.key.password`,
 `sasl.mechanism`, and `sasl.jaas.config` for `PLAIN`/`SCRAM-*`) are rejected only when
-that block sets them, so GSSAPI or OAUTHBEARER can still bring their JAAS settings
-through `properties`. Everything else (fetch sizes, timeouts, `isolation.level`, …)
-passes through. Consumer factories are cached per `(cluster, identity)`; every
+that block sets them (any identity's block counts), so GSSAPI or OAUTHBEARER can still
+bring their JAAS settings through `properties`. Everything else (fetch sizes, timeouts,
+`isolation.level`, …) passes through. Consumer factories are cached per `(cluster, identity)`; every
 pipeline's container creates its own consumers.
 
 The DLQ producer (`dlq/ProducerSettings`, one per `(cluster, identity)`, `client.id`
@@ -678,7 +683,8 @@ not used in production and not exercised in the MVP tests.
   identities on one cluster produces two bulk streams to it.
 - The circuit breaker stays per **cluster**: a 5xx or connection failure says
   something about the cluster, not the identity.
-- `401`/`403` on a bulk request is a **configuration failure, not a data failure**:
+- `401`/`403` on a bulk request (except a 403 `cluster_block_exception`, which is an index or
+  cluster block, §7) is a **configuration failure, not a data failure**:
   the affected pipeline pauses, retries with backoff, raises
   `kafkafim_auth_failures_total{es_cluster,identity}` and an alert. Documents are
   never sent to the DLQ because of a bad credential.
@@ -854,7 +860,7 @@ application properties live under `kafkafim.*`. Cluster trust settings and ident
 definitions reference those properties with `${...}` placeholders, so the rendered
 ConfigMap never contains a secret. Startup validation refuses literal values in `password`,
 `api-key` and `*-password` fields (and in passthrough `properties` keys ending in
-`password`, containing `secret`, `sasl.jaas.config`, `ssl.keystore.key` or
+`password` or `passphrase`, containing `secret`, `sasl.jaas.config`, `ssl.keystore.key` or
 `user.info`) unless `kafkafim.allow-inline-secrets=true`. That switch is for local
 development outside Kubernetes (`./mvnw spring-boot:run` with Compose): on
 `CloudPlatform.KUBERNETES` the flag itself stops startup (§5.4), so the local Kubernetes
@@ -1011,12 +1017,12 @@ in `ConfigValidator`, whose messages never include values.
     +1 per applied change); one INFO line per applied reload with the plan, one ERROR
     line per rejected reload listing every violation. `kafkafim_pipeline_state` gains
     and loses series with added and removed pipelines.
-  - **Settings**: `kafkafim.reload.enabled` (default `true`), `poll-interval` (10s),
-    `debounce` (2s), read at startup only. The watched paths are the file and
-    `configtree:` locations of the three properties above; `classpath:` locations are
-    not watched. `POST /actuator/reload` works with the watcher disabled. A reload
-    that changes them is still `applied` and logs a WARN that the watcher settings
-    apply after a restart.
+  - **Settings**: `kafkafim.reload.enabled` (default `true`), `poll-interval` (10s,
+    at least 1s), `debounce` (2s; below 1s only a warning), read at startup only.
+    The watched paths are the file and `configtree:` locations of the three properties
+    above; `classpath:` locations are not watched. `POST /actuator/reload` works with the
+    watcher disabled. A reload that changes them is still `applied` and logs a WARN that
+    the watcher settings apply after a restart.
   - Not reloaded: the `KafkafimProperties` bean stays the startup tree (the supervisor
     holds the one in effect); OTLP export headers (§10) and everything outside
     `kafkafim.*` need a restart.
@@ -1058,11 +1064,14 @@ are reported together:
   `PLAINTEXT` need none (client certificates are the broker's choice). A `sasl` block is
   only allowed on a `SASL_*` cluster, a keystore and cluster `ssl` trust only on a TLS
   one. `PLAIN`/`SCRAM-*` need `username` and `password`.
-- **Elasticsearch**: `uris` are `http(s)://host[:port]`, one scheme per cluster;
+- **Elasticsearch**: `uris` are `http(s)://host[:port]`, one scheme per cluster, without
+  `user:password@` (credentials belong on an identity; a URI with userinfo is rejected and never echoed);
   `ssl` trust and keystores only with `https`. An identity is exactly one of
   `username`+`password` or `api-key`, optionally with a keystore, or a keystore alone.
   A route on an `https` cluster without a resolvable identity fails; on `http` it binds
-  with a startup warning.
+  with a startup warning. An identity with `username`+`password` or `api-key` on an `http`
+  cluster also binds with a warning that the credential travels in clear (an error would
+  break a service-mesh setup that terminates TLS outside kafkafim).
 - **Pipelines**: `topics` are non-empty and distinct; the DLQ topic is not one of the
   source topics; `max-record-bytes ≤ max-in-flight-bytes`; sizes and durations are
   positive. A consumer group belongs to exactly one pipeline: two pipelines with the same
@@ -1137,19 +1146,20 @@ are reported together:
 
 | Situation | Behaviour |
 |---|---|
-| ES returns 429 / 5xx / connection error or timeout for a bulk request | Retried with the same documents **forever**, exponential backoff with jitter (100ms doubling to 30s, ±50%); counts as a breaker failure. The pipeline's container is paused when in-flight bytes (key + value of every delivered, incomplete record) reach `max-in-flight-bytes`, and resumes once they drop to half of it. A poll that crosses the budget is delivered whole, so the overshoot is at most one poll per consumer. Kafka lag grows (visible in the Kafka team's consumer-lag monitoring). No local buffering. Never DLQ. |
+| ES returns 429 / 5xx / connection error or timeout for a bulk request | Retried with the same documents **forever**, exponential backoff with jitter (100ms doubling to 30s, ±50%); counts as a breaker failure. The pipeline's container is paused when in-flight bytes (key, value and header bytes plus a 256-byte overhead estimate, of every delivered, incomplete record) reach `max-in-flight-bytes`, and resumes once they drop to half of it. A poll that crosses the budget is delivered whole, so the overshoot is at most one poll per consumer. Kafka lag grows (visible in the Kafka team's consumer-lag monitoring). No local buffering. Never DLQ. |
 | Repeated cluster-level failures | Circuit breaker per ES cluster (Resilience4j, shared by all identities and pipelines): count window of 20 requests, opens at ≥50% failures after at least 10, stays open 10s, then lets 2 probes through. While it is open every sender for that cluster waits; pipelines routing to that cluster pause (supervisor reason `es-breaker:<cluster>`, from open until the breaker is closed again; half-open keeps the pause), others proceed. |
 | Bulk request rejected with 401 / 403 | Configuration failure, not data failure: retried with backoff forever and reported through the sink listener (the supervisor pauses the pipeline; `kafkafim_auth_failures_total` and an alert fire). Not a breaker failure. Nothing goes to the DLQ. The log line and the listener event keep the security error's type and `reason` (user, roles, action, index), never the raw body (ADR-0030). An **item** with 401/403 (the identity may not write that index) is handled the same way. |
 | Bulk request with any other unexpected status (a 400 for the whole request, a 404 from a proxy or a wrong path, a 3xx) or a 2xx body that is not a bulk response | Retried forever with backoff and logged with Elasticsearch's `error.type` and `root_cause[].type`s, never its `reason`, which can quote field values (ADR-0030; a body that is not JSON is logged by its size, an unparsable 2xx body by what was wrong with it; the body itself only at DEBUG on the `BulkSink` logger): it cannot be attributed to one document, so it never reaches the DLQ. An unexpected status is not a cluster-health signal and does not open the breaker; an unparsable 2xx body does. |
 | An action Elasticsearch would reject for the whole request (`op: create` with an external version, an empty ingest `pipeline` name, an `_id` outside 1 to 512 UTF-8 bytes or with an unpaired UTF-16 surrogate) | Rejected when the action is built (`BulkAction`), because a whole-request 400 could only be retried forever. Config validation (§5.7) therefore rejects `op: create` together with `document.version-field` (ES answers "create operations only support internal versioning") and a blank route ingest `pipeline` (`""`, whitespace, or a bare `pipeline:`). |
 | Bulk partial failure | Only failed items are retried; successful items are acked immediately. |
 | Non-retryable item error: the 400 family (`mapper_parsing_exception`, `document_parsing_exception`, `strict_dynamic_mapping_exception`, `illegal_argument_exception` such as a missing ingest pipeline) and any other 4xx item not listed here | DLQ immediately with `error.type=es_error`, partition continues. |
+| Item `index_closed_exception` (Elasticsearch answers 400) or `cluster_block_exception` (403, for example `index.blocks.write` or `read_only`), checked before the 401/403 and other-4xx rules | A closed or blocked index is an operator's maintenance window that clears on its own and says nothing about the document or the credential: retried like any retryable item (bounded by `max-attempts`/`max-elapsed`, then DLQ `es_retries_exhausted`), never `es_error`, and not an auth failure (no `kafkafim_auth_failures_total`, no auth alert). A request-level 403 `cluster_block_exception` is likewise retried with backoff and reported as an unexpected answer, not as an auth failure. |
 | Item 409 `version_conflict_engine_exception` | With an external version: `stale` (success) under `on-version-conflict: ignore`, DLQ `version_conflict` under `dlq`. For `op: create` without a version: an earlier attempt landed, so success. Otherwise `es_error`. |
 | Retryable **item** error (item 429 `es_rejected_execution_exception`, item 5xx, item 404 `index_not_found_exception`, any other unexpected item status) exceeding `max-attempts`/`max-elapsed` | The item goes back into the batcher after a backoff and travels in a later bulk; once it has failed `max-attempts` times, or `max-elapsed` after its first retryable failure, DLQ with `error.type=es_retries_exhausted`, partition continues. This is the poison-message bound. A missing index is a provisioning gap (ADR-0021) or a race with whoever creates the index, so it gets the bounded retry rather than an immediate DLQ or an unbounded stall. Request-level failures (connection errors, 5xx, request-level 429, breaker open, 401/403, unexpected statuses) are retried indefinitely and never count toward the bound; an ES outage produces lag, never DLQ records. |
 | Bulk request rejected with 413 | The request is split in halves and each half retried (recursively); a single-document bulk that still gets 413 sends that document to the DLQ with `error.type=too_large`. |
 | Undecodable record, non-object element, unusable version, missing `_id`, bad timestamp, no matching route, unresolved index pattern | DLQ with the matching `error.type` (`decode`, `missing_id`, `bad_timestamp`, `no_route`, `unresolved_index`), or, for a route's `transform` steps that cannot apply to the document (§8), `transform`. A document a drop route selected skips the version, `_id`, and timestamp checks and is never dead-lettered for them (§5.3); undecodable records and non-object elements still are. |
 | Missing topic, DLQ topic, or failed authentication at pipeline start | Pipeline stays stopped (`failed_preflight`) until the next accepted reload or a restart (§5.6), clear log naming resource and identity, alert. Other pipelines unaffected. kafkafim never creates the resource. |
-| Record handler throws, or a consumer of the listener container stops on its own (an error the container does not retry, an `Error` from the listener) | The pipeline goes to `failed` and is stopped gracefully: the source drains, commits what completed and leaves the group, so the group's other pods take its partitions; records still incomplete are re-delivered. When the container stopped itself, the source still waits (within its 10s container stop) for the other consumers to finish revoking before the sinks close. It stays stopped until the next accepted reload or a restart (§4.6, §5.6, ADR-0036); one ERROR line names the cause. Other pipelines unaffected. |
+| Record handler throws, or a consumer of the listener container stops on its own (an error the container does not retry, an `Error` from the listener) | The pipeline goes to `failed` and is stopped gracefully: the source commits what completed and leaves the group, so the group's other pods take its partitions; records still incomplete are re-delivered. The source does not wait for in-flight records after a handler failure or once the container stopped itself (the failed batch can never complete, so waiting would burn the whole drain timeout; with several consumers, records the others had handed to the sinks but not yet completed are re-delivered too, duplicates being idempotent by `_id`). When the container stopped itself, the source still waits (within its 10s container stop) for the other consumers to finish revoking before the sinks close. It stays stopped until the next accepted reload or a restart (§4.6, §5.6, ADR-0036); one ERROR line names the cause. Other pipelines unaffected. |
 | DLQ produce fails | Block the partition and alert. Losing data is worse than lag. The send is retried forever (100ms doubling to 30s, ±25% jitter) and never completes the source offset until the broker acknowledged it (`acks=all`), so the committed offset stays put. That, with the retry loop, is the guarantee against loss; it does not rest on idempotence (`enable.idempotence` may be turned off, §5.1), which only avoids duplicate DLQ records. The writer is *blocked* from its first failure until every failed send was acknowledged; the supervisor pauses the pipeline on `onBlocked` and resumes on `onUnblocked`. A missing DLQ topic, failed authentication or authorization, an invalid topic or a record larger than the producer or topic allows is a **configuration** failure (logged at `ERROR`, alert); anything else is **transient**. Both kinds are retried; neither drops the record. With idempotence off the producer has no fatal error state, so only the replacement below on `ClusterAuthorizationException` or an authentication error can still happen, and it is harmless. A producer error that kafka-clients can make fatal even for an idempotent producer (cluster authorization, authentication, unsupported version, a fenced producer or an invalid producer ID mapping) replaces the shared producer, so fixing the cause unblocks the next attempt without a restart. A missing `Write` ACL is usually not fatal, though: in kafka-clients 4.2 a `CLUSTER_AUTHORIZATION_FAILED` answer to `InitProducerId` is *abortable*: the producer fails the pending batches, goes back to uninitialized and retries `InitProducerId` on its own. The producer becomes fatal only when the error reaches its error state through a failed batch (a produce response carrying it). kafkafim replaces the producer on `ClusterAuthorizationException` either way: replacing it is cheap and covers the fatal path. On the abortable path kafka-clients still logs `Aborting producer batches due to fatal error` at `ERROR`, and kafkafim logs that the producer *may be* in a fatal state and replaces it; both mean only that the pending sends failed and will be retried. A send that fails only because of the replacement (closing the producer aborts its batch, or it reached the producer after the close began) is reported by the failure that triggered the replacement, so a missing ACL never shows up as a transient `Producer is closed forcefully`. Each send attempt is reported once, although kafka-clients can both throw from `send` and later fail the batch it had already appended. |
 | Kafka unavailable | Reconnect with backoff (kafka-clients); `kafkafim_kafka_connected` gauge drops, alert. A Kafka authentication or authorization failure after start is retried every 10s instead of stopping the consumer. |
 | Pod SIGTERM | Spring graceful shutdown, higher phases first: the pipeline supervisor (phase MAX-100) stops all pipelines in parallel; each pipeline's Kafka source pauses fetching, gives in-flight records up to 30s to complete (its bulk sinks and the DLQ writer are still open, so outcomes keep arriving), then stops its container (10s), which commits what completed on revoke and leaves the group; records still incomplete are re-delivered to the next owner; then the pipeline's bulk sinks close (up to 10s; outcomes after the revoke are ignored); then the DLQ producers (phase MAX-1000, so they outlive the source drain; closed by `supervisor/PipelineResources`, which owns every configuration generation's producers) flush for up to 10s and close, failing any send still unacknowledged so that its record is not committed (a producer whose broker accepts connections but never answers does not finish closing at that timeout: kafka-clients then waits up to `request.timeout.ms`, 30s, for its I/O thread, so kafkafim waits at most 2s more per producer and logs `did not finish closing` at `WARN`; the daemon I/O thread ends on its own); then the web server drains (phase MAX-1024, instant for actuator-only traffic). `spring.lifecycle.timeout-per-shutdown-phase` (60s, `application.yaml`) bounds each phase; the consumer phase must fit the pod's `terminationGracePeriodSeconds` (90s, chart default). |
@@ -1296,7 +1306,8 @@ uncommitted. Before the first record to a topic the writer describes it
 it sends to, so producing blind would create a missing DLQ topic on a broker with
 `auto.create.topics.enable=true` (ADR-0021) and would otherwise only surface as a metadata
 timeout. A missing, forbidden, or unreachable topic is remembered for one second on the shared
-producer, so that many blocked sends do not describe it once each; a check cut short by an
+producer. Concurrent sends that need a check (cold cache or expired entry) share one describe
+instead of firing one each. A check cut short by an
 interrupt (a stop during preflight) is not remembered, since no broker answered it. A topic
 once seen is only checked again after a send timeout, so a DLQ topic
 deleted while kafkafim runs can still be re-created by the producer's metadata refresh on
@@ -1364,7 +1375,7 @@ Exact label sets (`telemetry/TelemetryNames`, `telemetry/PipelineMeters`):
 | `kafkafim_bulk_latency_seconds`, `kafkafim_bulk_docs`, `kafkafim_bulk_bytes` (histograms) | `es_cluster` | every answered bulk request |
 | `kafkafim_item_errors_total` | `es_cluster`, `error_type` (Elasticsearch error type, `status_<n>` without one), `retryable` | every failed item: retried, or dead-lettered as `es_error` / `version_conflict` |
 | `kafkafim_retries_total` | `es_cluster`, `scope=request\|item` | every retryable failure of a whole request, and of an item (an item whose poison bound is reached also counts its last failure) |
-| `kafkafim_auth_failures_total` | `es_cluster`, `identity` (`none` for an unauthenticated cluster) | every response carrying a 401/403, for the request or for any item (one per response, not per item) |
+| `kafkafim_auth_failures_total` | `es_cluster`, `identity` (`none` for an unauthenticated cluster) | every response carrying a 401/403 (a 403 `cluster_block_exception` is not an auth failure and is not counted), for the request or for any item (one per response, not per item) |
 | `kafkafim_batch_flush_total` | `es_cluster`, `reason=docs\|bytes\|age\|explicit` | every sealed batch (`explicit`: revoke, stop) |
 | `kafkafim_e2e_latency_seconds` (histogram) | — | every Elasticsearch ack: ack time minus the Kafka record timestamp (DLQ'd documents are not counted) |
 | `kafkafim_in_flight_bytes`, `kafkafim_assigned_partitions`, `kafkafim_kafka_connected` (1/0) | — | the pipeline's running source, read on scrape |

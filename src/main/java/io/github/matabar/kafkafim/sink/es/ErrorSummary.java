@@ -61,6 +61,21 @@ final class ErrorSummary {
   }
 
   /**
+   * The {@code error.type} of a request-level response body, or {@code null} if there is none.
+   *
+   * @param body the response body
+   */
+  static @Nullable String errorTypeOfResponse(byte[] body) {
+    String summary = ofResponse(body, false);
+    if (!summary.startsWith("type=")) {
+      return null;
+    }
+    int end = summary.indexOf(", ");
+    String type = summary.substring("type=".length(), end < 0 ? summary.length() : end);
+    return "unknown".equals(type) ? null : type;
+  }
+
+  /**
    * Summarizes an item's {@code error} value, as {@link BulkResponse.Item#errorJson()} holds it.
    *
    * @param errorJson the item's {@code error} value as JSON

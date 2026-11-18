@@ -2,6 +2,7 @@ package io.github.matabar.kafkafim.source.kafka;
 
 import io.github.matabar.kafkafim.config.KafkaClientSecurity;
 import io.github.matabar.kafkafim.config.KafkaCluster;
+import io.github.matabar.kafkafim.config.OwnedKafkaKeys;
 import io.github.matabar.kafkafim.config.Pipeline;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -37,21 +38,7 @@ public final class ConsumerSettings {
    * Keys the {@code properties} passthrough can never set: correctness of offsets, assignment and
    * deserialization depends on them, or they are set per pipeline from the {@code source} block.
    */
-  public static final Set<String> OWNED_KEYS =
-      Set.of(
-          CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG,
-          CommonClientConfigs.SECURITY_PROTOCOL_CONFIG,
-          ConsumerConfig.GROUP_ID_CONFIG,
-          ConsumerConfig.GROUP_INSTANCE_ID_CONFIG,
-          ConsumerConfig.GROUP_PROTOCOL_CONFIG,
-          ConsumerConfig.CLIENT_ID_CONFIG,
-          ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG,
-          ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,
-          ConsumerConfig.MAX_POLL_RECORDS_CONFIG,
-          ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
-          ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
-          ConsumerConfig.PARTITION_ASSIGNMENT_STRATEGY_CONFIG,
-          ConsumerConfig.ALLOW_AUTO_CREATE_TOPICS_CONFIG);
+  public static final Set<String> OWNED_KEYS = OwnedKafkaKeys.CONSUMER;
 
   private ConsumerSettings() {}
 
