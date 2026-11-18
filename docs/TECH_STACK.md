@@ -51,7 +51,7 @@ Versions are the ones pinned in `pom.xml`, the Dockerfile, and `compose.yaml`. E
 ## Source layout
 
 ```text
-io.github.matabar.kafkafim
+io.github.culzaa.kafkafim
 ├── config/         @ConfigurationProperties model, validators, watcher, Binder reload, diff, secret checks
 ├── supervisor/     pipeline lifecycle, preflight checks, hot reload orchestration, reload endpoint (ADR-0028)
 ├── source/kafka/   consumer factories per cluster, pipeline source with pause/resume, offset tracker, byte budget

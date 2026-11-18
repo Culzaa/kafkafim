@@ -8,7 +8,7 @@
 		<version>4.1.2</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
-	<groupId>io.github.matabar</groupId>
+	<groupId>io.github.culzaa</groupId>
 	<artifactId>kafkafim</artifactId>
 	<version>${revision}</version>
 	<name>kafkafim</name>
@@ -308,12 +308,12 @@
 				</dependencies>
 				<configuration>
 					<targetClasses>
-						<param>io.github.matabar.kafkafim.route.*</param>
-						<param>io.github.matabar.kafkafim.decode.*</param>
+						<param>io.github.culzaa.kafkafim.route.*</param>
+						<param>io.github.culzaa.kafkafim.decode.*</param>
 					</targetClasses>
 					<targetTests>
-						<param>io.github.matabar.kafkafim.route.*Test</param>
-						<param>io.github.matabar.kafkafim.decode.*Test</param>
+						<param>io.github.culzaa.kafkafim.route.*Test</param>
+						<param>io.github.culzaa.kafkafim.decode.*Test</param>
 					</targetTests>
 					<excludedTestClasses>
 						<param>**.*IntegrationTest</param>
