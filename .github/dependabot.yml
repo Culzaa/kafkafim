@@ -22,3 +22,12 @@ updates:
   - package-ecosystem: docker
     directory: /
     schedule: { interval: weekly }
+  # compose.yaml and loadtest/compose.yaml. One group, so the Kafka, Elasticsearch and LGTM
+  # bumps arrive together; the demo chart's values.yaml and the Testcontainers constants in
+  # src/test name the same images and are bumped by hand in that PR (CI job "YAML format" fails
+  # until all four places agree).
+  - package-ecosystem: docker-compose
+    directories: [/, /loadtest]
+    schedule: { interval: weekly }
+    groups:
+      local-stack-images: { patterns: ['*'] }

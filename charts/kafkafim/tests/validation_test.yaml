@@ -333,3 +333,10 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "missing propert(y|ies).*'key'"
+
+  - it: rejects the removed serviceMonitor key (the schema forbids unknown top-level keys)
+    set:
+      serviceMonitor.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: serviceMonitor

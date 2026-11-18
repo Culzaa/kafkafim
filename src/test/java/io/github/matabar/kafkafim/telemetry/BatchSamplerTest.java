@@ -3,7 +3,17 @@ package io.github.matabar.kafkafim.telemetry;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanContext;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.api.trace.TraceFlags;
+import io.opentelemetry.api.trace.TraceState;
+import io.opentelemetry.context.Context;
 import io.opentelemetry.sdk.trace.samplers.Sampler;
+import io.opentelemetry.sdk.trace.samplers.SamplingDecision;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -53,5 +63,63 @@ class BatchSamplerTest {
                 .hasFailed()
                 .getFailure()
                 .hasStackTraceContaining("management.tracing.sampling.probability"));
+  }
+
+  private static final String TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
+  private static final Attributes FAILED =
+      Attributes.of(AttributeKey.stringKey(BatchTracer.ERROR_TYPE), "java.net.ConnectException");
+
+  private static Context parent(boolean sampled) {
+    SpanContext parent =
+        SpanContext.create(
+            TRACE_ID,
+            "00f067aa0ba902b7",
+            sampled ? TraceFlags.getSampled() : TraceFlags.getDefault(),
+            TraceState.getDefault());
+    return Span.wrap(parent).storeInContext(Context.root());
+  }
+
+  private static SamplingDecision decide(
+      double probability, Context parent, String name, Attributes attributes) {
+    return BatchSampler.create(probability)
+        .shouldSample(parent, TRACE_ID, name, SpanKind.INTERNAL, attributes, List.of())
+        .getDecision();
+  }
+
+  @Test
+  void describesItselfWithTheRatio() {
+    assertThat(BatchSampler.create(0.25).getDescription())
+        .isEqualTo("KafkafimBatchSampler{errors=always,parentBased,ratio=0.25}");
+  }
+
+  @Test
+  void rootSpansFollowTheRatioAtTheBounds() {
+    assertThat(decide(0, Context.root(), "pipeline.batch", Attributes.empty()))
+        .isEqualTo(SamplingDecision.DROP);
+    assertThat(decide(1, Context.root(), "pipeline.batch", Attributes.empty()))
+        .isEqualTo(SamplingDecision.RECORD_AND_SAMPLE);
+  }
+
+  @Test
+  void failedBatchesAreSampledWhateverTheRatioOrTheirParentDecided() {
+    assertThat(decide(0, Context.root(), BatchTracer.BATCH_SPAN, FAILED))
+        .isEqualTo(SamplingDecision.RECORD_AND_SAMPLE);
+    assertThat(decide(0, parent(false), BatchTracer.BATCH_SPAN, FAILED))
+        .isEqualTo(SamplingDecision.RECORD_AND_SAMPLE);
+  }
+
+  @Test
+  void healthyBatchesFollowTheirParent() {
+    assertThat(decide(0, parent(true), BatchTracer.BATCH_SPAN, Attributes.empty()))
+        .isEqualTo(SamplingDecision.RECORD_AND_SAMPLE);
+    assertThat(decide(1, parent(false), BatchTracer.BATCH_SPAN, Attributes.empty()))
+        .isEqualTo(SamplingDecision.DROP);
+  }
+
+  @Test
+  void spansOtherThanBatchesFollowTheirParentEvenWithAnError() {
+    assertThat(decide(1, parent(false), "es.bulk", FAILED)).isEqualTo(SamplingDecision.DROP);
+    assertThat(decide(0, parent(true), "es.bulk", FAILED))
+        .isEqualTo(SamplingDecision.RECORD_AND_SAMPLE);
   }
 }

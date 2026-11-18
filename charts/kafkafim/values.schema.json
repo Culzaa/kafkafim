@@ -270,15 +270,6 @@
         "allowFrom": { "type": "array", "items": { "type": "object" } }
       }
     },
-    "serviceMonitor": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enabled": { "type": "boolean" },
-        "interval": { "type": "string" },
-        "labels": { "$ref": "#/definitions/stringMap" }
-      }
-    },
     "podLabels": { "$ref": "#/definitions/stringMap" },
     "podAnnotations": { "$ref": "#/definitions/stringMap" }
   }
