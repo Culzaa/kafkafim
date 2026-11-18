@@ -470,11 +470,13 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
   least 10), stays open 10s, then lets 2 probes through; once it closes, the pause
   clears and the backlog drains. A **request-level** failure (connection error,
   timeout, 5xx, or 429 for the whole bulk) never dead-letters anything. **Item-level**
-  failures inside a successful bulk response are different: an item 429
-  (`es_rejected_execution_exception`), item 5xx or item `index_not_found` is retried
-  in later bulks only up to `dlq.max-attempts` (default 10) or `dlq.max-elapsed`
-  (default 10m), then goes to the DLQ as `es_retries_exhausted`. A sustained partial
-  overload therefore does produce DLQ records; replay them once ES is healthy
+  failures inside a successful bulk response are different. An item 429
+  (`es_rejected_execution_exception`) or item 503 `unavailable_shards_exception` is cluster
+  pressure: it is retried in later bulks with a delay of at most 30 s and does not count toward
+  `dlq.max-attempts`, so a sustained overload shows as lag; only a fixed one-hour safety valve
+  dead-letters such an item. An item 5xx or item `index_not_found` is retried only up to
+  `dlq.max-attempts` (default 10) or `dlq.max-elapsed` (default 10m), then goes to the DLQ as
+  `es_retries_exhausted`; replay those once ES is healthy
   ([DLQ filling, or DLQ blocked (§5.6)](#56-dlq-filling-or-dlq-blocked)). If the outage is long, you
   do not need to scale
   anything down: `max-in-flight-bytes` bounds memory. A reload that restarts an affected pipeline drops
@@ -616,7 +618,7 @@ tooling shows it too (`kafka-consumer-groups.sh --describe --group kafkafim.<pip
   | `error.type` | Usually | Fix |
   |---|---|---|
   | `es_error` | Mapping conflict, strict mapping, missing ingest pipeline | Fix the mapping/template/ingest pipeline (or the producer) |
-  | `es_retries_exhausted` | Item-level 429/5xx or `index_not_found` for longer than `max-attempts`/`max-elapsed` | ES capacity, or the index/template is not provisioned |
+  | `es_retries_exhausted` | Item-level 5xx or `index_not_found` (or item 429/503 `unavailable_shards` for over an hour) for longer than `max-attempts`/`max-elapsed` | ES capacity, or the index/template is not provisioned |
   | `decode`, `missing_id`, `bad_timestamp` | Producer sends invalid JSON, a value over `source.max-record-bytes` (oversize records are `decode`), no id, or an unparsable timestamp | Producer side, or the pipeline's `document.*` settings |
   | `transform` | A route's `transform` step needs a parent object that is a string, number, or array, or the result nests too deep (ADR-0047; the reason names the route, step, and pointer) | Producer / routes |
   | `no_route`, `unresolved_index` | Routing rules do not cover the document, or an index pattern field is missing/invalid | Routes / producer |
