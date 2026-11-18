@@ -35,6 +35,10 @@ public final class ConfigValidator {
   /** Only digits: reserved for the position label of unnamed routes. */
   private static final Pattern POSITION_LABEL = Pattern.compile("[0-9]+");
 
+  private static final int TOPIC_MAX_LENGTH = 249;
+
+  private static final Pattern TOPIC_NAME = Pattern.compile("[a-zA-Z0-9._-]+");
+
   /** Lower bound of {@code reload.poll-interval}, and the debounce below which a warning shows. */
   private static final Duration MIN_POLL_INTERVAL = Duration.ofSeconds(1);
 
@@ -205,6 +209,7 @@ public final class ConfigValidator {
       if (!protocol.requiresSasl()) {
         error(path + ".sasl", "sasl is set but security-protocol " + protocol + " is not SASL_*");
       }
+      checkSaslMechanism(path, identity.sasl());
       if (identity.sasl().needsUsernameAndPassword()) {
         if (isBlank(identity.sasl().username())) {
           error(path + ".sasl.username", identity.sasl().mechanism() + " needs a username");
@@ -218,6 +223,41 @@ public final class ConfigValidator {
       error(
           path + ".ssl",
           "a client keystore is set but security-protocol " + protocol + " does not use TLS");
+    }
+  }
+
+  /**
+   * The mechanism must be spelled exactly as kafka-clients expects it; a mis-cased one would skip
+   * the credential check and build no JAAS config, failing only at runtime. GSSAPI and OAUTHBEARER
+   * take their settings from the cluster's {@code properties}, so a username or password is a
+   * mistake there.
+   */
+  private void checkSaslMechanism(String path, KafkaCluster.Sasl sasl) {
+    String mechanism = sasl.mechanism();
+    if (isBlank(mechanism)) {
+      return; // reported by @NotBlank
+    }
+    if (!KafkaCluster.Sasl.MECHANISMS.contains(mechanism)) {
+      String hint =
+          KafkaCluster.Sasl.MECHANISMS.stream()
+              .filter(known -> known.equalsIgnoreCase(mechanism.trim()))
+              .findFirst()
+              .map(known -> "; did you mean '" + known + "'? The name is case-sensitive")
+              .orElse("");
+      error(
+          path + ".sasl.mechanism",
+          "'"
+              + mechanism
+              + "' is not a supported mechanism (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, GSSAPI,"
+              + " OAUTHBEARER)"
+              + hint);
+    } else if (!sasl.needsUsernameAndPassword()) {
+      if (sasl.username() != null) {
+        error(path + ".sasl.username", mechanism + " takes no username; use cluster properties");
+      }
+      if (sasl.password() != null) {
+        error(path + ".sasl.password", mechanism + " takes no password; use cluster properties");
+      }
     }
   }
 
@@ -438,6 +478,18 @@ public final class ConfigValidator {
       error(path + ".dlq.topic", "must not be blank");
     } else if (source.topics().contains(dlq.topic())) {
       error(path + ".dlq.topic", "'" + dlq.topic() + "' is also a source topic of this pipeline");
+    } else {
+      boolean derived =
+          !source.topics().isEmpty()
+              && (source.topics().get(0) + Pipeline.DLQ_TOPIC_SUFFIX).equals(dlq.topic());
+      checkTopicName(
+          path + ".dlq.topic",
+          dlq.topic(),
+          derived && dlq.topic().length() > TOPIC_MAX_LENGTH
+              ? "; the default name is the first source topic plus '"
+                  + Pipeline.DLQ_TOPIC_SUFFIX
+                  + "', so set dlq.topic explicitly"
+              : "");
     }
     checkPositive(path + ".dlq.max-elapsed", dlq.maxElapsed());
     // Same identity on the same cluster as the source: already checked there, report it once.
@@ -458,7 +510,37 @@ public final class ConfigValidator {
         error(path + "[" + i + "]", "must not be blank");
       } else if (!seen.add(topic)) {
         error(path + "[" + i + "]", "'" + topic + "' is listed twice");
+      } else {
+        checkTopicName(path + "[" + i + "]", topic, "");
       }
+    }
+  }
+
+  /**
+   * A Kafka topic name: 1 to {@value #TOPIC_MAX_LENGTH} characters of {@code [a-zA-Z0-9._-]}, and
+   * not {@code .} or {@code ..}. An illegal name would fail only at runtime (a source topic never
+   * resolves, the DLQ producer cannot create or write the topic).
+   *
+   * @param hint appended to the message
+   */
+  private void checkTopicName(String path, String topic, String hint) {
+    if (topic.equals(".") || topic.equals("..")) {
+      error(path, "'" + topic + "' is not a legal Kafka topic name" + hint);
+    } else if (topic.length() > TOPIC_MAX_LENGTH) {
+      error(
+          path,
+          "topic name is "
+              + topic.length()
+              + " characters; Kafka allows at most "
+              + TOPIC_MAX_LENGTH
+              + hint);
+    } else if (!TOPIC_NAME.matcher(topic).matches()) {
+      error(
+          path,
+          "'"
+              + topic
+              + "' is not a legal Kafka topic name (letters, digits, '.', '_' and '-')"
+              + hint);
     }
   }
 

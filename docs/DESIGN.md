@@ -924,10 +924,13 @@ in `ConfigValidator`, whose messages never include values.
   meant for the infrastructure repository's CI, where the per-cluster values live.
   This repository's CI does not use it; it builds the image and smoke-tests it with a
   liveness probe ([DELIVERY.md](DELIVERY.md)).
-- **Reload** (ADR-0028): a watcher on the config and secret directories (Java
+- **Reload** (ADR-0028, ADR-0051): a watcher on the config and secret directories (Java
   `WatchService` + 10s hash poll, because kubelet updates volumes by symlink swap with
   up to ~1 min delay) plus `POST /actuator/reload`. The new tree is loaded with
-  Spring's `Binder` into a fresh model and validated as a whole. On success the
+  Spring's `Binder` into a fresh model and validated as a whole. A tree that defines
+  no cluster and no pipeline is rejected while pipelines run (an empty or unread file
+  would drain them all); keeping the clusters and dropping the pipelines is a deliberate
+  wipe and applies. On success the
   supervisor diffs by pipeline: changed pipelines are drained (stop fetching, flush
   in-flight, commit, leave group) and restarted; added start; removed drain and stop;
   unchanged are untouched. Cluster definition changes restart every pipeline using
@@ -1002,6 +1005,10 @@ in `ConfigValidator`, whose messages never include values.
     ones the new tree removes) start again on the running tree. The generation stays,
     `kafkafim_config_reload_total{result=failure}` counts it, and one ERROR line carries
     the cause.
+    Once the new tree is in effect nothing is rolled back any more: a step after that
+    point (closing an instance the old tree used, starting a pipeline) that throws, an
+    `Error` included, is logged as a WARN (`Reload step '...' failed`) and the remaining
+    steps still run.
   - **`POST /actuator/reload`** returns `{result, generation, added, removed,
     restarted: [{pipeline, reasons}], retried, unchanged, errors}`: 200 for `applied` or
     `unchanged`, 400 with every violation for `rejected`, 503 while the supervisor is
@@ -1063,7 +1070,10 @@ are reported together:
   resolved identity with a `sasl` block for the consumer and the DLQ producer; `SSL` and
   `PLAINTEXT` need none (client certificates are the broker's choice). A `sasl` block is
   only allowed on a `SASL_*` cluster, a keystore and cluster `ssl` trust only on a TLS
-  one. `PLAIN`/`SCRAM-*` need `username` and `password`.
+  one. `PLAIN`/`SCRAM-*` need `username` and `password`. `sasl.mechanism` must be exactly
+  `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512`, `GSSAPI` or `OAUTHBEARER` (case-sensitive,
+  never upper-cased for you; a mis-cased name is rejected with a hint); `GSSAPI` and
+  `OAUTHBEARER` take no `username`/`password`.
 - **Elasticsearch**: `uris` are `http(s)://host[:port]`, one scheme per cluster, without
   `user:password@` (credentials belong on an identity; a URI with userinfo is rejected and never echoed);
   `ssl` trust and keystores only with `https`. An identity is exactly one of
@@ -1072,10 +1082,13 @@ are reported together:
   with a startup warning. An identity with `username`+`password` or `api-key` on an `http`
   cluster also binds with a warning that the credential travels in clear (an error would
   break a service-mesh setup that terminates TLS outside kafkafim).
-- **Pipelines**: `topics` are non-empty and distinct; the DLQ topic is not one of the
-  source topics; `max-record-bytes ≤ max-in-flight-bytes`; sizes and durations are
-  positive. A consumer group belongs to exactly one pipeline: two pipelines with the same
-  `(source.cluster, group-id)` are rejected (the same topic in two groups is fine).
+- **Pipelines**: `topics` are non-empty and distinct; every topic and the DLQ topic is a
+  legal Kafka name (`[a-zA-Z0-9._-]`, 1 to 249 characters, not `.` or `..`; the default DLQ
+  name adds 13 characters to the first topic, so a very long one needs `dlq.topic` set); the
+  DLQ topic is not one of the source topics; `max-record-bytes ≤ max-in-flight-bytes`; sizes
+  and durations are positive. A consumer group belongs to exactly one pipeline: two pipelines
+  with the same `(source.cluster, group-id)` are rejected (the same topic in two groups is
+  fine).
 - **Routes**: in `route-mode: first` exactly one `default: true` route, and every other
   route has at least one `when` condition (an unconditional route would hide the rest);
   in `all` at most one default, and unconditional routes are allowed (fan-out). The
@@ -1522,7 +1535,8 @@ Every log event goes to two places (ADR-0044):
   `management.otlp.metrics.export.enabled` and `management.tracing.export.otlp.enabled`
   do for the other two.
   MDC keys are opt-in: `captureMdcAttributes` in `logback-spring.xml` names the keys to
-  export, never `*` (ADR-0048). The list names `pipeline`, which no code sets yet; a key
+  export, never `*` (ADR-0048). The list names `pipeline`, which the consumer, bulk sender and
+  DLQ writer threads set (`telemetry/PipelineMdc`); a key
   someone adds to the MDC later stays out of the backend until a reviewed change adds it
   to the list, and Micrometer's `traceId` and `spanId` MDC entries are not repeated as
   attributes (the record's own trace and span id remain). `MdcAllowlistTest` pins it.

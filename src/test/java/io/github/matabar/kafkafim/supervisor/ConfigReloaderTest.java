@@ -267,6 +267,51 @@ class ConfigReloaderTest {
   }
 
   @Test
+  void emptyTreeIsRejectedWhilePipelinesRun() {
+    ConfigReloader reloader = start(A);
+    final KafkafimProperties running = supervisor.properties();
+    // An empty or unread file: no clusters, no pipelines.
+    Environment empty = new StandardEnvironment();
+    disk = () -> empty;
+
+    ReloadResult result = reloader.reload("test");
+
+    assertThat(result.result()).isEqualTo(ReloadResult.REJECTED);
+    assertThat(result.generation()).isEqualTo(1);
+    assertThat(result.errors())
+        .singleElement()
+        .asString()
+        .contains("defines no Kafka cluster", "1 pipeline(s) are running", "Keep the clusters");
+    assertThat(supervisor.properties()).isSameAs(running);
+    assertThat(supervisor.pipelineNames()).containsExactly("a");
+    assertThat(reloads("failure")).isEqualTo(1);
+    assertThat(reloads("success")).isZero();
+  }
+
+  @Test
+  void keepingClustersAndDroppingEveryPipelineIsDeliberateWipe() {
+    ConfigReloader reloader = start(A);
+    disk = () -> environment(TestConfigs.CLUSTERS + "  allow-inline-secrets: true\n");
+
+    ReloadResult result = reloader.reload("test");
+
+    assertThat(result.result()).isEqualTo(ReloadResult.APPLIED);
+    assertThat(result.removed()).containsExactly("a");
+    assertThat(supervisor.pipelineNames()).isEmpty();
+    assertThat(reloads("success")).isEqualTo(1);
+  }
+
+  @Test
+  void emptyTreeIsAcceptedWhenNothingRuns() {
+    ConfigReloader reloader = start("");
+    Environment empty = new StandardEnvironment();
+    disk = () -> empty;
+
+    assertThat(reloader.reload("test").accepted()).isTrue();
+    assertThat(reloads("failure")).isZero();
+  }
+
+  @Test
   void anUnreadableTreeIsRejected() {
     ConfigReloader reloader = start(A);
     disk =
