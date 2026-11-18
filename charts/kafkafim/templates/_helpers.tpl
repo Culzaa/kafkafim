@@ -190,7 +190,9 @@ cannot express.
     {{- if lt (int $group.autoscaling.maxReplicas) $min -}}
       {{- fail (printf "groups.%s.autoscaling.maxReplicas (%d) is lower than minReplicas (%d)" $g (int $group.autoscaling.maxReplicas) $min) -}}
     {{- end -}}
-    {{- $res := $group.resources | default $.Values.resources | default dict -}}
+    {{- $res := $.Values.resources -}}
+    {{- if and (hasKey $group "resources") (not (kindIs "invalid" $group.resources)) -}}{{- $res = $group.resources -}}{{- end -}}
+    {{- $res = $res | default dict -}}
     {{- $req := $res.requests | default dict -}}
     {{- if not $req.cpu -}}
       {{- fail (printf "groups.%s.autoscaling is enabled but the group has no resources.requests.cpu; the CPU HPA needs a CPU request" $g) -}}
