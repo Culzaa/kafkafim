@@ -1,4 +1,4 @@
-# NetworkPolicy on, scrape allowed from the monitoring namespace; topology spread off.
+# NetworkPolicy on, actuator allowed from the monitoring namespace; topology spread off.
 config:
   kafkafim:
     kafka:

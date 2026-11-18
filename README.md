@@ -54,7 +54,7 @@ profile's `demo` pipeline needs (`demo.events`, `demo.events.kafkafim-dlq`; 3 pa
 replication 1). kafkafim never creates topics ([ADR-0021](docs/decisions/0021-no-resource-provisioning.md)),
 and the local broker has topic auto-creation disabled to mirror production. Once
 the `demo` pipeline is `running`, run the smoke test
-(`curl -s localhost:8080/actuator/prometheus | grep 'kafkafim_pipeline_state{pipeline="demo",state="running"}'`):
+(`curl -s 'localhost:8080/actuator/metrics/kafkafim.pipeline.state?tag=pipeline:demo&tag=state:running'`):
 
 ```bash
 echo '{"id":"smoke-1","region":"eu","@timestamp":"2026-11-08T10:00:00Z"}' | \
@@ -90,10 +90,10 @@ docker build -t kafkafim:dev .   # runtime image from target/*.jar
 The code follows the [Google Java Style Guide](https://google.github.io/styleguide/javaguide.html);
 `./mvnw verify` fails on unformatted code or Checkstyle violations.
 
-Actuator: `http://localhost:8080/actuator/health`, `/actuator/prometheus`.
+Actuator: `http://localhost:8080/actuator/health`, `/actuator/metrics`.
 Grafana (local stack): `http://localhost:3000`, with the kafkafim dashboards in the *kafkafim*
-folder. The [Grafana guide](deploy/grafana/README.md) covers those dashboards and the Prometheus
-alert rules for production. The local stack doesn't load the rules, and its latency panels
+folder. The [Grafana guide](deploy/grafana/README.md) covers those dashboards and the alert
+rules for production. The local stack doesn't load the rules, and its latency panels
 stay empty unless you export seconds (see the *Compose demo* section of that guide).
 
 ## License

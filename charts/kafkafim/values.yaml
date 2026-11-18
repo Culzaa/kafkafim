@@ -203,26 +203,16 @@ topologySpread:
   whenUnsatisfiable: ScheduleAnyway
 
 # Ingress-only NetworkPolicy for every kafkafim pod of this release: allows TCP 8080
-# (actuator, Prometheus scrape, /actuator/reload) from the listed peers only. Egress
+# (actuator, /actuator/reload) from the listed peers only. Egress
 # is not restricted; a cluster that default-denies egress writes its own policy (see
 # "Egress the pods need" in docs/HELM.md). The default allows pods in the release's
-# namespace; add the monitoring namespace if Prometheus scrapes from elsewhere. An empty
-# list means any source (Kubernetes semantics for an ingress rule without `from`).
+# namespace; add another namespace if something outside it calls the actuator. An
+# empty list means any source (Kubernetes semantics for an ingress rule without `from`).
 networkPolicy:
   enabled: false
   allowFrom:
     - podSelector: {}
 
-# Needs the Prometheus Operator CRD (monitoring.coreos.com/v1). Off by default: the
-# production clusters have no CRDs; scrape annotations below are the default path.
-serviceMonitor:
-  enabled: false
-  interval: 30s
-  labels: {}
-
 # Extra pod labels; must not use the selector keys app.kubernetes.io/{name,instance,component}.
 podLabels: {}
-podAnnotations:
-  prometheus.io/scrape: "true"
-  prometheus.io/path: /actuator/prometheus
-  prometheus.io/port: "8080"
+podAnnotations: {}

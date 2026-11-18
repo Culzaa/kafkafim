@@ -15,6 +15,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -192,5 +193,82 @@ class PipelineRuntimeStartFailureIntegrationTest {
       real.get().stop();
       runtime.stop();
     }
+  }
+
+  /**
+   * Runs {@code action} once, from the first state report after the source was created and
+   * published and before it is started (resetting the pause reasons reports under the runtime's
+   * lock), which is how these tests reach the middle of {@code attemptStart} without a seam.
+   */
+  private static Consumer<PipelineRuntime> betweenCreateAndStart(
+      AtomicReference<KafkaPipelineSource> created, Consumer<PipelineRuntime> action) {
+    AtomicBoolean fired = new AtomicBoolean();
+    return r -> {
+      KafkaPipelineSource source = r.source();
+      if (source != null
+          && r.state() == PipelineState.STARTING
+          && fired.compareAndSet(false, true)) {
+        created.set(source);
+        action.accept(r);
+      }
+    };
+  }
+
+  /** The source reports its failure while the start is still going on (ADR-0036, #438). */
+  @Test
+  void sourceFailedWhileTheSourceIsStartingFailsThePipelineAndClosesEverything() {
+    AtomicReference<KafkaPipelineSource> created = new AtomicReference<>();
+    PipelineRuntime runtime =
+        new PipelineRuntime(
+            "p",
+            context,
+            betweenCreateAndStart(created, r -> r.sourceFailed(created.get(), "consumer died")));
+
+    runtime.start();
+
+    await().atMost(TIMEOUT).until(() -> runtime.state() == PipelineState.FAILED);
+    await().atMost(TIMEOUT).until(() -> !runtime.holdsResources());
+    // The start that was under way did not turn the failed pipeline into a running one.
+    assertThat(runtime.state()).isEqualTo(PipelineState.FAILED);
+    assertThat(runtime.failure()).isEqualTo("consumer died");
+    assertThat(context.sinks().get("es").openSinks()).isZero();
+    await().atMost(TIMEOUT).until(() -> !created.get().isRunning());
+    // Nothing is stopping it any more: it can be retried, and a stop then ends that start.
+    await().atMost(TIMEOUT).until(runtime::retryIfFailed);
+    runtime.stop();
+    assertThat(runtime.state()).isEqualTo(PipelineState.STOPPED);
+  }
+
+  /**
+   * A stop requested after the sinks opened and the source was created, before it started: the
+   * start gives up, and the stop closes the source and the sinks (#438). Which side wins the last
+   * check is a race the test cannot pin without a seam; either way nothing may stay open.
+   */
+  @Test
+  void stopBetweenOpeningTheSinksAndStartingTheSourceLeavesNothingOpen() throws Exception {
+    AtomicReference<KafkaPipelineSource> created = new AtomicReference<>();
+    AtomicReference<Thread> stopper = new AtomicReference<>();
+    PipelineRuntime runtime =
+        new PipelineRuntime(
+            "p",
+            context,
+            betweenCreateAndStart(
+                created,
+                r ->
+                    // Blocks on the runtime's lock, held here, until this report returns.
+                    stopper.set(Thread.ofPlatform().name("test-stop").start(r::stop))));
+
+    runtime.start();
+    await().atMost(TIMEOUT).until(() -> stopper.get() != null);
+    stopper.get().join(TIMEOUT);
+
+    assertThat(stopper.get().isAlive()).isFalse();
+    assertThat(runtime.state()).isEqualTo(PipelineState.STOPPED);
+    assertThat(runtime.holdsResources()).isFalse();
+    assertThat(context.sinks().get("es").openSinks()).isZero();
+    assertThat(created.get().isRunning()).isFalse();
+    // The stop counter is back to zero: a start is accepted again.
+    runtime.start();
+    runtime.stop();
   }
 }

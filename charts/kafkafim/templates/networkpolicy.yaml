@@ -1,6 +1,6 @@
 {{- include "kafkafim.validate" . -}}
 {{- if .Values.networkPolicy.enabled }}
-# Ingress only: TCP 8080 (actuator, scrape, /actuator/reload) from the listed peers.
+# Ingress only: TCP 8080 (actuator, /actuator/reload) from the listed peers.
 # Egress (Kafka, Elasticsearch, OTLP, DNS) is not restricted by this chart.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

@@ -28,7 +28,7 @@ mapping). It does not connect Logback to it.
   `logback-spring.xml`, and one bean (`telemetry/LogExportConfiguration`) that hands it the
   SDK. No hand-built exporter, processor or resource.
 - **The OTLP record is the structured copy.** It carries the severity, the logger name
-  (as the instrumentation scope), the thread, MDC entries and key-value pairs as
+  (as the instrumentation scope), the thread and the allowlisted MDC entries as
   attributes, the exception's type, message and stack trace, the trace and span id of the
   span in scope, and the resource attributes of metrics and traces (`service.name`,
   `service.namespace`, per-pod `service.instance.id`).
@@ -63,8 +63,9 @@ mapping). It does not connect Logback to it.
   ignores it so that it moves with the Boot upgrade that moves the SDK.
 - MDC capture includes Micrometer Tracing's `traceId` and `spanId` entries, so a record
   repeats them as attributes beside its native trace and span id.
-- kafkafim sets no MDC entries or key-value pairs today. Any added later is exported
-  automatically, so it must never hold a secret or document content (DESIGN §10).
+- kafkafim sets no MDC entries or key-value pairs today. ADR-0048 turns both into
+  opt-ins: only allowlisted MDC keys are exported, and key-value pairs not at all.
+  Neither may hold a secret or document content (DESIGN §10).
 
 ## Alternatives
 

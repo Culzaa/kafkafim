@@ -32,7 +32,8 @@ This runbook uses these conventions:
   filtered by pipeline; client-library and supervisor threads do not set it); to see a new
   one in the backend, add it to `captureMdcAttributes` in `logback-spring.xml`. The log
   lines quoted below are the message of either.
-- Metric names are the Prometheus names from [DESIGN §10](DESIGN.md#10-observability).
+- Metric names are the Prometheus-style names from [DESIGN §10](DESIGN.md#10-observability);
+  kafkafim exports them over OTLP only, with no scrape endpoint.
 
 ## 1. Mental model in one minute
 
@@ -190,7 +191,7 @@ Where to read it:
   From a port-forwarded pod:
 
   ```bash
-  curl -s localhost:8080/actuator/prometheus | grep '^kafkafim_pipeline_state' | grep ' 1.0$'
+  curl -s 'localhost:8080/actuator/metrics/kafkafim.pipeline.state?tag=state:running'
   ```
 
 - **Logs**: every transition is logged at INFO as `Pipeline '<name>': <from> -> <to>`;
@@ -261,6 +262,15 @@ neither (`kafkafim_config_reload_total` has `result`) ([DESIGN §10](DESIGN.md#1
 | Backpressure / memory? | `kafkafim_in_flight_bytes` against the pipeline's `source.max-in-flight-bytes`; `jvm_memory_used_bytes{area="heap"}` |
 | Why is a pipeline paused? | `kafkafim_pipeline_pause_reason{reason,es_cluster,identity}` (1/0: `es_breaker` per cluster, `es_auth` per cluster and identity, `dlq_blocked`) |
 | Does this pod own partitions? Is Kafka connected? | `kafkafim_assigned_partitions`, `kafkafim_kafka_connected` (1/0) |
+
+**Metrics missing in the backend?** kafkafim pushes metrics over OTLP and serves no
+scrape endpoint, so there is no scrape fallback
+([ADR-0054](decisions/0054-metrics-leave-over-otlp-only.md)).
+Check the OTLP path, in this order: the collector or APM Server is up and accepts OTLP;
+`OTEL_EXPORTER_OTLP_ENDPOINT` (and `otel.secretHeaders`, for a token) on the pod is
+right; the pod's logs show export errors; and `/actuator/metrics/kafkafim.pipeline.state`
+on a port-forwarded pod still has data, which separates a kafkafim problem from an
+export or backend problem.
 
 Dashboards and alert rules for these metrics ship in `deploy/grafana/`
 ([DESIGN §10](DESIGN.md#shipped-with-the-repo)) and, versioned with the image, in the
@@ -889,7 +899,8 @@ Before escalating to the kafkafim maintainers, collect for the affected pod(s):
 - `kubectl -n <ns> describe pod <pod>` and `kubectl -n <ns> logs <pod>` (plus
   `--previous` after a restart), or the same period's records from the OTLP backend
   when the pod is gone;
-- `curl -s localhost:8080/actuator/prometheus | grep '^kafkafim_'` (port-forwarded);
+- `curl -s localhost:8080/actuator/metrics` and `/actuator/metrics/<name>` for the meters
+  you suspect (port-forwarded);
 - `helm history kafkafim -n <ns>` and the values diff of the last revision;
 - the consumer group description from Kafka tooling.
 
