@@ -252,7 +252,11 @@ class TelemetryIntegrationTest {
                   .orElseThrow();
           assertThat(batch.getAttributes().get(AttributeKey.stringKey("error.type")))
               .isEqualTo("item_errors");
-          assertThat(batch.getTraceId()).isNotEqualTo(BAD_TRACE); // a link, not a parent
+          // The record's span is a link, never the parent. When the bad record is the first of its
+          // batch the batch is a child of that record's Kafka process span and so shares its trace
+          // (ADR-0029); which record comes first depends on how the batches split, so the trace id
+          // is not asserted.
+          assertThat(batch.getParentSpanId()).isNotEqualTo(BAD_SPAN);
           assertThat(batch.getLinks())
               .anySatisfy(l -> assertThat(l.getSpanContext().getSpanId()).isEqualTo(BAD_SPAN));
           SpanData bulk =
@@ -314,13 +318,19 @@ class TelemetryIntegrationTest {
     ProducerRecord<byte[], byte[]> record =
         new ProducerRecord<>(TOPIC, null, value.getBytes(StandardCharsets.UTF_8));
     if (traceId != null) {
-      String span = traceId.equals(BAD_TRACE) ? BAD_SPAN : "00000000000000a1";
+      // Only the bad record's trace is sampled upstream. A batch is parented on the Kafka process
+      // span of its first record and follows that parent's sampled flag, so a healthy batch led by
+      // a sampled record would be exported at probability 0 whenever the records split into more
+      // than one batch (#450).
+      boolean bad = traceId.equals(BAD_TRACE);
+      String span = bad ? BAD_SPAN : "00000000000000a1";
+      String flags = bad ? "01" : "00";
       record
           .headers()
           .add(
               new RecordHeader(
                   "traceparent",
-                  ("00-" + traceId + "-" + span + "-01").getBytes(StandardCharsets.UTF_8)));
+                  ("00-" + traceId + "-" + span + "-" + flags).getBytes(StandardCharsets.UTF_8)));
     }
     producer.send(record).get();
   }
