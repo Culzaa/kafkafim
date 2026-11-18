@@ -68,6 +68,20 @@ class MdcAllowlistTest {
         .doesNotContain("document", "traceId");
   }
 
+  @Test
+  void doesNotExportKeyValuePairs() {
+    context
+        .getLogger(MdcAllowlistTest.class)
+        .atInfo()
+        .addKeyValue("document", "{\"card\":\"4111\"}")
+        .addKeyValue("pipeline", "orders")
+        .log("hello");
+
+    assertThat(exported).hasSize(1);
+    assertThat(exported.get(0).getAttributes().asMap().keySet().stream().map(AttributeKey::getKey))
+        .doesNotContain("document", "pipeline");
+  }
+
   private final class Capture implements LogRecordExporter {
     @Override
     public CompletableResultCode export(Collection<LogRecordData> logs) {

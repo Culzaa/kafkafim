@@ -428,11 +428,14 @@ public final class BulkSink<H> implements AutoCloseable {
 
   private void send(List<Entry> entries, long bytes, List<BatchReport.Request> requests)
       throws InterruptedException {
+    // The body is identical on every retry of these entries: build it once per send. A 413 split
+    // calls send() again for each half, which builds that half's own body.
+    byte[] body = BulkBody.build(entries, bytes);
     int attempt = 0;
     while (!stopped) {
       Permit permit = awaitBreakerPermission();
       try {
-        attempt = attempt(entries, bytes, attempt, permit, requests);
+        attempt = attempt(entries, body, attempt, permit, requests);
       } finally {
         permit.release(); // no-op unless an exception escaped before a verdict
       }
@@ -449,12 +452,12 @@ public final class BulkSink<H> implements AutoCloseable {
    */
   private int attempt(
       List<Entry> entries,
-      long bytes,
+      byte[] body,
       int attempt,
       Permit permit,
       List<BatchReport.Request> requests)
       throws InterruptedException {
-    byte[] body = BulkBody.build(entries, bytes);
+    int bytes = body.length;
     Instant sentAt = clock.instant();
     long start = System.nanoTime();
     BulkTransport.Result result;

@@ -36,7 +36,7 @@ into ~20 Elasticsearch 8.x clusters.
   a ConfigMap, with secrets imported from mounted Kubernetes `Secret`s via Spring's
   `configtree`. Edited daily in git by one team; hot-reloaded without restarts.
 - First-class OpenTelemetry (metrics, traces, logs) exported over OTLP to Elastic
-  APM Server, Prometheus endpoint for free, Grafana dashboards and alert rules in
+  APM Server (no scrape endpoint), Grafana dashboards and alert rules in
   the repo.
 - Local demo stack (Kafka + ES + Grafana LGTM + kafkafim) on Docker Compose and on a
   local Kubernetes cluster (kind or Docker Desktop, one `helm install` of the demo chart
@@ -1360,8 +1360,11 @@ unresolved-backlog number.
 
 ## 10. Observability
 
-Spring Boot's OpenTelemetry starter: Micrometer → OTLP (APM Server) plus
-`/actuator/prometheus`; Micrometer Tracing with the OTel bridge → OTLP; Logback →
+Spring Boot's OpenTelemetry starter: Micrometer → OTLP (APM Server); there is no
+Prometheus registry and no `/actuator/prometheus`
+([ADR-0054](decisions/0054-metrics-leave-over-otlp-only.md)), so a collector or a
+backend with OTLP ingestion is required and a pod that cannot reach one exports
+nothing. Micrometer Tracing with the OTel bridge → OTLP; Logback →
 OTLP. Metrics, traces, and logs always travel together, to
 `${OTEL_EXPORTER_OTLP_ENDPOINT}/v1/metrics`, `/v1/traces`, and `/v1/logs`. APM Server
 (or later an OpenTelemetry Collector) pre-exists in production; switching between
@@ -1378,10 +1381,9 @@ stay per pod; Prometheus-compatible OTLP backends derive `job` (`kafkafim/kafkaf
 `instance` from them, and log records are found under the same service and instance.
 OTLP metrics use seconds as the base time unit
 (`management.otlp.metrics.export.base-time-unit`; Micrometer's OTLP default is
-milliseconds), so timers export with unit `seconds` and seconds buckets: through OTLP
-the names below are the same as on `/actuator/prometheus`
-(`kafkafim_e2e_latency_seconds_*`). These attributes come from `application.yaml` and
-win over `OTEL_RESOURCE_ATTRIBUTES`.
+milliseconds), so timers export with unit `seconds` and seconds buckets: a
+Prometheus-compatible backend shows the names below (`kafkafim_e2e_latency_seconds_*`).
+These attributes come from `application.yaml` and win over `OTEL_RESOURCE_ATTRIBUTES`.
 
 ### Metrics (all with `pipeline`, `kafka_cluster`; `topic`/`es_cluster`/`route` where it applies)
 
@@ -1398,8 +1400,8 @@ Exact label sets (`telemetry/TelemetryNames`, `telemetry/PipelineMeters`):
 | `kafkafim_auth_failures_total` | `es_cluster`, `identity` (`none` for an unauthenticated cluster) | every response carrying a 401/403 (a 403 `cluster_block_exception` is not an auth failure and is not counted), for the request or for any item (one per response, not per item) |
 | `kafkafim_batch_flush_total` | `es_cluster`, `reason=docs\|bytes\|age\|explicit` | every sealed batch (`explicit`: revoke, stop) |
 | `kafkafim_e2e_latency_seconds` (histogram) | — | every Elasticsearch ack: ack time minus the Kafka record timestamp (DLQ'd documents are not counted) |
-| `kafkafim_in_flight_bytes`, `kafkafim_assigned_partitions`, `kafkafim_kafka_connected` (1/0) | — | the pipeline's running source, read on scrape |
-| `kafkafim_pipeline_pause_reason` (1/0) | `reason=es_breaker\|es_auth\|dlq_blocked`, `es_cluster`, `identity` | the supervisor's pause reasons, read on scrape: 1 while the pipeline is `paused` for that reason, else 0 (more than one can be 1). `es_breaker` has one series per cluster the pipeline routes to (`identity=none`), `es_auth` one per `(cluster, identity)` a route writes with (`identity=none` for an unauthenticated cluster), `dlq_blocked` one (`es_cluster=none`, `identity=none`) |
+| `kafkafim_in_flight_bytes`, `kafkafim_assigned_partitions`, `kafkafim_kafka_connected` (1/0) | — | the pipeline's running source, read at each export |
+| `kafkafim_pipeline_pause_reason` (1/0) | `reason=es_breaker\|es_auth\|dlq_blocked`, `es_cluster`, `identity` | the supervisor's pause reasons, read at each export: 1 while the pipeline is `paused` for that reason, else 0 (more than one can be 1). `es_breaker` has one series per cluster the pipeline routes to (`identity=none`), `es_auth` one per `(cluster, identity)` a route writes with (`identity=none` for an unauthenticated cluster), `dlq_blocked` one (`es_cluster=none`, `identity=none`) |
 | `kafkafim_dlq_records_total` | `error_type` | every DLQ record the broker acknowledged |
 | `kafkafim_breaker_state` | only `es_cluster`: 0 closed, 1 half-open, 2 open | the breakers the pipelines send through (the worst one while a reload leaves two generations alive) |
 | `kafkafim_pipeline_state` | only `pipeline`, `state=starting\|running\|paused\|failed_preflight\|failed\|stopped` | 1 for the current state, 0 for the others; `paused` means a supervisor reason: breaker open, identity rejected, or DLQ blocked (`kafkafim_pipeline_pause_reason` says which), not the byte-budget backpressure |
@@ -1452,7 +1454,7 @@ pipeline every 10s. kafkafim's own "is it keeping up" signals are
 connection (kafka-clients' `connection-count`); a stopped pipeline reads 0, as do its
 in-flight bytes and assigned partitions.
 
-The Kafka clients' own metrics (`kafka_consumer_*`, `kafka_producer_*` on Prometheus;
+The Kafka clients' own metrics (`kafka_consumer_*`, `kafka_producer_*` in a Prometheus-compatible backend;
 `kafka.consumer.*`, `kafka.producer.*` over OTLP) come from Micrometer's `KafkaClientMetrics`,
 the one binder (ADR-0013, ADR-0049): Spring Boot's OpenTelemetry bean has no exporting
 meter provider,
@@ -1532,8 +1534,9 @@ Every log event goes to two places (ADR-0044):
 - **OTLP**, the structured copy, for the backend. OpenTelemetry's Logback appender
   (`logback-spring.xml`) feeds the logger provider Spring Boot auto-configures; records
   are batched off the logging thread and sent to `/v1/logs`. A record carries the
-  severity, the logger name (its instrumentation scope), `thread.name`, MDC entries and
-  key-value pairs as attributes, an exception's type, message, and stack trace, the trace
+  severity, the logger name (its instrumentation scope), `thread.name` and the allowlisted
+  MDC entries as attributes (SLF4J key-value pairs are not captured, ADR-0048), an
+  exception's type, message, and stack trace, the trace
   and span id of the span in scope, and the resource attributes above. Lines logged
   before the OpenTelemetry SDK exists (Spring Boot's startup lines, configuration
   warnings) are kept, up to 1000, and replayed. Export never blocks a pipeline: a full
@@ -1599,7 +1602,7 @@ reason, a response body) stays out of the line, as above.
 ### Shipped with the repo
 
 [`deploy/grafana/`](../deploy/grafana/README.md), written against the
-`/actuator/prometheus` names above (the same through OTLP):
+metric names above, as a Prometheus-compatible backend shows them:
 
 - `dashboards/kafkafim-overview.json`: per pipeline: state, throughput, dropped
   documents per drop route, e2e latency, DLQ rate, in-flight bytes and heap, assigned
