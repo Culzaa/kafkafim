@@ -1,7 +1,10 @@
 package io.github.matabar.kafkafim.supervisor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 
 import io.github.matabar.kafkafim.KafkaTestContainers;
 import io.github.matabar.kafkafim.KafkaTopics;
@@ -20,6 +23,7 @@ import org.apache.kafka.clients.admin.NewTopic;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.kafka.listener.ConcurrentMessageListenerContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.kafka.KafkaContainer;
@@ -122,5 +126,71 @@ class PipelineRuntimeStartFailureIntegrationTest {
     await().atMost(TIMEOUT).until(() -> !started.get().isRunning());
     assertThat(context.sinks().get("es").openSinks()).isZero();
     runtime.stop();
+  }
+
+  /**
+   * Makes the next {@code stop()} of the source throw, as a failing container stop would. Returns
+   * the real container, which the test stops itself.
+   */
+  @SuppressWarnings("unchecked")
+  private static ConcurrentMessageListenerContainer<byte[], byte[]> breakStop(
+      KafkaPipelineSource source) throws ReflectiveOperationException {
+    java.lang.reflect.Field field = KafkaPipelineSource.class.getDeclaredField("container");
+    field.setAccessible(true);
+    ConcurrentMessageListenerContainer<byte[], byte[]> real =
+        (ConcurrentMessageListenerContainer<byte[], byte[]>) field.get(source);
+    ConcurrentMessageListenerContainer<byte[], byte[]> broken =
+        mock(ConcurrentMessageListenerContainer.class);
+    doThrow(new IllegalStateException("stop failed")).when(broken).stop();
+    field.set(source, broken);
+    return real;
+  }
+
+  /** A source whose stop throws must not leave the sinks open and unreachable (#393). */
+  @Test
+  void stopClosesTheSinksWhenTheSourceStopThrows() throws Exception {
+    PipelineRuntime runtime = new PipelineRuntime("p", context, r -> {});
+    runtime.start();
+    await().atMost(TIMEOUT).until(() -> runtime.state() == PipelineState.RUNNING);
+    ConcurrentMessageListenerContainer<byte[], byte[]> real = breakStop(runtime.source());
+
+    try {
+      assertThatThrownBy(runtime::stop)
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessage("stop failed");
+
+      assertThat(context.sinks().get("es").openSinks()).isZero();
+      assertThat(runtime.state()).isEqualTo(PipelineState.STOPPED);
+    } finally {
+      real.stop();
+    }
+  }
+
+  /** The same for the source of a start that failed after it began (#393). */
+  @Test
+  void abandonedStartClosesTheSinksWhenTheSourceStopThrows() {
+    AtomicReference<ConcurrentMessageListenerContainer<byte[], byte[]>> real =
+        new AtomicReference<>();
+    Consumer<PipelineRuntime> boom =
+        r -> {
+          if (r.state() == PipelineState.RUNNING) {
+            try {
+              real.set(breakStop(r.source()));
+            } catch (ReflectiveOperationException e) {
+              throw new IllegalStateException(e);
+            }
+            throw new IllegalStateException("boom");
+          }
+        };
+    PipelineRuntime runtime = new PipelineRuntime("p", context, boom);
+    runtime.start();
+
+    try {
+      awaitFailed(runtime);
+      assertThat(context.sinks().get("es").openSinks()).isZero();
+    } finally {
+      real.get().stop();
+      runtime.stop();
+    }
   }
 }
