@@ -146,9 +146,11 @@ public record KafkafimProperties(
    *
    * @param enabled watch the directories; default {@code true}
    * @param pollInterval content-hash poll period, the upper bound on how late a change is seen when
-   *     file events are missed (kubelet swaps symlinks); default 10s
+   *     file events are missed (kubelet swaps symlinks); default 10s; at least 1s (shorter is
+   *     rejected: every poll hashes all watched files)
    * @param debounce quiet period after the last change before reloading, so that a kubelet update
-   *     of several files is read once; default 2s
+   *     of several files is read once; default 2s; not negative, and below 1s a warning says
+   *     several files may be read half-applied
    */
   public record Reload(Boolean enabled, Duration pollInterval, Duration debounce) {
 
