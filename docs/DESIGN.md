@@ -548,8 +548,8 @@ The security keys kafkafim derives from the cluster's `ssl` block and the identi
 `sasl`/`ssl` blocks (`ssl.truststore.*`, `ssl.keystore.*`, `ssl.key.password`,
 `sasl.mechanism`, and `sasl.jaas.config` for `PLAIN`/`SCRAM-*`) are rejected only when
 that block sets them (any identity's block counts), so GSSAPI or OAUTHBEARER can still
-bring their JAAS settings through `properties`. Everything else (fetch sizes, timeouts, `isolation.level`, …)
-passes through. Consumer factories are cached per `(cluster, identity)`; every
+bring their JAAS settings through `properties`. Everything else (fetch sizes, timeouts,
+`isolation.level`, …) passes through. Consumer factories are cached per `(cluster, identity)`; every
 pipeline's container creates its own consumers.
 
 The DLQ producer (`dlq/ProducerSettings`, one per `(cluster, identity)`, `client.id`
