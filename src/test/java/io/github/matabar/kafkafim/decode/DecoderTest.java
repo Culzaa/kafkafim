@@ -469,6 +469,27 @@ class DecoderTest {
       assertThat(singleFailure(auto, json).type()).isEqualTo(ErrorType.MISSING_ID);
     }
 
+    @ParameterizedTest
+    @ValueSource(
+        strings = {
+          "{\"id\":\"\\ud800\"}",
+          "{\"id\":\"a\\udc00\"}",
+          "{\"id\":\"\\udc00\\ud800\"}",
+          "{\"id\":\"\\ud83dx\"}"
+        })
+    void unpairedSurrogateIdIsMissingId(String json) {
+      DecodeError error = singleFailure(DEFAULT, json);
+      assertThat(error.type()).isEqualTo(ErrorType.MISSING_ID);
+      assertThat(error.reason()).contains("unpaired UTF-16 surrogate");
+      assertThat(singleFailure(auto, json).type()).isEqualTo(ErrorType.MISSING_ID);
+    }
+
+    @Test
+    void validSurrogatePairIdIsAccepted() {
+      assertThat(single(DEFAULT, "{\"id\":\"a\\ud83d\\ude00\"}").id())
+          .hasValue("a" + new String(Character.toChars(0x1F600)));
+    }
+
     @Test
     void idLengthLimitIsInUtf8Bytes() {
       String ok = "é".repeat(Decoder.MAX_ID_BYTES / 2);
