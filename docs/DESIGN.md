@@ -144,7 +144,7 @@ preferred anti-affinity across nodes and zones, `maxSurge: 1, maxUnavailable: 0`
    batcher (per ES cluster+identity): flush on        │          (cluster, identity, index, _id, op, pipeline)
      docs | bytes | age(ms)                           │
       ▼                                               │
-   bulk sender (per ES cluster+identity): N in-flight, retry, breaker ──▶ ES (_bulk, NDJSON)
+   bulk sender (per pipeline; client per ES cluster+identity): N in-flight, retry, breaker ──▶ ES (_bulk, NDJSON)
       │
       └─ non-retryable item errors ─▶ DLQ producer (same Kafka cluster as source)
 ```
@@ -212,7 +212,14 @@ pauses nothing yet and reads 0.
   (`latency.max-age` when the pipeline sets it, else `bulk.max-age`), or on an explicit
   flush. Sizes count the uncompressed NDJSON body byte for byte.
 - **Sending**: each sealed batch gets a virtual thread; at most `bulk.in-flight`
-  requests are outstanding per stream, and batches start in the order they were sealed.
+  requests are outstanding per stream, and batches start in the order they were sealed. A
+  stream is one pipeline, so the limit is per pipeline, not per `(cluster, identity)`: N pipelines
+  writing to one cluster with one identity can have up to N times `bulk.in-flight` requests
+  outstanding against that client's shared connection pool (32 connections per node, 128 per
+  client). A request that cannot lease a pooled connection within 30 s fails locally with a
+  lease timeout. That is local pool exhaustion, not a sign of a sick cluster: it is retried with
+  the usual backoff and a WARN that says so, and it does not count against the circuit breaker
+  (§7). With many pipelines on one cluster, lower `in-flight` or spread them over identities.
 - **Backpressure**: `submit` never blocks, because the consumer thread must keep
   polling. Everything the sink holds is an action without an outcome, so it is already
   inside the pipeline's `max-in-flight-bytes` budget, at which the container pauses
@@ -1159,7 +1166,7 @@ are reported together:
 
 | Situation | Behaviour |
 |---|---|
-| ES returns 429 / 5xx / connection error or timeout for a bulk request | Retried with the same documents **forever**, exponential backoff with jitter (100ms doubling to 30s, ±50%); counts as a breaker failure. The pipeline's container is paused when in-flight bytes (key, value and header bytes plus a 256-byte overhead estimate, of every delivered, incomplete record) reach `max-in-flight-bytes`, and resumes once they drop to half of it. A poll that crosses the budget is delivered whole, so the overshoot is at most one poll per consumer. Kafka lag grows (visible in the Kafka team's consumer-lag monitoring). No local buffering. Never DLQ. |
+| ES returns 429 / 5xx / connection error or timeout for a bulk request | Retried with the same documents **forever**, exponential backoff with jitter (100ms doubling to 30s, ±50%); counts as a breaker failure, except a lease timeout from the client's own connection pool (all pooled connections busy: local pool exhaustion), which is retried and logged as such but is not a cluster-health signal and never opens the breaker. The pipeline's container is paused when in-flight bytes (key, value and header bytes plus a 256-byte overhead estimate, of every delivered, incomplete record) reach `max-in-flight-bytes`, and resumes once they drop to half of it. A poll that crosses the budget is delivered whole, so the overshoot is at most one poll per consumer. Kafka lag grows (visible in the Kafka team's consumer-lag monitoring). No local buffering. Never DLQ. |
 | Repeated cluster-level failures | Circuit breaker per ES cluster (Resilience4j, shared by all identities and pipelines): count window of 20 requests, opens at ≥50% failures after at least 10, stays open 10s, then lets 2 probes through. While it is open every sender for that cluster waits; pipelines routing to that cluster pause (supervisor reason `es-breaker:<cluster>`, from open until the breaker is closed again; half-open keeps the pause), others proceed. |
 | Bulk request rejected with 401 / 403 | Configuration failure, not data failure: retried with backoff forever and reported through the sink listener (the supervisor pauses the pipeline; `kafkafim_auth_failures_total` and an alert fire). Not a breaker failure. Nothing goes to the DLQ. The log line and the listener event keep the security error's type and `reason` (user, roles, action, index), never the raw body (ADR-0030). An **item** with 401/403 (the identity may not write that index) is handled the same way. |
 | Bulk request with any other unexpected status (a 400 for the whole request, a 404 from a proxy or a wrong path, a 3xx) or a 2xx body that is not a bulk response | Retried forever with backoff and logged with Elasticsearch's `error.type` and `root_cause[].type`s, never its `reason`, which can quote field values (ADR-0030; a body that is not JSON is logged by its size, an unparsable 2xx body by what was wrong with it; the body itself only at DEBUG on the `BulkSink` logger): it cannot be attributed to one document, so it never reaches the DLQ. An unexpected status is not a cluster-health signal and does not open the breaker; an unparsable 2xx body does. |
