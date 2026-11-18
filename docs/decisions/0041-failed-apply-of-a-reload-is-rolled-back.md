@@ -63,7 +63,7 @@ stopped for the reload stayed stopped until a later reload succeeded.
   and one start (a new preflight, a consumer group rebalance); nothing is lost, as with
   any reload restart.
 - `kafkafim_config_reload_total{result=failure}` and the ERROR line are unchanged for a
-  `RuntimeException` (an `Error` is neither counted nor logged by the reloader, below); the
+  `RuntimeException`, and an `Error` is counted and logged the same way (#392); the
   generation does not move. One WARN line lists the pipelines started again.
 - A reload holds the old and the new building blocks of all its restarted pipelines at
   once for the time of the reconfigure, a little longer than before. One effect: when
@@ -75,7 +75,7 @@ stopped for the reload stayed stopped until a later reload succeeded.
   the writer reports only the change to blocked, so the rollback reads `isBlocked()`
   (#207).
 - An `Error` (for example a `NoClassDefFoundError` while a client is built) is rolled back
-  like a `RuntimeException` and rethrown unchanged (#208). Only the rollback is shared:
-  `ConfigReloader` counts and logs a `RuntimeException`, so an `Error` is neither counted
-  as a failed reload nor logged by it, and it ends the watcher thread (an `Error` stays
-  fatal there).
+  like a `RuntimeException` and rethrown unchanged (#208). `ConfigReloader` counts it as a
+  failed reload and logs it at ERROR like a `RuntimeException` (#392), then rethrows it.
+  The config watcher logs an `Error` from a reload and keeps running, so file-based hot
+  reload does not stop; only a `VirtualMachineError` ends the thread.

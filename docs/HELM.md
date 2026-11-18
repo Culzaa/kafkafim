@@ -18,6 +18,9 @@ in [DELIVERY.md](DELIVERY.md#importing-into-the-air-gapped-environment).
   `ServiceMonitor` by default (opt-in flag for clusters that have the Prometheus
   Operator); scrape annotations are on by default.
 - Has no subcharts and pulls no other images. Air-gap safe by construction.
+- Needs Kubernetes 1.27 or newer (`kubeVersion: ">=1.27.0-0"` in `Chart.yaml`): the
+  default topology spread constraint sets `matchLabelKeys`. Helm refuses to install or
+  upgrade on an older cluster with a clear message.
 
 ## Values (shape)
 
@@ -127,7 +130,10 @@ For each `groups.<g>`:
   `NetworkPolicy` / `ServiceMonitor`) are named `<fullname>` and select every group.
 - Group defaults: top-level `resources`, `nodeSelector`, `tolerations`, `affinity`,
   and `pdb` apply to every group that does not set its own (a group's value replaces the
-  default, it is not merged); `podAnnotations` are merged, the group's winning.
+  default, it is not merged). An empty group value (`tolerations: []`,
+  `nodeSelector: {}`, `affinity: {}`, `resources: {}`) replaces the top-level one too, so a
+  group can opt out; an absent key inherits (`pdb` is not covered: an empty `pdb: {}`
+  still inherits). `podAnnotations` are merged, the group's winning.
   `replicas` defaults to 2. In a `pdb`, `maxUnavailable` wins over `minAvailable`
   when both are set (so overriding the default `minAvailable: 1` needs no `null`).
   A single-replica group (`allowSingleReplica` with `replicas`, or

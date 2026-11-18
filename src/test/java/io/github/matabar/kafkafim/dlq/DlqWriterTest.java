@@ -503,7 +503,7 @@ class DlqWriterTest {
     assertThat(registry.size()).isEqualTo(2);
     assertThat(clients)
         .extracting(c -> c.settings.get("client.id"))
-        .containsExactly("kafkafim-local-reader-dlq", "kafkafim-local-writer-dlq");
+        .containsExactly("kafkafim-dlq.local.reader", "kafkafim-dlq.local.writer");
     assertThat(registry.writer("audit").topic()).isEqualTo("audit.v1.kafkafim-dlq");
   }
 
@@ -523,7 +523,7 @@ class DlqWriterTest {
     clients.get(0).topic.set(TopicStatus.NOT_AUTHORIZED);
 
     assertThat(registry.checkTopic("audit")).isEqualTo(TopicStatus.NOT_AUTHORIZED);
-    assertThat(clients.get(0).settings.get("client.id")).isEqualTo("kafkafim-local-writer-dlq");
+    assertThat(clients.get(0).settings.get("client.id")).isEqualTo("kafkafim-dlq.local.writer");
   }
 
   @Test
