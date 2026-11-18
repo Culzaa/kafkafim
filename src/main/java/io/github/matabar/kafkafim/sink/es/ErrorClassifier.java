@@ -47,7 +47,7 @@ final class ErrorClassifier {
     /**
      * Cluster pressure (item 429 {@code es_rejected_execution_exception}, item 503 {@code
      * unavailable_shards_exception}): retry with a capped backoff; does not count against {@code
-     * max-attempts}, only against a long safety valve (ADR-0050).
+     * max-attempts}, only against a long safety valve (ADR-0052).
      */
     RETRY_PRESSURE,
     /** The identity may not write this index: retry forever, never DLQ, report an auth failure. */

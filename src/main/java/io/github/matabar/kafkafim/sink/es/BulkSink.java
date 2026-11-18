@@ -772,7 +772,7 @@ public final class BulkSink<H> implements AutoCloseable {
    * relocating shards, not the document at fault, so the attempt does not count against {@code
    * max-attempts}. The delay grows with a separate counter and is capped; only the long safety
    * valve {@link #pressureMaxElapsed} dead-letters the document, so a mislabelled poison document
-   * cannot retry forever (ADR-0050).
+   * cannot retry forever (ADR-0052).
    */
   private void retryPressureItem(Entry entry, BulkResponse.Item item, String reason) {
     entry.markFailure(clock);

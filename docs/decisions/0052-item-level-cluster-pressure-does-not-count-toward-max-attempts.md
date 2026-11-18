@@ -1,4 +1,4 @@
-# ADR-0050: Item-level cluster pressure does not count toward `max-attempts`
+# ADR-0052: Item-level cluster pressure does not count toward `max-attempts`
 
 Status: accepted · Date: 2026-11-18 · Supersedes the item-retry bound of
 [ADR-0026](0026-bulk-retry-loop-in-the-sink.md) for pressure errors;
