@@ -8,8 +8,9 @@ A route `matches` condition runs a user-written `java.util.regex` pattern on a s
 the document. Backtracking makes a pattern such as `(.*a){12}` (or `(a+)+$` on older JDKs) take
 unbounded time on a value like fifty `a` and a `!`, so one hostile or malformed record could
 keep a consumer thread busy until Kafka declares it dead and rebalances the group (#377). The
-only guard was catching a `StackOverflowError`, which does not bound time. #159 had chosen to document that guard and
-leave it silent (kafkafim stays light, and `route` may not use SLF4J or Micrometer, ADR-0003).
+only guard was catching a `StackOverflowError`, which does not bound time. #159 had chosen to
+document that guard and leave it silent (kafkafim stays light, and `route` may not use SLF4J or
+Micrometer, ADR-0003).
 
 ## Decision
 
