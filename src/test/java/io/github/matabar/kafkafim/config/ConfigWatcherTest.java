@@ -9,6 +9,9 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -142,9 +145,8 @@ class ConfigWatcherTest {
   @Test
   void closingDuringTheCallbackDoesNotInterruptIt() throws Exception {
     Path file = Files.writeString(dir.resolve("app.yaml"), "1");
-    java.util.concurrent.CountDownLatch inCallback = new java.util.concurrent.CountDownLatch(1);
-    java.util.concurrent.atomic.AtomicBoolean interrupted =
-        new java.util.concurrent.atomic.AtomicBoolean();
+    CountDownLatch inCallback = new CountDownLatch(1);
+    AtomicBoolean interrupted = new AtomicBoolean();
     watcher =
         new ConfigWatcher(
             List.of(file),
@@ -161,7 +163,7 @@ class ConfigWatcherTest {
             });
     watcher.start();
     Files.writeString(file, "2");
-    assertThat(inCallback.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+    assertThat(inCallback.await(10, TimeUnit.SECONDS)).isTrue();
     watcher.close();
     await().atMost(Duration.ofSeconds(5)).until(() -> changes.get() == 1);
     assertThat(interrupted).isFalse();

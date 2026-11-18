@@ -2,8 +2,13 @@ package io.github.matabar.kafkafim.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.lang.reflect.RecordComponent;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.function.UnaryOperator;
 import org.junit.jupiter.api.Test;
 
 /** The per-pipeline reload plan (DESIGN §5.6) over bound, validated trees. */
@@ -74,7 +79,7 @@ class ConfigDiffTest {
   }
 
   private static Map<String, Object> secrets(String key, Object value) {
-    Map<String, Object> secrets = new java.util.HashMap<>(SECRETS);
+    Map<String, Object> secrets = new HashMap<>(SECRETS);
     secrets.put(key, value);
     return secrets;
   }
@@ -316,5 +321,83 @@ class ConfigDiffTest {
     assertThat(before).isNotEqualTo(after);
     assertThat(diff.isEmpty()).isTrue();
     assertThat(diff.unchanged()).isEqualTo(List.of("a"));
+  }
+
+  /** Record components that belong to an identity, not to the cluster-wide part of the diff. */
+  private static final Set<String> IDENTITY_SCOPED = Set.of("identities", "defaultIdentity");
+
+  /** For each cluster-wide Kafka cluster component: a tree that changes just that component. */
+  private static final Map<String, UnaryOperator<String>> KAFKA_VARIANTS =
+      Map.of(
+          "bootstrapServers", yaml -> yaml.replace("[k1:9092]", "[k2:9092]"),
+          "securityProtocol", yaml -> yaml.replace("SASL_PLAINTEXT", "SASL_SSL"),
+          "ssl",
+              yaml ->
+                  yaml.replace("SASL_PLAINTEXT", "SASL_SSL")
+                      .transform(y ->
+                          insertAfter(
+                              y,
+                              "default-identity: reader",
+                              "ssl: { truststore-location: /t.p12 }")),
+          "properties",
+              yaml ->
+                  insertAfter(yaml, "default-identity: reader", "properties: { client.rack: r1 }"));
+
+  /** The same for each cluster-wide Elasticsearch cluster component. */
+  private static final Map<String, UnaryOperator<String>> ES_VARIANTS =
+      Map.of(
+          "uris", yaml -> yaml.replace("http://es:9200", "http://es2:9200"),
+          "ssl",
+              yaml ->
+                  yaml.replace("http://es:9200", "https://es:9200")
+                      .transform(y ->
+                          insertAfter(
+                              y, "default-identity: writer", "ssl: { ca-certificate: /ca.pem }")),
+          "bulk", yaml -> insertAfter(yaml, "default-identity: writer", "bulk: { max-docs: 7 }"),
+          "compression",
+              yaml -> insertAfter(yaml, "default-identity: writer", "compression: false"),
+          "client",
+              yaml ->
+                  insertAfter(yaml, "default-identity: writer", "client: { connect-timeout: 3s }"));
+
+  /** Adds {@code line} under {@code anchor}, at the same indentation. */
+  private static String insertAfter(String yaml, String anchor, String line) {
+    return yaml.replaceFirst("(?m)^( *)" + anchor + "\n", "$1" + anchor + "\n$1" + line + "\n");
+  }
+
+  private static Set<String> clusterWideComponents(Class<?> record) {
+    Set<String> names = new TreeSet<>();
+    for (RecordComponent component : record.getRecordComponents()) {
+      if (!IDENTITY_SCOPED.contains(component.getName())) {
+        names.add(component.getName());
+      }
+    }
+    return names;
+  }
+
+  @Test
+  void everyClusterWideKafkaClusterComponentRestartsThePipelinesUsingIt() {
+    // A component added to KafkaCluster fails here until withoutIdentities copies it and a variant
+    // proves that changing it is diffed (or it is declared identity-scoped above).
+    assertThat(KAFKA_VARIANTS.keySet()).isEqualTo(clusterWideComponents(KafkaCluster.class));
+    String before = tree("", "", PIPELINES);
+    KAFKA_VARIANTS.forEach((component, variant) -> {
+      ConfigDiff diff = ConfigDiff.between(base(), bind(variant.apply(before), SECRETS));
+      assertThat(diff.restarted().get("a"))
+          .as("changing KafkaCluster.%s", component)
+          .containsExactly("Kafka cluster 'k' changed");
+    });
+  }
+
+  @Test
+  void everyClusterWideElasticsearchClusterComponentRestartsThePipelinesUsingIt() {
+    assertThat(ES_VARIANTS.keySet()).isEqualTo(clusterWideComponents(ElasticsearchCluster.class));
+    String before = tree("", "", PIPELINES);
+    ES_VARIANTS.forEach((component, variant) -> {
+      ConfigDiff diff = ConfigDiff.between(base(), bind(variant.apply(before), SECRETS));
+      assertThat(diff.restarted().get("a"))
+          .as("changing ElasticsearchCluster.%s", component)
+          .containsExactly("Elasticsearch cluster 'es' changed");
+    });
   }
 }
