@@ -86,8 +86,8 @@ interface Condition {
   }
 
   /**
-   * Anchored match. {@code java.util.regex} backtracks, so a pattern such as {@code (.*a){12}} takes
-   * exponential time on a value like {@code aaaa...!}, and recurses per repetition of some
+   * Anchored match. {@code java.util.regex} backtracks, so a pattern such as {@code (.*a){12}}
+   * takes exponential time on a value like {@code aaaa...!}, and recurses per repetition of some
    * constructs (e.g. {@code (a|b)*}), so a long enough value overflows the stack. Both count as no
    * match rather than stalling or killing the consumer thread on document content: the first by a
    * {@link RegexBudget} on the characters the matcher reads (reported to {@code onBudgetExceeded}),
