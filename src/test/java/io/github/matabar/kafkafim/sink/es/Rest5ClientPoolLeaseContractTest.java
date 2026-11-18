@@ -20,12 +20,13 @@ import org.junit.jupiter.api.Test;
 /**
  * Pins what the low-level Elasticsearch client throws when no pooled connection can be leased in
  * time, as seen through {@link BulkTransport#of(Rest5Client)}: the exception the sink must
- * recognise (#398). The async HttpClient 5 under {@code Rest5Client} fails the lease with a {@link
- * java.util.concurrent.TimeoutException}, not with the blocking client's {@code
- * ConnectionRequestTimeoutException}; if a client upgrade changes the shape, this test says so
- * before the circuit breaker starts counting local pool exhaustion as cluster failures again.
- * HttpClient 5 expires a waiting lease lazily, when the pool next processes a release, so the
- * server holds the only connection for two seconds: long past the 300 ms lease timeout.
+ * recognise (#398). The async HttpClient 5 under {@code Rest5Client} fails the lease with
+ * HttpCore's {@code DeadlineTimeoutException} (wrapped in a {@code RuntimeException}, then an
+ * {@code IOException}), not with the blocking client's {@code ConnectionRequestTimeoutException};
+ * if a client upgrade changes the shape, this test says so before the circuit breaker starts
+ * counting local pool exhaustion as cluster failures again. HttpClient 5 expires a waiting lease
+ * lazily, when the pool next processes a release, so the server holds the only connection for two
+ * seconds: long past the 300 ms lease timeout.
  */
 class Rest5ClientPoolLeaseContractTest {
 

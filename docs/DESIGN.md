@@ -218,9 +218,10 @@ pauses nothing yet and reads 0.
   outstanding against that client's shared connection pool (32 connections per node, 128 per
   client). A request that cannot lease a pooled connection within 30 s fails locally with a
   lease timeout (HttpClient 5 expires a waiting lease lazily, so it can surface a little
-  later when every connection is stuck on a slow response). That is local pool exhaustion, not a sign of a sick cluster: it is retried with
-  the usual backoff and a WARN that says so, and it does not count against the circuit breaker
-  (§7). With many pipelines on one cluster, lower `in-flight` or spread them over identities.
+  later when every connection is stuck on a slow response). That is local pool exhaustion, not a
+  sign of a sick cluster: it is retried with the usual backoff and a WARN that says so, and it
+  does not count against the circuit breaker (§7). With many pipelines on one cluster, lower
+  `in-flight` or spread them over identities.
 - **Backpressure**: `submit` never blocks, because the consumer thread must keep
   polling. Everything the sink holds is an action without an outcome, so it is already
   inside the pipeline's `max-in-flight-bytes` budget, at which the container pauses
