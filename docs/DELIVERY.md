@@ -136,6 +136,9 @@ The rule requires no approving review; reviews are a process rule (CONTRIBUTING.
 
 Dependabot runs weekly, with grouped updates, for Maven, GitHub Actions, and the Docker
 base image.
+Every `uses:` in `.github/workflows` is pinned to a full commit SHA with the released version
+in a trailing comment (a retagged action cannot change what runs); Dependabot's
+`github-actions` ecosystem keeps both current. Checkouts set `persist-credentials: false`.
 Dependabot ignores `io.opentelemetry.proto:opentelemetry-proto`. No BOM manages it, and
 `pom.xml` declares it at the version `micrometer-registry-otlp` depends on. A
 `maven-enforcer-plugin` `dependencyConvergence` rule fails `validate` when the two
