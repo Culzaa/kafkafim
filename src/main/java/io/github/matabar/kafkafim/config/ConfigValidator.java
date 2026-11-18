@@ -35,6 +35,9 @@ public final class ConfigValidator {
   /** Only digits: reserved for the position label of unnamed routes. */
   private static final Pattern POSITION_LABEL = Pattern.compile("[0-9]+");
 
+  /** Lower bound of {@code reload.poll-interval}, and the debounce below which a warning shows. */
+  private static final Duration MIN_POLL_INTERVAL = Duration.ofSeconds(1);
+
   /** {@code host:port}, IPv6 in brackets, optional {@code PROTOCOL://} prefix. */
   private static final Pattern BOOTSTRAP_SERVER =
       Pattern.compile("(?:[A-Za-z_]+://)?(\\[[0-9A-Fa-f:.%]+]|[A-Za-z0-9._-]+):(\\d{1,5})");
@@ -121,9 +124,19 @@ public final class ConfigValidator {
     KafkafimProperties.Reload reload = properties.reload();
     if (reload.pollInterval().isNegative() || reload.pollInterval().isZero()) {
       error(prefix + ".reload.poll-interval", "must be positive");
+    } else if (reload.pollInterval().compareTo(MIN_POLL_INTERVAL) < 0) {
+      error(
+          prefix + ".reload.poll-interval",
+          "must be at least 1s: every poll hashes all watched files, so a shorter period is a"
+              + " tight hashing loop");
     }
     if (reload.debounce().isNegative()) {
       error(prefix + ".reload.debounce", "must not be negative");
+    } else if (reload.debounce().compareTo(MIN_POLL_INTERVAL) < 0) {
+      warnings.add(
+          prefix
+              + ".reload.debounce: below 1s, a kubelet update that swaps several files can be read"
+              + " half-applied and reload more than once; the default is 2s");
     }
     if (properties.allowInlineSecrets()) {
       warnings.add(
@@ -239,6 +252,7 @@ public final class ConfigValidator {
       error(path + ".uris", "mixes http and https; use one scheme per cluster");
     }
     boolean https = schemes.equals(Set.of("https"));
+    boolean plainHttp = schemes.equals(Set.of("http"));
     if (cluster.ssl() != null && !https) {
       error(path + ".ssl", "trust is set but the cluster URIs are not https");
     }
@@ -248,7 +262,7 @@ public final class ConfigValidator {
         .forEach((name, identity) -> {
           String identityPath = path + ".identities." + name;
           checkName(identityPath, "identity", name);
-          checkElasticsearchIdentity(identityPath, identity, https);
+          checkElasticsearchIdentity(identityPath, identity, https, plainHttp);
         });
     ElasticsearchCluster.Bulk bulk = cluster.bulk();
     checkPositive(path + ".bulk.max-bytes", bulk.maxBytes());
@@ -343,7 +357,10 @@ public final class ConfigValidator {
   }
 
   private void checkElasticsearchIdentity(
-      String path, ElasticsearchCluster.@Nullable ElasticsearchIdentity identity, boolean https) {
+      String path,
+      ElasticsearchCluster.@Nullable ElasticsearchIdentity identity,
+      boolean https,
+      boolean plainHttp) {
     if (identity == null) {
       error(path, "an Elasticsearch identity needs username+password, api-key or an ssl keystore");
       return;
@@ -367,6 +384,14 @@ public final class ConfigValidator {
     }
     if (keystore && !https) {
       error(path + ".ssl", "a client keystore needs https cluster URIs");
+    }
+    if (plainHttp && (basic || apiKey) && !(basic && apiKey)) {
+      warnings.add(
+          path
+              + ": "
+              + (basic ? "basic-auth" : "api-key")
+              + " credentials are sent over plain http (cluster URIs are not https); fine behind"
+              + " a mesh or for local development, otherwise use https");
     }
   }
 
