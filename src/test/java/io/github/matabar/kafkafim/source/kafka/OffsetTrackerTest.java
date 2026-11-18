@@ -33,6 +33,8 @@ class OffsetTrackerTest {
     tracker.assign(C1, List.of(P0, P1));
   }
 
+  private static final long OVERHEAD = OffsetTracker.RECORD_OVERHEAD_BYTES;
+
   private SourceRecord track(TopicPartition tp, long offset) {
     return track(tp, offset, new byte[10]);
   }
@@ -157,16 +159,18 @@ class OffsetTrackerTest {
     r0.complete();
     r2.complete();
     assertThat(committable(P0)).isEqualTo(1L);
-    assertThat(budget.outstanding()).isEqualTo(20);
+    assertThat(budget.outstanding()).isEqualTo(2 * (10 + OVERHEAD));
 
     assertThat(tracker.revoke(C1, List.of(P0))).as("abandoned").isEqualTo(1);
     assertThat(tracker.committable(C1, List.of(P0))).isEmpty();
-    assertThat(budget.outstanding()).as("only P1 left").isEqualTo(10);
+    assertThat(budget.outstanding()).as("only P1 left").isEqualTo(10 + OVERHEAD);
 
     r1.complete();
     r1.expectParts(5); // abandoned: ignored, no exception
     assertThat(r1.isComplete()).isFalse();
-    assertThat(budget.outstanding()).as("late completion releases nothing twice").isEqualTo(10);
+    assertThat(budget.outstanding())
+        .as("late completion releases nothing twice")
+        .isEqualTo(10 + OVERHEAD);
     assertThat(tracker.pendingRecords()).isEqualTo(1);
 
     // A new assignment of P0 starts from scratch and is not affected by the old records.
@@ -220,7 +224,7 @@ class OffsetTrackerTest {
     assertThat(owned.isAbandoned()).isFalse();
     zombie.complete(); // abandoned on arrival: ignored
     assertThat(tracker.pendingRecords()).as("only C2's record is in flight").isEqualTo(1);
-    assertThat(budget.outstanding()).isEqualTo(10);
+    assertThat(budget.outstanding()).isEqualTo(10 + OVERHEAD);
 
     assertThat(tracker.committable(C2, List.of(P0)).get(P0).offset())
         .as("C2's record 100 still blocks")
@@ -261,14 +265,52 @@ class OffsetTrackerTest {
     assertThat(big.oversize()).isTrue();
     assertThat(tombstone.oversize()).isFalse();
     assertThat(tombstone.sizeBytes()).isZero();
+    assertThat(tombstone.budgetBytes()).isEqualTo(OVERHEAD);
   }
 
   @Test
   void sizeCountsKeyAndValue() {
     SourceRecord record =
         tracker.track(C1, new ConsumerRecord<>("t", 0, 0, new byte[7], new byte[5]), 1_000);
-    assertThat(record.sizeBytes()).isEqualTo(12);
-    assertThat(budget.outstanding()).isEqualTo(12);
+    assertThat(record.sizeBytes()).as("payload, for the consumed-bytes metric").isEqualTo(12);
+    assertThat(record.budgetBytes()).isEqualTo(12 + OVERHEAD);
+    assertThat(budget.outstanding()).isEqualTo(12 + OVERHEAD);
+  }
+
+  @Test
+  void tombstoneIsNotFreeForTheBudget() {
+    SourceRecord tombstone =
+        tracker.track(C1, new ConsumerRecord<>("t", 0, 0, null, (byte[]) null), 1_000);
+    assertThat(tombstone.sizeBytes()).isZero();
+    assertThat(tombstone.budgetBytes()).isPositive();
+    assertThat(budget.outstanding()).isEqualTo(OVERHEAD);
+  }
+
+  @Test
+  void headerBytesCountAgainstTheBudget() {
+    ConsumerRecord<byte[], byte[]> record = new ConsumerRecord<>("t", 0, 0, null, new byte[5]);
+    record.headers().add("trace", new byte[20]);
+    record.headers().add("flag", null);
+    SourceRecord tracked = tracker.track(C1, record, 1_000);
+    assertThat(tracked.sizeBytes()).as("headers are not payload").isEqualTo(5);
+    assertThat(tracked.budgetBytes())
+        .isEqualTo(OVERHEAD + 5 + "trace".length() + 20 + "flag".length());
+  }
+
+  @Test
+  void budgetIsReleasedSymmetricallyOnCompleteAndAbandon() {
+    ConsumerRecord<byte[], byte[]> withHeaders = new ConsumerRecord<>("t", 0, 5, null, new byte[3]);
+    withHeaders.headers().add("h", new byte[9]);
+    SourceRecord completed = tracker.track(C1, withHeaders, 1_000);
+    final SourceRecord abandoned = track(P0, 6);
+    SourceRecord tombstone =
+        tracker.track(C1, new ConsumerRecord<>("t", 0, 7, null, (byte[]) null), 1_000);
+    assertThat(budget.outstanding()).isGreaterThan(3 * OVERHEAD);
+    completed.complete();
+    tombstone.complete();
+    abandoned.abandon();
+    tracker.finished(abandoned, false);
+    assertThat(budget.outstanding()).isZero();
   }
 
   @Test

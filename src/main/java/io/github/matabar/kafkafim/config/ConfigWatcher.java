@@ -1,6 +1,7 @@
 package io.github.matabar.kafkafim.config;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.ClosedWatchServiceException;
@@ -90,7 +91,7 @@ public final class ConfigWatcher implements AutoCloseable {
     }
     this.watchService = service;
     this.thread = Thread.ofPlatform().name("kafkafim-config-watcher").daemon().unstarted(this::run);
-    this.lastHash = hash();
+    this.lastHash = initialHash();
   }
 
   /** The watched roots. */
@@ -200,6 +201,20 @@ public final class ConfigWatcher implements AutoCloseable {
     return previous;
   }
 
+  /**
+   * The hash at construction. A tree that cannot be walked yet must not fail the constructor, which
+   * would stop the reload machinery from starting: the first poll hashes again.
+   */
+  private String initialHash() {
+    try {
+      return hash();
+    } catch (RuntimeException e) {
+      LOG.warn(
+          "Cannot hash the watched configuration yet ({}); the first poll retries", e.toString());
+      return "<unhashed>";
+    }
+  }
+
   /** SHA-256 over every root's sorted relative paths and file contents; registers directories. */
   String hash() {
     MessageDigest digest = sha256();
@@ -207,19 +222,26 @@ public final class ConfigWatcher implements AutoCloseable {
       digest.update(root.toString().getBytes(StandardCharsets.UTF_8));
       digest.update((byte) 0);
       TreeMap<String, Path> files = new TreeMap<>();
+      List<String> failures = new ArrayList<>();
       if (Files.isRegularFile(root)) {
         files.put("", root);
         register(root.toAbsolutePath().getParent());
       } else if (Files.isDirectory(root)) {
-        collect(root, files);
+        collect(root, files, failures);
       } else {
         digest.update("<absent>".getBytes(StandardCharsets.UTF_8));
       }
+      // A directory that failed mid-walk is hashed as such: the listing is incomplete, so the
+      // debounce re-reads until the tree is stable.
+      failures.stream().sorted().forEach(f -> digest.update(f.getBytes(StandardCharsets.UTF_8)));
       for (var file : files.entrySet()) {
         digest.update(file.getKey().getBytes(StandardCharsets.UTF_8));
         digest.update((byte) 0);
-        try {
-          digest.update(Files.readAllBytes(file.getValue()));
+        try (InputStream in = Files.newInputStream(file.getValue())) {
+          byte[] buffer = new byte[8192];
+          for (int read = in.read(buffer); read >= 0; read = in.read(buffer)) {
+            digest.update(buffer, 0, read);
+          }
         } catch (IOException e) {
           // Vanished between listing and reading (a kubelet swap): hash the failure, so the
           // debounce re-reads until the tree is stable.
@@ -233,37 +255,64 @@ public final class ConfigWatcher implements AutoCloseable {
     return HexFormat.of().formatHex(digest.digest());
   }
 
-  private void collect(Path root, TreeMap<String, Path> files) {
+  private void collect(Path root, TreeMap<String, Path> files, List<String> failures) {
     try {
       Files.walkFileTree(
           root,
           EnumSet.of(FileVisitOption.FOLLOW_LINKS),
           Integer.MAX_VALUE,
-          new SimpleFileVisitor<>() {
-            @Override
-            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
-              if (!dir.equals(root) && isHidden(dir)) {
-                return FileVisitResult.SKIP_SUBTREE;
-              }
-              register(dir);
-              return FileVisitResult.CONTINUE;
-            }
-
-            @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-              if (attrs.isRegularFile() && !isHidden(file)) {
-                files.put(root.relativize(file).toString(), file);
-              }
-              return FileVisitResult.CONTINUE;
-            }
-
-            @Override
-            public FileVisitResult visitFileFailed(Path file, IOException e) {
-              return FileVisitResult.CONTINUE;
-            }
-          });
+          new Collector(root, files, failures));
     } catch (IOException e) {
       throw new UncheckedIOException(e);
+    }
+  }
+
+  /**
+   * Lists the regular, non-hidden files under a root and registers its directories. A failure to
+   * visit a file leaves it out of the listing; a failure while iterating a directory is recorded in
+   * {@code failures} and the walk continues (the default would rethrow, log a spurious ERROR and
+   * delay the reload by one poll).
+   */
+  final class Collector extends SimpleFileVisitor<Path> {
+    private final Path root;
+    private final TreeMap<String, Path> files;
+    private final List<String> failures;
+
+    Collector(Path root, TreeMap<String, Path> files, List<String> failures) {
+      this.root = root;
+      this.files = files;
+      this.failures = failures;
+    }
+
+    @Override
+    public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+      if (!dir.equals(root) && isHidden(dir)) {
+        return FileVisitResult.SKIP_SUBTREE;
+      }
+      register(dir);
+      return FileVisitResult.CONTINUE;
+    }
+
+    @Override
+    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+      if (attrs.isRegularFile() && !isHidden(file)) {
+        files.put(root.relativize(file).toString(), file);
+      }
+      return FileVisitResult.CONTINUE;
+    }
+
+    @Override
+    public FileVisitResult visitFileFailed(Path file, IOException e) {
+      return FileVisitResult.CONTINUE;
+    }
+
+    @Override
+    public FileVisitResult postVisitDirectory(Path dir, @Nullable IOException e) {
+      if (e != null) {
+        failures.add(
+            "<unreadable-dir:" + root.relativize(dir) + ":" + e.getClass().getSimpleName() + ">");
+      }
+      return FileVisitResult.CONTINUE;
     }
   }
 

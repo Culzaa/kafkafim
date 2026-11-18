@@ -147,6 +147,27 @@ class PreflightTest {
     assertThat(result.transientProblems()).hasSize(3);
   }
 
+  /** The cause of an unexpected failure of the DLQ topic check is kept, not just "no answer". */
+  @Test
+  void throwingDlqTopicCheckIsTransientAndNamesTheException() {
+    Preflight.Result result =
+        Preflight.run(
+            compiled,
+            () -> {
+              throw new IllegalStateException("producers closed");
+            },
+            GROUP_OK,
+            (c, i) -> Preflight.Status.OK);
+
+    assertThat(result.configuration()).isEmpty();
+    assertThat(result.transientProblems())
+        .singleElement()
+        .asString()
+        .startsWith("DLQ topic")
+        .contains("broker did not answer: ")
+        .contains("IllegalStateException: producers closed");
+  }
+
   @Test
   void notAuthorizedDlqTopicIsConfiguration() {
     Preflight.Result result =

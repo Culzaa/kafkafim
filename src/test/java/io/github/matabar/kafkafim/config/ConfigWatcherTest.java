@@ -4,11 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import java.io.IOException;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.List;
+import java.util.TreeMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -53,6 +55,43 @@ class ConfigWatcherTest {
     if (!Files.isSymbolicLink(link)) {
       Files.createSymbolicLink(link, Path.of("..data").resolve(file));
     }
+  }
+
+  @Test
+  void midWalkDirectoryFailureContinuesAndIsRecorded() throws Exception {
+    Files.writeString(dir.resolve("a.yaml"), "a: 1");
+    Files.createDirectories(dir.resolve("sub"));
+    ConfigWatcher w =
+        new ConfigWatcher(List.of(dir), Duration.ofMinutes(1), Duration.ZERO, () -> {});
+    watcher = w;
+    var files = new TreeMap<String, Path>();
+    var failures = new java.util.ArrayList<String>();
+    ConfigWatcher.Collector collector = w.new Collector(dir, files, failures);
+
+    // What walkFileTree reports when a directory cannot be iterated to its end.
+    assertThat(collector.postVisitDirectory(dir.resolve("sub"), new IOException("gone")))
+        .isEqualTo(FileVisitResult.CONTINUE);
+    assertThat(collector.postVisitDirectory(dir.resolve("sub"), null))
+        .isEqualTo(FileVisitResult.CONTINUE);
+
+    assertThat(failures).containsExactly("<unreadable-dir:sub:IOException>");
+  }
+
+  @Test
+  void largeFileIsHashedWholeAndStably() throws Exception {
+    Path big = dir.resolve("big.bin");
+    byte[] content = new byte[1_000_000];
+    Files.write(big, content);
+    ConfigWatcher w =
+        new ConfigWatcher(List.of(dir), Duration.ofMinutes(1), Duration.ZERO, () -> {});
+    watcher = w;
+    String first = w.hash();
+    assertThat(w.hash()).isEqualTo(first);
+
+    content[content.length - 1] = 1; // only the last byte differs
+    Files.write(big, content);
+
+    assertThat(w.hash()).isNotEqualTo(first);
   }
 
   @Test
