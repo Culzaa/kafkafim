@@ -96,6 +96,27 @@ class ErrorClassifierTest {
   }
 
   @Test
+  void closedAndWriteBlockedIndexItemsAreRetriedNotDeadLettered() {
+    assertThat(
+            classify(
+                "bulk-item-closed-blocked.json",
+                List.of(action(Op.INDEX, null), action(Op.INDEX, null)),
+                OnVersionConflict.IGNORE))
+        .containsExactly(ItemVerdict.RETRY, ItemVerdict.RETRY);
+  }
+
+  @Test
+  void requestLevelClusterBlockIsNotAnAuthFailure() {
+    assertThat(ErrorClassifier.request(403, "cluster_block_exception"))
+        .isEqualTo(RequestVerdict.RETRY_UNEXPECTED);
+    assertThat(ErrorClassifier.request(403, "security_exception"))
+        .isEqualTo(RequestVerdict.AUTH_FAILURE);
+    assertThat(ErrorClassifier.request(403, null)).isEqualTo(RequestVerdict.AUTH_FAILURE);
+    assertThat(ErrorClassifier.request(401, "cluster_block_exception"))
+        .isEqualTo(RequestVerdict.AUTH_FAILURE);
+  }
+
+  @Test
   void itemForbiddenIsAnAuthFailureNeverDlq() {
     assertThat(
             classify(
@@ -113,7 +134,12 @@ class ErrorClassifierTest {
     "409, version_conflict_engine_exception, INDEX, false, DLQ_ES_ERROR",
     "409, some_other_conflict, CREATE, false, DLQ_ES_ERROR",
     "401, security_exception, INDEX, false, AUTH_FAILURE",
-    "404, index_closed_exception, INDEX, false, DLQ_ES_ERROR",
+    "400, index_closed_exception, INDEX, false, RETRY",
+    "404, index_closed_exception, INDEX, false, RETRY",
+    "403, cluster_block_exception, INDEX, false, RETRY",
+    "429, cluster_block_exception, INDEX, false, RETRY",
+    "403, security_exception, INDEX, false, AUTH_FAILURE",
+    "400, some_other_exception, INDEX, false, DLQ_ES_ERROR",
     "429, circuit_breaking_exception, INDEX, false, RETRY_PRESSURE",
     "500, internal_error, INDEX, false, RETRY",
     "503, unavailable_shards_exception, INDEX, true, RETRY_PRESSURE",

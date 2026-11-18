@@ -82,6 +82,8 @@ final class ErrorClassifier {
   static final String VERSION_CONFLICT = "version_conflict_engine_exception";
   static final String INDEX_NOT_FOUND = "index_not_found_exception";
   static final String UNAVAILABLE_SHARDS = "unavailable_shards_exception";
+  static final String INDEX_CLOSED = "index_closed_exception";
+  static final String CLUSTER_BLOCK = "cluster_block_exception";
 
   /** The item table, first match wins. */
   static final List<ItemRule> ITEM_RULES =
@@ -103,6 +105,12 @@ final class ErrorClassifier {
               "409 op: create, document already exists (a retry that landed) → indexed",
               i -> isVersionConflict(i) && i.op() == Op.CREATE,
               ItemVerdict.INDEXED),
+          new ItemRule(
+              "index_closed_exception (HTTP 400) or cluster_block_exception (HTTP 403, a write or"
+                  + " read-only block), any status: the index is closed or blocked by an operator,"
+                  + " not a fault of the document or of the credential; retry, poison-bounded",
+              i -> INDEX_CLOSED.equals(i.errorType()) || CLUSTER_BLOCK.equals(i.errorType()),
+              ItemVerdict.RETRY),
           new ItemRule(
               "401/403: the identity may not write here → auth failure, retry, never DLQ",
               i -> i.status() == 401 || i.status() == 403,
@@ -128,6 +136,18 @@ final class ErrorClassifier {
           new ItemRule("anything else: retry, poison-bounded", i -> true, ItemVerdict.RETRY));
 
   private ErrorClassifier() {}
+
+  /**
+   * Classifies a bulk request by its HTTP status and, when the body names one, its {@code
+   * error.type}. A 403 {@code cluster_block_exception} is a block on the cluster or index, not a
+   * credential problem: it is retried like any unexpected answer, without an auth alert.
+   */
+  static RequestVerdict request(int status, @Nullable String errorType) {
+    if (status == 403 && CLUSTER_BLOCK.equals(errorType)) {
+      return RequestVerdict.RETRY_UNEXPECTED;
+    }
+    return request(status);
+  }
 
   /** Classifies a bulk request by its HTTP status. */
   static RequestVerdict request(int status) {

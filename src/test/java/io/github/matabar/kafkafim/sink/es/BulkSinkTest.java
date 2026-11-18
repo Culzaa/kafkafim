@@ -705,6 +705,23 @@ class BulkSinkTest {
   }
 
   @Test
+  void requestLevelClusterBlockIsRetriedWithoutAnAuthFailure() throws Exception {
+    String type = "{\"type\":\"cluster_block_exception\",\"reason\":\"blocked\"}";
+    byte[] block = ("{\"error\":" + type + ",\"status\":403}").getBytes(UTF_8);
+    FakeTransport transport =
+        new FakeTransport(
+            (request, call) -> call <= 2 ? new Result(403, block) : FakeTransport.allOk());
+    BulkSink<String> sink = sink(poison(1, Duration.ZERO), transport);
+
+    submitAll(sink, "a");
+
+    assertThat(sink.awaitIdle(WAIT)).isTrue();
+    assertThat(outcomes.get("a")).isEqualTo(ActionOutcome.INDEXED);
+    assertThat(events.authFailures).hasValue(0);
+    assertThat(sink.authFailing()).isFalse();
+  }
+
+  @Test
   void itemAuthFailuresOfOneResponseAreOneEventOnTheSenderThread() throws Exception {
     FakeTransport transport =
         new FakeTransport((request, call) ->

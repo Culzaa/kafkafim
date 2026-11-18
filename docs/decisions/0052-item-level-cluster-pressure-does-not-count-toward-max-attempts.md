@@ -18,9 +18,9 @@ problem shows as lag, not as DLQ records (#397).
 
 - The classifier gives item 429 of any error type (`es_rejected_execution_exception`,
   `circuit_breaking_exception`, ...) and item 503 `unavailable_shards_exception` their own
-  verdict, `RETRY_PRESSURE`. A pressure
-  attempt does not increment the item's `max-attempts` counter and is not checked against
-  `max-elapsed`.
+  verdict, `RETRY_PRESSURE`. A pressure attempt does not increment the item's `max-attempts`
+  counter and is not checked against `max-elapsed`. The exception is `cluster_block_exception`
+  (any status): the closed-index and cluster-block rule comes first and keeps the bounded retry.
 - The delay comes from the configured backoff on a separate pressure counter, capped at 30
   seconds.
 - A fixed safety valve of one hour since the item's first pressure failure sends it to the

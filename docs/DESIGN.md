@@ -537,8 +537,10 @@ kafkafim:
 ```
 
 A Kafka cluster's `properties` are passed to kafka-clients under kafkafim's own
-consumer settings (`source/kafka/ConsumerSettings`). A key kafkafim owns is rejected when
-the pipeline's consumer factory is built, naming the key but never its value:
+consumer settings (`source/kafka/ConsumerSettings`). A key kafkafim owns, for the
+consumer or for the DLQ producer, is rejected at bind and reload (`config/OwnedKafkaKeys`,
+plus the security keys derived from the cluster's and identities' blocks) and again when a
+client is built, naming the key but never its value. The consumer's:
 `bootstrap.servers`, `security.protocol`, `group.id`, `group.instance.id`,
 `group.protocol` (always `classic`, which the cooperative-sticky assignor needs),
 `client.id` (`kafkafim-<pipeline>-<n>`), `enable.auto.commit` (always `false`),
@@ -548,9 +550,9 @@ deserializers (always byte arrays), `partition.assignment.strategy` (always
 The security keys kafkafim derives from the cluster's `ssl` block and the identity's
 `sasl`/`ssl` blocks (`ssl.truststore.*`, `ssl.keystore.*`, `ssl.key.password`,
 `sasl.mechanism`, and `sasl.jaas.config` for `PLAIN`/`SCRAM-*`) are rejected only when
-that block sets them, so GSSAPI or OAUTHBEARER can still bring their JAAS settings
-through `properties`. Everything else (fetch sizes, timeouts, `isolation.level`, …)
-passes through. Consumer factories are cached per `(cluster, identity)`; every
+that block sets them (any identity's block counts), so GSSAPI or OAUTHBEARER can still
+bring their JAAS settings through `properties`. Everything else (fetch sizes, timeouts,
+`isolation.level`, …) passes through. Consumer factories are cached per `(cluster, identity)`; every
 pipeline's container creates its own consumers.
 
 The DLQ producer (`dlq/ProducerSettings`, one per `(cluster, identity)`, `client.id`
@@ -681,7 +683,8 @@ not used in production and not exercised in the MVP tests.
   identities on one cluster produces two bulk streams to it.
 - The circuit breaker stays per **cluster**: a 5xx or connection failure says
   something about the cluster, not the identity.
-- `401`/`403` on a bulk request is a **configuration failure, not a data failure**:
+- `401`/`403` on a bulk request (except a 403 `cluster_block_exception`, which is an index or
+  cluster block, §7) is a **configuration failure, not a data failure**:
   the affected pipeline pauses, retries with backoff, raises
   `kafkafim_auth_failures_total{es_cluster,identity}` and an alert. Documents are
   never sent to the DLQ because of a bad credential.
@@ -1061,7 +1064,8 @@ are reported together:
   `PLAINTEXT` need none (client certificates are the broker's choice). A `sasl` block is
   only allowed on a `SASL_*` cluster, a keystore and cluster `ssl` trust only on a TLS
   one. `PLAIN`/`SCRAM-*` need `username` and `password`.
-- **Elasticsearch**: `uris` are `http(s)://host[:port]`, one scheme per cluster;
+- **Elasticsearch**: `uris` are `http(s)://host[:port]`, one scheme per cluster, without
+  `user:password@` (credentials belong on an identity; a URI with userinfo is rejected and never echoed);
   `ssl` trust and keystores only with `https`. An identity is exactly one of
   `username`+`password` or `api-key`, optionally with a keystore, or a keystore alone.
   A route on an `https` cluster without a resolvable identity fails; on `http` it binds
@@ -1147,6 +1151,7 @@ are reported together:
 | An action Elasticsearch would reject for the whole request (`op: create` with an external version, an empty ingest `pipeline` name, an `_id` outside 1 to 512 UTF-8 bytes or with an unpaired UTF-16 surrogate) | Rejected when the action is built (`BulkAction`), because a whole-request 400 could only be retried forever. Config validation (§5.7) therefore rejects `op: create` together with `document.version-field` (ES answers "create operations only support internal versioning") and a blank route ingest `pipeline` (`""`, whitespace, or a bare `pipeline:`). |
 | Bulk partial failure | Only failed items are retried; successful items are acked immediately. |
 | Non-retryable item error: the 400 family (`mapper_parsing_exception`, `document_parsing_exception`, `strict_dynamic_mapping_exception`, `illegal_argument_exception` such as a missing ingest pipeline) and any other 4xx item not listed here | DLQ immediately with `error.type=es_error`, partition continues. |
+| Item `index_closed_exception` (Elasticsearch answers 400) or `cluster_block_exception` (403, for example `index.blocks.write` or `read_only`), checked before the 401/403 and other-4xx rules | A closed or blocked index is an operator's maintenance window that clears on its own and says nothing about the document or the credential: retried like any retryable item (bounded by `max-attempts`/`max-elapsed`, then DLQ `es_retries_exhausted`), never `es_error`, and not an auth failure (no `kafkafim_auth_failures_total`, no auth alert). A request-level 403 `cluster_block_exception` is likewise retried with backoff and reported as an unexpected answer, not as an auth failure. |
 | Item 409 `version_conflict_engine_exception` | With an external version: `stale` (success) under `on-version-conflict: ignore`, DLQ `version_conflict` under `dlq`. For `op: create` without a version: an earlier attempt landed, so success. Otherwise `es_error`. |
 | Retryable **item** error (item 5xx other than `unavailable_shards_exception`, item 404 `index_not_found_exception`, any other unexpected item status) exceeding `max-attempts`/`max-elapsed` | The item goes back into the batcher after a backoff and travels in a later bulk; once it has failed `max-attempts` times, or `max-elapsed` after its first retryable failure, DLQ with `error.type=es_retries_exhausted`, partition continues. This is the poison-message bound. A missing index is a provisioning gap (ADR-0021) or a race with whoever creates the index, so it gets the bounded retry rather than an immediate DLQ or an unbounded stall. Item-level **cluster pressure** (item 429 `es_rejected_execution_exception`, item 503 `unavailable_shards_exception`) is not poison: it is retried after a backoff capped at 30 s without counting toward `max-attempts`/`max-elapsed`, so sustained overload shows as lag; only a fixed one-hour safety valve since the first pressure failure dead-letters the item as `es_retries_exhausted` (ADR-0052). Request-level failures (connection errors, 5xx, request-level 429, breaker open, 401/403, unexpected statuses) are retried indefinitely and never count toward the bound; an ES outage produces lag, never DLQ records. |
 | Bulk request rejected with 413 | The request is split in halves and each half retried (recursively); a single-document bulk that still gets 413 sends that document to the DLQ with `error.type=too_large`. |
@@ -1299,7 +1304,8 @@ uncommitted. Before the first record to a topic the writer describes it
 it sends to, so producing blind would create a missing DLQ topic on a broker with
 `auto.create.topics.enable=true` (ADR-0021) and would otherwise only surface as a metadata
 timeout. A missing, forbidden, or unreachable topic is remembered for one second on the shared
-producer, so that many blocked sends do not describe it once each; a check cut short by an
+producer. Concurrent sends that need a check (cold cache or expired entry) share one describe
+instead of firing one each. A check cut short by an
 interrupt (a stop during preflight) is not remembered, since no broker answered it. A topic
 once seen is only checked again after a send timeout, so a DLQ topic
 deleted while kafkafim runs can still be re-created by the producer's metadata refresh on
@@ -1367,7 +1373,7 @@ Exact label sets (`telemetry/TelemetryNames`, `telemetry/PipelineMeters`):
 | `kafkafim_bulk_latency_seconds`, `kafkafim_bulk_docs`, `kafkafim_bulk_bytes` (histograms) | `es_cluster` | every answered bulk request |
 | `kafkafim_item_errors_total` | `es_cluster`, `error_type` (Elasticsearch error type, `status_<n>` without one), `retryable` | every failed item: retried, or dead-lettered as `es_error` / `version_conflict` |
 | `kafkafim_retries_total` | `es_cluster`, `scope=request\|item` | every retryable failure of a whole request, and of an item (an item whose poison bound is reached also counts its last failure) |
-| `kafkafim_auth_failures_total` | `es_cluster`, `identity` (`none` for an unauthenticated cluster) | every response carrying a 401/403, for the request or for any item (one per response, not per item) |
+| `kafkafim_auth_failures_total` | `es_cluster`, `identity` (`none` for an unauthenticated cluster) | every response carrying a 401/403 (a 403 `cluster_block_exception` is not an auth failure and is not counted), for the request or for any item (one per response, not per item) |
 | `kafkafim_batch_flush_total` | `es_cluster`, `reason=docs\|bytes\|age\|explicit` | every sealed batch (`explicit`: revoke, stop) |
 | `kafkafim_e2e_latency_seconds` (histogram) | — | every Elasticsearch ack: ack time minus the Kafka record timestamp (DLQ'd documents are not counted) |
 | `kafkafim_in_flight_bytes`, `kafkafim_assigned_partitions`, `kafkafim_kafka_connected` (1/0) | — | the pipeline's running source, read on scrape |
