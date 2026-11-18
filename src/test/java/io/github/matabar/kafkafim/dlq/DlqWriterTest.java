@@ -178,7 +178,6 @@ class DlqWriterTest {
     PendingSend sent = client.next();
     assertThat(sent.record().topic()).isEqualTo("orders.v2.kafkafim-dlq");
     assertThat(sent.record().key()).containsExactly(1);
-    Thread.sleep(50);
     assertThat(result).isNotDone();
 
     sent.ack(17);
