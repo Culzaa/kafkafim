@@ -84,7 +84,10 @@ load_into_docker_desktop_nodes() {
       found=1
     fi
   done
-  if [[ "$found" == 0 ]]; then
+  if [[ -z "$nodes" ]]; then
+    echo "cluster $CONTEXT reports no nodes" >&2
+    exit 1
+  elif [[ "$found" == 0 ]]; then
     echo "no node of $CONTEXT is a Docker container (kubeadm mode): it shares Docker's images"
   fi
 }

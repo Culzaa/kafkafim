@@ -58,7 +58,7 @@ at least 8 GiB.
 ## Run it
 
 ```bash
-deploy/local/demo.sh up       # clean jar + kafkafim:dev image, kind cluster, then the one helm install
+deploy/local/demo.sh up       # clean jar + image, kind cluster, then the one helm install
 ```
 
 ```bash
@@ -71,9 +71,8 @@ deploy/local/demo.sh down     # deletes the kind cluster
 
 `demo.sh up` only prepares what Helm cannot (the image and the cluster). It builds with
 `./mvnw clean package`, because the Dockerfile copies `target/*.jar` and a stale jar left
-there would be baked into the image. The install
-itself is one command, which also works on its own against any cluster that can run the
-`kafkafim:dev` image:
+there would be baked into the image. The install itself is one command, which also works
+on its own against any cluster that can run the `kafkafim:dev` image:
 
 ```bash
 helm upgrade --install kafkafim deploy/local/kafkafim-demo -n kafkafim-demo --create-namespace --wait --timeout 10m
@@ -86,9 +85,13 @@ are Docker containers (kind mode, for example `desktop-control-plane`), it pipes
 their containerd does not see Docker's image store; in kubeadm mode it does nothing.
 `SKIP_BUILD=1` skips the build and reuses an existing `kafkafim:dev` image (it is still
 loaded into the nodes). `up` is safe to re-run: after a code change, run it again and
-restart the pods (`kubectl --context kind-kafkafim-demo -n kafkafim-demo rollout restart deploy/kafkafim-demo`),
-since the tag stays `dev`. The cluster pulls the Kafka, Elasticsearch, and LGTM images
-itself on the first install.
+restart the pods, since the tag stays `dev`:
+
+```bash
+kubectl --context kind-kafkafim-demo -n kafkafim-demo rollout restart deploy/kafkafim-demo
+```
+
+The cluster pulls the Kafka, Elasticsearch, and LGTM images itself on the first install.
 
 ## Look around
 
