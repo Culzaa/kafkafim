@@ -205,6 +205,7 @@ public final class ConfigValidator {
       error(path + ".uris", "mixes http and https; use one scheme per cluster");
     }
     boolean https = schemes.equals(Set.of("https"));
+    boolean plainHttp = schemes.equals(Set.of("http"));
     if (cluster.ssl() != null && !https) {
       error(path + ".ssl", "trust is set but the cluster URIs are not https");
     }
@@ -214,7 +215,7 @@ public final class ConfigValidator {
         .forEach((name, identity) -> {
           String identityPath = path + ".identities." + name;
           checkName(identityPath, "identity", name);
-          checkElasticsearchIdentity(identityPath, identity, https);
+          checkElasticsearchIdentity(identityPath, identity, https, plainHttp);
         });
     ElasticsearchCluster.Bulk bulk = cluster.bulk();
     checkPositive(path + ".bulk.max-bytes", bulk.maxBytes());
@@ -309,7 +310,10 @@ public final class ConfigValidator {
   }
 
   private void checkElasticsearchIdentity(
-      String path, ElasticsearchCluster.@Nullable ElasticsearchIdentity identity, boolean https) {
+      String path,
+      ElasticsearchCluster.@Nullable ElasticsearchIdentity identity,
+      boolean https,
+      boolean plainHttp) {
     if (identity == null) {
       error(path, "an Elasticsearch identity needs username+password, api-key or an ssl keystore");
       return;
@@ -333,6 +337,14 @@ public final class ConfigValidator {
     }
     if (keystore && !https) {
       error(path + ".ssl", "a client keystore needs https cluster URIs");
+    }
+    if (plainHttp && (basic || apiKey) && !(basic && apiKey)) {
+      warnings.add(
+          path
+              + ": "
+              + (basic ? "basic-auth" : "api-key")
+              + " credentials are sent over plain http (cluster URIs are not https); fine behind"
+              + " a mesh or for local development, otherwise use https");
     }
   }
 
