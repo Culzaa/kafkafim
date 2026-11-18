@@ -163,7 +163,9 @@ public record ElasticsearchCluster(
    * @param maxDocs documents per bulk request; default 5000
    * @param maxBytes body size per bulk request; default 5MB
    * @param maxAge age of the oldest document in a batch; default 200ms
-   * @param inFlight concurrent bulk requests per {@code (cluster, identity)}; default 4
+   * @param inFlight concurrent bulk requests per pipeline (each pipeline's sink has its own limit,
+   *     while the HTTP client and its connection pool are shared per {@code (cluster, identity)});
+   *     default 4
    */
   public record Bulk(
       @Positive Integer maxDocs, DataSize maxBytes, Duration maxAge, @Positive Integer inFlight) {

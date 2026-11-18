@@ -23,6 +23,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
+import org.apache.hc.core5.http.ConnectionRequestTimeoutException;
+import org.apache.hc.core5.util.DeadlineTimeoutException;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -476,8 +478,22 @@ public final class BulkSink<H> implements AutoCloseable {
       if (stopped) {
         return -1; // close() interrupted the request
       }
-      permit.error(System.nanoTime() - start, e);
       requests.add(request(sentAt, entries.size(), bytes, 0, e.toString(), attempt, 0));
+      if (isPoolLeaseTimeout(e)) {
+        // Every pooled connection of this (cluster, identity) client is busy: the wait for a lease
+        // timed out locally, so the request never reached Elasticsearch. That says nothing about
+        // the cluster's health and must not open the breaker (it still retries with backoff).
+        permit.release();
+        return retryRequest(
+            0,
+            e,
+            attempt + 1,
+            "connection pool exhausted (lease timeout; the client's connections are all busy,"
+                + " this does not count against the circuit breaker): "
+                + e,
+            null);
+      }
+      permit.error(System.nanoTime() - start, e);
       return retryRequest(0, e, attempt + 1, "transport error: " + e, null);
     }
     long elapsed = System.nanoTime() - start;
@@ -580,6 +596,25 @@ public final class BulkSink<H> implements AutoCloseable {
       int itemErrors) {
     return new BatchReport.Request(
         sentAt, clock.instant(), docs, bytes, status, error, retries, itemErrors);
+  }
+
+  /**
+   * Whether the failure is the wait for a pooled connection timing out, locally. The async client
+   * under {@code Rest5Client} fails the lease with HttpCore's {@code DeadlineTimeoutException},
+   * which only the connection pools create; the client wraps it in a {@code RuntimeException} and
+   * {@code BulkTransport} in an {@code IOException}. The blocking client's {@code
+   * ConnectionRequestTimeoutException} is accepted as well. Connect and response timeouts are
+   * {@code IOException}s of their own and do not match. HttpClient 5 expires a waiting lease
+   * lazily, when the pool next processes a release, so the failure can surface later than the
+   * configured timeout. {@code Rest5ClientPoolLeaseContractTest} pins the real shape.
+   */
+  static boolean isPoolLeaseTimeout(Throwable error) {
+    for (Throwable t = error, last = null; t != null && t != last; last = t, t = t.getCause()) {
+      if (t instanceof DeadlineTimeoutException || t instanceof ConnectionRequestTimeoutException) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

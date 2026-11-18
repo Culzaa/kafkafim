@@ -33,6 +33,10 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
+import org.apache.hc.core5.http.ConnectionRequestTimeoutException;
+import org.apache.hc.core5.util.Deadline;
+import org.apache.hc.core5.util.DeadlineTimeoutException;
+import org.apache.hc.core5.util.Timeout;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -294,6 +298,72 @@ class BulkSinkTest {
               assertThat(dlq.attempts()).isOne();
               assertThat(dlq.reason()).contains("mapper_parsing_exception");
             });
+  }
+
+  @Test
+  void poolLeaseTimeoutIsRetriedAsLocalExhaustionWithoutFeedingTheBreaker() throws Exception {
+    Logger logger = (Logger) LoggerFactory.getLogger(BulkSink.class);
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    logger.addAppender(appender);
+    try {
+      FakeTransport transport =
+          new FakeTransport((request, call) -> {
+            switch (call) {
+              case 1 -> throw new ConnectionRequestTimeoutException("lease timed out");
+              case 2 ->
+                  throw new IOException(
+                      "bulk request failed", new ConnectionRequestTimeoutException("wrapped"));
+              case 3 -> throw new ConnectException("Connection refused");
+              default -> {
+                return FakeTransport.allOk();
+              }
+            }
+          });
+      BulkSink<String> sink = sink(poison(10, HOUR), transport);
+
+      submitAll(sink, "a");
+
+      assertThat(sink.awaitIdle(WAIT)).isTrue();
+      assertThat(outcomes.get("a")).isEqualTo(ActionOutcome.INDEXED);
+      assertThat(events.requestRetries).hasValue(3);
+      // Only the real connection failure and the final success reached the breaker.
+      assertThat(breaker.getMetrics().getNumberOfFailedCalls()).isEqualTo(1);
+      assertThat(breaker.getMetrics().getNumberOfSuccessfulCalls()).isEqualTo(1);
+      assertThat(logged(appender))
+          .filteredOn(e -> e.getFormattedMessage().contains("connection pool exhausted"))
+          .hasSize(2)
+          .allSatisfy(e -> assertThat(e.getLevel()).isEqualTo(Level.WARN));
+    } finally {
+      logger.detachAppender(appender);
+    }
+  }
+
+  @Test
+  void isPoolLeaseTimeoutLooksThroughTheCauseChain() {
+    assertThat(BulkSink.isPoolLeaseTimeout(new ConnectionRequestTimeoutException("x"))).isTrue();
+    assertThat(
+            BulkSink.isPoolLeaseTimeout(
+                new IOException(
+                    "a", new IOException("b", new ConnectionRequestTimeoutException("c")))))
+        .isTrue();
+    // The real chain of the async client: IOException -> RuntimeException ->
+    // DeadlineTimeoutException.
+    assertThat(
+            BulkSink.isPoolLeaseTimeout(
+                new IOException(
+                    "bulk request failed",
+                    new RuntimeException(
+                        "error while performing request",
+                        DeadlineTimeoutException.from(
+                            Deadline.calculate(Timeout.ofMilliseconds(1)))))))
+        .isTrue();
+    assertThat(BulkSink.isPoolLeaseTimeout(new ConnectException("refused"))).isFalse();
+    assertThat(BulkSink.isPoolLeaseTimeout(new java.net.SocketTimeoutException("read"))).isFalse();
+    assertThat(BulkSink.isPoolLeaseTimeout(new java.util.concurrent.TimeoutException("other")))
+        .as("only the pool's own deadline exception is a lease timeout")
+        .isFalse();
+    assertThat(BulkSink.isPoolLeaseTimeout(new IOException("plain"))).isFalse();
   }
 
   @Test
