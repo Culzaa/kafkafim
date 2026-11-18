@@ -35,7 +35,7 @@ public class TelemetryConfiguration {
    */
   @Bean
   Sampler kafkafimSampler(
-      @Value("${management.tracing.sampling.probability:0.1}") double probability) {
+      @Value("${management.tracing.sampling.probability:0.01}") double probability) {
     return BatchSampler.create(probability);
   }
 }

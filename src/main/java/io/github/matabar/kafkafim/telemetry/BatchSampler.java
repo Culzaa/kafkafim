@@ -37,8 +37,13 @@ public final class BatchSampler implements Sampler {
    * The sampler to install.
    *
    * @param probability fraction of root spans without errors to keep, in {@code [0, 1]}
+   * @throws IllegalArgumentException if it is NaN or outside {@code [0, 1]}
    */
   public static Sampler create(double probability) {
+    if (Double.isNaN(probability) || probability < 0 || probability > 1) {
+      throw new IllegalArgumentException(
+          "management.tracing.sampling.probability must be between 0 and 1, got " + probability);
+    }
     return new BatchSampler(probability);
   }
 
