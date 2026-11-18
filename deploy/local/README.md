@@ -3,8 +3,9 @@
 One `helm install` brings up everything on a local Kubernetes cluster: a Kafka broker,
 Elasticsearch, an APM Server that receives kafkafim's OTLP, Kibana on that Elasticsearch,
 Grafana LGTM (dashboards), and kafkafim, installed by the real chart
-([charts/kafkafim](../../charts/kafkafim)). Secrets take the production path: Kubernetes `Secret`s mounted as files and read through
-`configtree:/etc/kafkafim/secrets/` ([HELM.md](../../docs/HELM.md#secrets-and-configtree-naming)).
+([charts/kafkafim](../../charts/kafkafim)). Secrets take the production path: Kubernetes
+`Secret`s mounted as files and read through `configtree:/etc/kafkafim/secrets/`
+([HELM.md](../../docs/HELM.md#secrets-and-configtree-naming)).
 On Kubernetes kafkafim refuses the `local` profile and inline secrets, so this is the
 way to see a chart install work before production. For day-to-day development use
 `./mvnw spring-boot:run` with Compose instead ([README](../../README.md#develop)).
