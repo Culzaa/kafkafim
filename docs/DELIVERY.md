@@ -424,7 +424,7 @@ and thresholds can change between versions:
   of a file provider. The UIDs are fixed (`kafkafim-overview`,
   `kafkafim-elasticsearch`), so importing a newer version replaces the old dashboard
   and links to it keep working. Both have a `datasource` variable; pick the
-  Prometheus-compatible data source that scrapes kafkafim.
+  Prometheus-compatible data source that holds kafkafim's OTLP metrics.
 
 Every alert has a `runbook_url` annotation. In the release's copy it names the
 `RUNBOOK.md` of this tag

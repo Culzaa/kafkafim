@@ -12,7 +12,7 @@ design draft proposed Go; the team chose the JVM.
 - **Java 27**, current release line, `--release 27`, virtual threads available for
   I/O-bound sender pools.
 - **Spring Boot 4.1.x** via Spring Initializr: dependency management, Actuator
-  (health probes, Prometheus endpoint), built-in OpenTelemetry starter, Kafka starter,
+  (health probes), built-in OpenTelemetry starter, Kafka starter,
   graceful shutdown, Docker Compose and Testcontainers integration.
 - Plain Java, not Kotlin: broadest familiarity, no extra toolchain.
 
