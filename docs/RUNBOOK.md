@@ -29,8 +29,8 @@ This runbook uses these conventions:
   start, the last lines of a shutdown, and whatever was logged while the OTLP endpoint was
   unreachable. Only MDC keys on the allowlist are exported over OTLP (`pipeline` is
   listed and set on the consumer, bulk sender and DLQ writer threads, so those logs can be
-  filtered by pipeline; client-library and supervisor threads do not set it); to see a new one in the backend, add it to
-  `captureMdcAttributes` in `logback-spring.xml`. The log
+  filtered by pipeline; client-library and supervisor threads do not set it); to see a new
+  one in the backend, add it to `captureMdcAttributes` in `logback-spring.xml`. The log
   lines quoted below are the message of either.
 - Metric names are the Prometheus names from [DESIGN §10](DESIGN.md#10-observability).
 
