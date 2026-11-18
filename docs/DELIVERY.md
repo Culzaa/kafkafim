@@ -42,7 +42,7 @@ Helm distribution model and is what `helm pull`/`helm push` and `skopeo` underst
 
 | Job | What it proves |
 |---|---|
-| `changes` (check "Detect changes") | Nothing; it classifies the pull request's changed paths for the jobs below (see "Docs-only pull requests"). On pushes to `main` it selects every job. |
+| `changes` (check "Detect changes") | Nothing; it classifies the pull request's changed paths for the jobs below (see "Docs-only pull requests"). On pushes to `main` and merge queue runs it selects every job. |
 | `build` (check "Build and test") | `./mvnw verify -DskipITs`: Spotless, Checkstyle, compile, unit tests (Surefire defaults minus `*IntegrationTest`), ArchUnit package-boundary tests. Passes `-Djacoco.check.skip=true`, because this job has only unit coverage. Uploads the unit test reports, the unit coverage data and the jar. |
 | `integration` (check "Integration tests") | Failsafe only (`*IntegrationTest`, Testcontainers Kafka + Elasticsearch + LGTM): `./mvnw verify -Dtest=NONE -Dsurefire.failIfNoSpecifiedTests=false -Dspotless.check.skip=true -Dcheckstyle.skip=true -Djacoco.check.skip=true`; the classes run in three parallel JVMs (`it.forkCount` in `pom.xml`). Runs in parallel with `build`, needing only `changes`; one job, not a matrix of shards, to stay well inside the Free plan's 20 concurrent jobs. Its first step starts pulling, in the background, every image named by a `DockerImageName.parse("...")` in `src/test` (so the list cannot drift from the tests), overlapping the pulls with Java setup and compilation; a test that starts a container before its pull finishes joins the daemon's in-flight pull. A step after Maven fails the job unless every `*IntegrationTest` source file produced a Failsafe report (Failsafe alone exits 0 when its include matches nothing). Uploads the Failsafe reports and the integration coverage data. Also skips the coverage floor. |
 | `coverage` (check "Coverage") | Needs `build` and `integration`. Downloads both jobs' JaCoCo data, merges it, writes the HTML and CSV report (uploaded as `coverage-report`, with line and branch totals in the job summary) and enforces the coverage floor ([Coverage floor](#coverage-floor)). Not a required check. |
@@ -113,7 +113,7 @@ what merging would change
 (`git diff` between the PR merge commit and the base tip). The skip is a job-level `if:`,
 not a workflow-level `paths-ignore`: GitHub reports a job skipped by `if:` as a passing
 check, while a workflow that never starts leaves required checks pending. If `changes`
-itself fails, its outputs are empty and every job runs. Pushes to `main` and
+itself fails, its outputs are empty and every job runs. Pushes to `main`, merge queue runs and
 `release.yml` always run everything. Locally, docs-only changes still run
 `./mvnw -DskipTests verify` (see CONTRIBUTING.md).
 
@@ -134,8 +134,19 @@ Branch protection on `main` (a classic branch protection rule, in force since
 
 The rule requires no approving review; reviews are a process rule (CONTRIBUTING.md).
 
+Merges go through the GitHub merge queue (once its ruleset is enabled). `ci.yml` also triggers
+on `merge_group` (`checks_requested`), so the four required checks run on the queue's temporary
+`gh-readonly-queue/...` branch, which is `main` plus the queued pull requests. A queue run always
+runs everything: `changes` takes the same path as a push to `main`, so docs-only pull requests are
+not skipped there. Each queue run has its own concurrency group (keyed on the commit SHA) and is
+never cancelled. It builds the image but pushes nothing; `ci.yml` never publishes, and
+`release.yml` runs only on its own triggers.
+
 Dependabot runs weekly, with grouped updates, for Maven, GitHub Actions, and the Docker
 base image.
+Every `uses:` in `.github/workflows` is pinned to a full commit SHA with the released version
+in a trailing comment (a retagged action cannot change what runs); Dependabot's
+`github-actions` ecosystem keeps both current. Checkouts set `persist-credentials: false`.
 Dependabot ignores `io.opentelemetry.proto:opentelemetry-proto`. No BOM manages it, and
 `pom.xml` declares it at the version `micrometer-registry-otlp` depends on. A
 `maven-enforcer-plugin` `dependencyConvergence` rule fails `validate` when the two
@@ -151,7 +162,12 @@ against the Spring Boot BOM's OpenTelemetry SDK (instrumentation 2.N pairs with 
 
 ## CD (`.github/workflows/release.yml`) on tag `v*`
 
-1. `./mvnw -Drevision=<ver> verify` (tests run again on the exact tagged commit).
+1. Job `verify` (token: `contents: read` only): `./mvnw -Drevision=<ver> verify` (tests run again on
+   the exact tagged commit). Job `release` needs it, so nothing below runs or publishes unless it
+   passes, and the write, `packages` and `id-token` permissions are held by a job that runs no
+   Maven; steps 2 onward are that job. `verify` uploads the tested jar as an artifact and `release`
+   downloads it into `target/`, where the Dockerfile's `COPY target/*.jar` expects it, so the image
+   contains the jar that passed the tests.
 2. Multi-arch image (`linux/amd64`, `linux/arm64`) built with Buildx and pushed to
    GHCR with the tags above and BuildKit provenance attestations.
 3. Image signed with Cosign (keyless, GitHub OIDC) in the classic `.sig`-tag format
