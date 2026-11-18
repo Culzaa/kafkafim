@@ -108,6 +108,7 @@ public final class KafkaClientSecurity {
     String lower = key.toLowerCase(Locale.ROOT);
     return lower.contains("password")
         || lower.contains("jaas")
+        || lower.contains("passphrase")
         || lower.contains("secret")
         || lower.contains("token")
         || lower.contains("credential")
