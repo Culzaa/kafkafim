@@ -1,7 +1,7 @@
 # Local Kubernetes demo (deploy/local/README.md). One release: Kafka, Elasticsearch,
-# Grafana LGTM (templates/ of this chart) and kafkafim (the production chart, as the
-# `kafkafim` subchart). Resource names are fixed (kafka, elasticsearch, lgtm), so install
-# it once per namespace.
+# APM Server, Kibana, Grafana LGTM (templates/ of this chart) and kafkafim (the production
+# chart, as the `kafkafim` subchart). Resource names are fixed (kafka, elasticsearch,
+# apm-server, kibana, lgtm), so install it once per namespace.
 
 kafka:
   # JVM image: the native image cannot authenticate SASL clients. Same version as compose.yaml.
@@ -16,6 +16,12 @@ elasticsearch:
 
 lgtm:
   image: grafana/otel-lgtm:0.41.0   # as compose.yaml
+
+apmServer:
+  image: docker.elastic.co/apm/apm-server:9.5.6   # same version as Elasticsearch
+
+kibana:
+  image: docker.elastic.co/kibana/kibana:9.5.6    # same version as Elasticsearch
 
 # Values of charts/kafkafim. Same shape as a production values-<cluster>.yaml: no literal
 # secret, every credential a ${...} placeholder resolved from a mounted Secret through
@@ -92,9 +98,10 @@ kafkafim:
     limits: { memory: 768Mi }
 
   # The one OTLP endpoint value: every signal kafkafim exports over OTLP goes to the
-  # in-cluster Grafana LGTM (in production: the external APM Server).
+  # in-cluster APM Server, as in production. Grafana LGTM (templates/lgtm.yaml) no longer
+  # receives kafkafim's signals; point this back at http://lgtm:4318 to see the dashboards.
   otel:
-    endpoint: http://lgtm:4318
+    endpoint: http://apm-server:8200
 
   # Trace every batch. The application default keeps 1% of batches and every failed one
   # (ADR-0029), which leaves a demo with a handful of records without a trace to look at.

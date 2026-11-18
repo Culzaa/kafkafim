@@ -1,0 +1,75 @@
+{{- $labels := include "kafkafim-demo.labels" (dict "root" . "name" "kibana") }}
+# One Kibana on the demo Elasticsearch, to browse the indices kafkafim writes (demo-eu-*)
+# and the APM data the APM Server writes (traces, metrics, logs). Demo only: Kibana
+# connects as kibana_system (password set by the init container).
+apiVersion: v1
+kind: Service
+metadata:
+  name: kibana
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: kibana
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - { name: http, port: 5601, targetPort: http }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kibana
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kibana
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- $labels | nindent 8 }}
+    spec:
+      enableServiceLinks: false
+      # Kibana refuses the elastic superuser, so it connects as kibana_system, whose password
+      # is set here on every start (idempotent) from the same Secret Kibana reads.
+      initContainers:
+        - name: kibana-system-password
+          image: {{ .Values.elasticsearch.image | quote }}   # has curl, already in the cluster
+          env:
+            - name: ELASTIC_PASSWORD
+              valueFrom: { secretKeyRef: { name: es-demo-kafkafim, key: password } }
+            - name: KIBANA_SYSTEM_PASSWORD
+              valueFrom: { secretKeyRef: { name: kibana-demo-system, key: password } }
+          command:
+            - sh
+            - -c
+            - |
+              until curl -fsS -u "elastic:$ELASTIC_PASSWORD" 'http://elasticsearch:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null; do sleep 2; done
+              curl -fsS -u "elastic:$ELASTIC_PASSWORD" -H 'Content-Type: application/json' \
+                -X POST 'http://elasticsearch:9200/_security/user/kibana_system/_password' \
+                -d "{\"password\":\"$KIBANA_SYSTEM_PASSWORD\"}"
+      containers:
+        - name: kibana
+          image: {{ .Values.kibana.image | quote }}
+          ports:
+            - { name: http, containerPort: 5601 }
+          env:
+            - { name: ELASTICSEARCH_HOSTS, value: "http://elasticsearch:9200" }
+            - { name: ELASTICSEARCH_USERNAME, value: "kibana_system" }
+            - name: ELASTICSEARCH_PASSWORD
+              valueFrom: { secretKeyRef: { name: kibana-demo-system, key: password } }
+            - { name: XPACK_SECURITY_ENCRYPTIONKEY, value: "kafkafim-demo-kibana-encryption-key-0123456789" }
+            - { name: XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY, value: "kafkafim-demo-saved-objects-key-0123456789" }
+            - { name: XPACK_REPORTING_ENCRYPTIONKEY, value: "kafkafim-demo-reporting-key-0123456789abcdef" }
+          readinessProbe:
+            httpGet: { path: /api/status, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          resources:
+            requests: { cpu: 250m, memory: 768Mi }
+            limits: { memory: 1536Mi }

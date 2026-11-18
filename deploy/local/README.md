@@ -1,10 +1,11 @@
 # Local Kubernetes demo
 
 One `helm install` brings up everything on a local Kubernetes cluster: a Kafka broker,
-Elasticsearch, Grafana LGTM (dashboards, metrics, traces, logs), and kafkafim, installed
-by the real chart ([charts/kafkafim](../../charts/kafkafim)). Secrets take the
-production path: Kubernetes `Secret`s mounted as files and read through
-`configtree:/etc/kafkafim/secrets/` ([HELM.md](../../docs/HELM.md#secrets-and-configtree-naming)).
+Elasticsearch, an APM Server that receives kafkafim's OTLP, Kibana on that Elasticsearch,
+Grafana LGTM (dashboards), and kafkafim, installed by the real chart
+([charts/kafkafim](../../charts/kafkafim)). Secrets take the production path: Kubernetes
+`Secret`s mounted as files and read through `configtree:/etc/kafkafim/secrets/`
+([HELM.md](../../docs/HELM.md#secrets-and-configtree-naming)).
 On Kubernetes kafkafim refuses the `local` profile and inline secrets, so this is the
 way to see a chart install work before production. For day-to-day development use
 `./mvnw spring-boot:run` with Compose instead ([README](../../README.md#develop)).
@@ -29,9 +30,11 @@ One release, `kafkafim`, in namespace `kafkafim-demo`:
 | `kafka` | [templates/kafka.yaml](kafkafim-demo/templates/kafka.yaml) | `apache/kafka:4.3.1`, one KRaft node, data in the pod's `emptyDir` only. SASL/PLAIN on `kafka:9092` for kafkafim; plaintext on the pod's loopback for the demo's own `kubectl exec` commands. Topic auto-creation off. |
 | Topics `demo.events`, `demo.events.kafkafim-dlq` | the `topics` container of the `kafka` pod | kafkafim never creates topics (ADR-0021). The pod becomes ready, and the `kafka` Service gets its endpoint, only once they exist, so kafkafim never sees the broker without them. |
 | `elasticsearch` | [templates/elasticsearch.yaml](kafkafim-demo/templates/elasticsearch.yaml) | `elasticsearch:9.5.6`, single node, security on (basic auth), TLS off, no persistence. |
-| `lgtm` | [templates/lgtm.yaml](kafkafim-demo/templates/lgtm.yaml) | `grafana/otel-lgtm:0.41.0` (the Compose version): OpenTelemetry Collector, Prometheus, Tempo, Loki, and Grafana in one container, no persistence. Both dashboards of [deploy/grafana](../grafana/README.md) are loaded into the *kafkafim* folder. |
-| Secrets `kafka-demo-kafkafim`, `es-demo-kafkafim` | [templates/secrets.yaml](kafkafim-demo/templates/secrets.yaml) | `username` + a random `password`, generated on install and kept on upgrade. The broker and Elasticsearch read them as env vars; kafkafim mounts them as configtree files. |
-| kafkafim (`deploy/kafkafim-demo`) | `charts/kafkafim` as a subchart, values under `kafkafim:` in [values.yaml](kafkafim-demo/values.yaml) | Group `demo` (one replica) running the Compose demo's `demo` pipeline; image `kafkafim:dev` built from this checkout. OTLP export goes to `http://lgtm:4318` through the chart's one endpoint value, `otel.endpoint`. |
+| `apm-server` | [templates/apm-server.yaml](kafkafim-demo/templates/apm-server.yaml) | `apm-server:9.5.6`, OTLP/HTTP on port 8200, writing to the demo Elasticsearch as `elastic`. No secret token, TLS off. This is kafkafim's OTLP endpoint, as the APM Server is in production. |
+| `kibana` | [templates/kibana.yaml](kafkafim-demo/templates/kibana.yaml) | `kibana:9.5.6` on port 5601, connecting to Elasticsearch as `kibana_system`. An init container sets that user's password from its secret on every start. |
+| `lgtm` | [templates/lgtm.yaml](kafkafim-demo/templates/lgtm.yaml) | `grafana/otel-lgtm:0.41.0` (the Compose version): OpenTelemetry Collector, Prometheus, Tempo, Loki, and Grafana in one container, no persistence. Both dashboards of [deploy/grafana](../grafana/README.md) are loaded into the *kafkafim* folder. kafkafim does not send to it (see below). |
+| Secrets `kafka-demo-kafkafim`, `es-demo-kafkafim`, `kibana-demo-system` | [templates/secrets.yaml](kafkafim-demo/templates/secrets.yaml) | `username` + a random `password`, generated on install and kept on upgrade. The broker and Elasticsearch read them as env vars; kafkafim mounts them as configtree files; Kibana reads `kibana-demo-system`. |
+| kafkafim (`deploy/kafkafim-demo`) | `charts/kafkafim` as a subchart, values under `kafkafim:` in [values.yaml](kafkafim-demo/values.yaml) | Group `demo` (one replica) running the Compose demo's `demo` pipeline; image `kafkafim:dev` built from this checkout. OTLP export goes to `http://apm-server:8200` through the chart's one endpoint value, `otel.endpoint`. |
 
 Nothing is copied into the demo chart. `kafkafim-demo/charts/kafkafim` is a symlink to
 the production chart, so there is no `helm dependency build` step. `kafkafim-demo/files/`
@@ -46,9 +49,10 @@ Desktop's Kubernetes (kubeadm mode, which shares Docker's images). JDK 27 to bui
 jar, as for the rest of the repository. With Nix:
 `nix shell nixpkgs#kind nixpkgs#kubectl nixpkgs#kubernetes-helm`.
 
-Memory: the four pods request about 3.75 GiB and are limited to about 4.25 GiB (Kafka
-768 Mi + 256 Mi for its topics container, Elasticsearch 1 Gi, LGTM 1 Gi requested and
-1.5 Gi limit, kafkafim 768 Mi). Give Docker at least 6 GiB.
+Memory: the pods request about 5.25 GiB in total (Kafka 768 Mi + 256 Mi for its topics
+container, Elasticsearch 1.5 Gi requested and 2 Gi limit with a 1 GiB heap, LGTM 1 Gi,
+kafkafim 768 Mi, Kibana 768 Mi requested and 1.5 Gi limit, APM Server 256 Mi). Give Docker
+at least 8 GiB.
 
 ## Run it
 
@@ -92,17 +96,33 @@ kubectl --context kind-kafkafim-demo -n kafkafim-demo port-forward svc/lgtm 3000
 
 Then open <http://localhost:3000>:
 
-- *Dashboards → kafkafim*: **kafkafim / Overview** and **kafkafim / Elasticsearch**. Run
-  `demo.sh smoke` a few times first; metrics arrive every 15s, and rate panels need two
-  samples.
-- *Explore → Tempo*: the TraceQL query `{name="pipeline.batch"}` lists one trace per
-  batch, each with its `es.bulk` child span. The demo traces every batch
-  (`MANAGEMENT_TRACING_SAMPLING_PROBABILITY=1.0` in the demo values); the application
-  default keeps 1% of batches and every failed one. Health probes are traced too, so a
-  search by `service.name` alone returns mostly those.
-- *Explore → Loki*: kafkafim's logs, which the application exports over OTLP to the
-  same endpoint as metrics and traces. Query `{service_name="kafkafim"}`; the stream
-  labels are `service_name`, `service_namespace`, and `service_instance_id`.
+Grafana no longer receives kafkafim's metrics, traces, or logs, because the demo sends
+them to the APM Server. Its dashboards and Explore views stay empty unless
+`otel.endpoint` points at `http://lgtm:4318` again. The Tempo and Loki queries that
+used to work there are now in Kibana (below).
+
+Kibana, through the port-forward:
+
+```bash
+kubectl --context kind-kafkafim-demo -n kafkafim-demo port-forward svc/kibana 5601:5601
+```
+
+Then open <http://localhost:5601> and sign in as `elastic`. Its password is the
+`es-demo-kafkafim` secret (generated on install):
+
+```bash
+kubectl --context kind-kafkafim-demo -n kafkafim-demo get secret es-demo-kafkafim -o jsonpath='{.data.password}' | base64 -d; echo
+```
+
+- *Observability → APM → Services → kafkafim*: transactions `demo.events process` (the
+  Kafka span for one record, which is microseconds long) and `pipeline.batch`, each with
+  its `es.bulk` child. The application default keeps 1% of batches and every failed one;
+  the demo traces every batch (`MANAGEMENT_TRACING_SAMPLING_PROBABILITY=1.0` in the demo
+  values). Health probes are traced too, so filter by `transaction.name` to see the
+  pipeline.
+- Metrics, in the APM metrics indices (`metrics-apm.app.kafkafim-*`). Some `NaN` values
+  are rejected by Elasticsearch (see [#475](https://github.com/culzaa/kafkafim/issues/475)).
+- *Discover*, data view `demo-*`: the documents `demo.sh smoke` indexes.
 
 kafkafim itself:
 
@@ -156,4 +176,19 @@ On 2026-11-14, on the branch with main `34accd9` merged, with kind 0.33.0 (node 
   not repeated).
 - `demo.sh down`. `helm lint` passes and the rendered chart passes `kubeconform -strict`.
 
-`CLUSTER=docker-desktop` has not been run.
+The sections above are from kind and the Grafana/LGTM setup.
+
+On 2026-11-18, on Docker Desktop's Kubernetes (`CLUSTER=docker-desktop`, node
+`containerd` 2.2.1, Docker Desktop 29.7.2, 8 GiB VM), with this branch:
+
+- `helm upgrade --install` with all six pods ready: kafkafim, Kafka (2/2),
+  Elasticsearch, APM Server, Kibana, LGTM.
+- The image had to be loaded by hand, since `demo.sh up` does not do it yet
+  ([#476](https://github.com/culzaa/kafkafim/issues/476)):
+  `docker save kafkafim:dev | docker exec -i desktop-control-plane ctr -n k8s.io images import -`.
+- `demo.sh smoke`: records indexed in `demo-eu-<date>` and traces `demo.events process` →
+  `pipeline.batch` → `es.bulk` in the APM indices.
+- Kibana `/api/status` returns 200 and signs in as `elastic`.
+- Elasticsearch was OOM-killed at its former 1 Gi limit. That is why the limit is now 2 Gi.
+
+`CLUSTER=kind` with the APM Server and Kibana has not been run.

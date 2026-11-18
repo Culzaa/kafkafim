@@ -49,7 +49,7 @@ spec:
             - { name: xpack.security.http.ssl.enabled, value: "false" }
             - { name: xpack.security.transport.ssl.enabled, value: "false" }
             - { name: cluster.routing.allocation.disk.threshold_enabled, value: "false" }
-            - { name: ES_JAVA_OPTS, value: "-Xms512m -Xmx512m" }
+            - { name: ES_JAVA_OPTS, value: "-Xms1g -Xmx1g" }
           readinessProbe:
             exec:
               command:
@@ -60,5 +60,5 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 60
           resources:
-            requests: { cpu: 250m, memory: 1Gi }
-            limits: { memory: 1Gi }
+            requests: { cpu: 250m, memory: 1536Mi }
+            limits: { memory: 2Gi }
