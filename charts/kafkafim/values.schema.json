@@ -190,6 +190,7 @@
       "additionalProperties": { "$ref": "#/definitions/group" }
     },
     "resources": { "$ref": "#/definitions/resources" },
+    "tmpSizeLimit": { "type": "string" },
     "nodeSelector": { "$ref": "#/definitions/stringMap" },
     "tolerations": { "type": "array", "items": { "type": "object" } },
     "affinity": { "type": "object" },
