@@ -1017,12 +1017,12 @@ in `ConfigValidator`, whose messages never include values.
     +1 per applied change); one INFO line per applied reload with the plan, one ERROR
     line per rejected reload listing every violation. `kafkafim_pipeline_state` gains
     and loses series with added and removed pipelines.
-  - **Settings**: `kafkafim.reload.enabled` (default `true`), `poll-interval` (10s),
-    `debounce` (2s), read at startup only. The watched paths are the file and
-    `configtree:` locations of the three properties above; `classpath:` locations are
-    not watched. `POST /actuator/reload` works with the watcher disabled. A reload
-    that changes them is still `applied` and logs a WARN that the watcher settings
-    apply after a restart.
+  - **Settings**: `kafkafim.reload.enabled` (default `true`), `poll-interval` (10s,
+    at least 1s), `debounce` (2s; below 1s only a warning), read at startup only.
+    The watched paths are the file and `configtree:` locations of the three properties
+    above; `classpath:` locations are not watched. `POST /actuator/reload` works with the
+    watcher disabled. A reload that changes them is still `applied` and logs a WARN that
+    the watcher settings apply after a restart.
   - Not reloaded: the `KafkafimProperties` bean stays the startup tree (the supervisor
     holds the one in effect); OTLP export headers (§10) and everything outside
     `kafkafim.*` need a restart.
@@ -1069,7 +1069,9 @@ are reported together:
   `ssl` trust and keystores only with `https`. An identity is exactly one of
   `username`+`password` or `api-key`, optionally with a keystore, or a keystore alone.
   A route on an `https` cluster without a resolvable identity fails; on `http` it binds
-  with a startup warning.
+  with a startup warning. An identity with `username`+`password` or `api-key` on an `http`
+  cluster also binds with a warning that the credential travels in clear (an error would
+  break a service-mesh setup that terminates TLS outside kafkafim).
 - **Pipelines**: `topics` are non-empty and distinct; the DLQ topic is not one of the
   source topics; `max-record-bytes ≤ max-in-flight-bytes`; sizes and durations are
   positive. A consumer group belongs to exactly one pipeline: two pipelines with the same

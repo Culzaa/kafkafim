@@ -661,6 +661,68 @@ class ConfigValidationTest {
                   + " requests are unauthenticated (local development only)");
     }
 
+    private static List<String> warningsOf(String... overrides) {
+      String[] all = new String[overrides.length + 1];
+      all[0] = "kafkafim.allow-inline-secrets=true";
+      System.arraycopy(overrides, 0, all, 1, overrides.length);
+      return ConfigValidator.validate(ConfigTestSupport.bind(MINIMAL, all)).warnings();
+    }
+
+    @Test
+    void warnsOnBasicAuthOverPlainHttp() {
+      assertThat(
+              warningsOf(
+                  ES + ".identities.w.username=u",
+                  ES + ".identities.w.password=pw",
+                  ES + ".default-identity=w"))
+          .contains(
+              ES
+                  + ".identities.w: basic-auth credentials are sent over plain http (cluster URIs"
+                  + " are not https); fine behind a mesh or for local development, otherwise use"
+                  + " https");
+    }
+
+    @Test
+    void warnsOnApiKeyOverPlainHttp() {
+      assertThat(warningsOf(ES + ".identities.w.api-key=k", ES + ".default-identity=w"))
+          .anyMatch(w ->
+              w.startsWith(ES + ".identities.w: api-key credentials are sent over plain http"));
+    }
+
+    @Test
+    void doesNotWarnAboutCredentialsOverHttps() {
+      assertThat(
+              warningsOf(
+                  ES + ".uris=https://a:9200",
+                  ES + ".identities.w.username=u",
+                  ES + ".identities.w.password=pw",
+                  ES + ".default-identity=w"))
+          .noneMatch(w -> w.contains("plain http"));
+    }
+
+    @Test
+    void doesNotWarnAboutKeystoreOnlyIdentity() {
+      assertThat(
+              warningsOf(
+                  ES + ".uris=https://a:9200",
+                  ES + ".identities.w.ssl.keystore-location=/k.p12",
+                  ES + ".default-identity=w"))
+          .noneMatch(w -> w.contains("plain http"));
+    }
+
+    @Test
+    void mixedSchemesFailWithTheirOwnError() {
+      // These configurations fail with their own error; the warning would only add noise.
+      List<String> errors =
+          ConfigTestSupport.errors(
+              MINIMAL,
+              ES + ".uris=http://a:9200,https://b:9200",
+              ES + ".identities.w.username=u",
+              ES + ".identities.w.password=pw",
+              "kafkafim.allow-inline-secrets=true");
+      assertThat(errors).anyMatch(e -> e.contains("mixes http and https"));
+    }
+
     @Test
     void rejectsAnUnknownRouteIdentity() {
       assertInvalid(
@@ -1844,6 +1906,43 @@ class ConfigValidationTest {
               + ".routes[0].transform: a drop: true route discards its documents, so there is no"
               + " copy to transform; remove transform or drop: true");
     }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"0s", "-1s", "999ms", "100ms"})
+  void rejectsPollIntervalBelowOneSecond(String interval) {
+    assertThat(ConfigTestSupport.errors(MINIMAL, "kafkafim.reload.poll-interval=" + interval))
+        .anyMatch(e -> e.startsWith("kafkafim.reload.poll-interval: "));
+  }
+
+  @Test
+  void acceptsPollIntervalOfOneSecondAndWarnsAboutZeroDebounce() {
+    ConfigValidator.Result result =
+        ConfigValidator.validate(
+            ConfigTestSupport.bind(
+                MINIMAL, "kafkafim.reload.poll-interval=1s", "kafkafim.reload.debounce=0s"));
+    assertThat(result.errors()).isEmpty();
+    assertThat(result.warnings()).anyMatch(w -> w.startsWith("kafkafim.reload.debounce: below 1s"));
+  }
+
+  @Test
+  void warnsAboutDebounceJustBelowOneSecond() {
+    ConfigValidator.Result result =
+        ConfigValidator.validate(ConfigTestSupport.bind(MINIMAL, "kafkafim.reload.debounce=999ms"));
+    assertThat(result.warnings()).anyMatch(w -> w.startsWith("kafkafim.reload.debounce: below 1s"));
+  }
+
+  @Test
+  void doesNotWarnAboutDebounceOfOneSecondOrMore() {
+    ConfigValidator.Result result =
+        ConfigValidator.validate(ConfigTestSupport.bind(MINIMAL, "kafkafim.reload.debounce=1s"));
+    assertThat(result.warnings()).noneMatch(w -> w.contains("reload.debounce"));
+  }
+
+  @Test
+  void rejectsNegativeDebounce() {
+    assertThat(ConfigTestSupport.errors(MINIMAL, "kafkafim.reload.debounce=-1s"))
+        .anyMatch(e -> e.equals("kafkafim.reload.debounce: must not be negative"));
   }
 
   private static String sasl(String identity) {
