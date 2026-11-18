@@ -14,7 +14,8 @@ Status: accepted · Date: 2026-11-07
   `/etc/kafkafim/secrets/` for Spring's `configtree`. Property names follow the mount
   path: `${kafka.<cluster>.<identity>.password}`.
 - No checksum annotation for the config ConfigMap (hot reload). Core APIs only; no
-  CRDs; `ServiceMonitor` and `NetworkPolicy` are opt-in.
+  CRDs; `NetworkPolicy` is opt-in (a `ServiceMonitor` was removed with the Prometheus endpoint,
+  ADR-0054).
 - Template-time `fail` on: pipeline named in a group but undefined, pipeline defined
   but unassigned or assigned twice, duplicate or misplaced secret mounts, single
   replica without explicit opt-in.
