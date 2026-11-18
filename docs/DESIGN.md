@@ -1070,7 +1070,10 @@ are reported together:
   resolved identity with a `sasl` block for the consumer and the DLQ producer; `SSL` and
   `PLAINTEXT` need none (client certificates are the broker's choice). A `sasl` block is
   only allowed on a `SASL_*` cluster, a keystore and cluster `ssl` trust only on a TLS
-  one. `PLAIN`/`SCRAM-*` need `username` and `password`.
+  one. `PLAIN`/`SCRAM-*` need `username` and `password`. `sasl.mechanism` must be exactly
+  `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512`, `GSSAPI` or `OAUTHBEARER` (case-sensitive,
+  never upper-cased for you; a mis-cased name is rejected with a hint); `GSSAPI` and
+  `OAUTHBEARER` take no `username`/`password`.
 - **Elasticsearch**: `uris` are `http(s)://host[:port]`, one scheme per cluster, without
   `user:password@` (credentials belong on an identity; a URI with userinfo is rejected and never echoed);
   `ssl` trust and keystores only with `https`. An identity is exactly one of
