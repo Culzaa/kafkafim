@@ -168,6 +168,7 @@ public final class ConfigValidator {
         .filter(
             key -> OwnedKafkaKeys.CONSUMER.contains(key) || OwnedKafkaKeys.PRODUCER.contains(key))
         .forEach(owned::add);
+    // The cluster's own trust keys, also derived when the cluster has no identity.
     Set<String> derived = new TreeSet<>(KafkaClientSecurity.properties(cluster, null).keySet());
     cluster
         .identities()
