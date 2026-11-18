@@ -279,6 +279,36 @@ class PipelineSupervisorApplyRollbackTest {
     assertThat(supervisor.pipelineNames()).containsExactly("a", "b");
   }
 
+  /**
+   * An Error while releasing what the old tree used (closing an instance can throw one) must not
+   * leave the new pipelines swapped in with the old properties and nothing started (#394).
+   */
+  @Test
+  void errorWhileReleasingDoesNotHalfCompleteTheCommit() {
+    start(deadBroker(A + B));
+    final KafkafimProperties running = supervisor.properties();
+    // b is removed and a restarts: two release steps, and one retire step, all fail.
+    KafkafimProperties next = deadBroker(A.replace("index: a", "index: a2"));
+    supervisor.commitProbe =
+        step -> {
+          throw new LinkageError("close: " + step);
+        };
+
+    supervisor.apply(next, ConfigDiff.between(running, next));
+
+    assertThat(supervisor.properties()).isSameAs(next);
+    assertThat(supervisor.pipelineNames()).containsExactly("a");
+    // The restarted pipeline was started on its new context despite the failed cleanup.
+    await()
+        .atMost(Duration.ofSeconds(10))
+        .until(() -> supervisor.state("a") == PipelineState.STARTING);
+    // The next reload diffs against the new tree and does not trip on a missing pipeline.
+    supervisor.commitProbe = step -> {};
+    KafkafimProperties after = deadBroker(A.replace("index: a", "index: a3"));
+    supervisor.apply(after, ConfigDiff.between(supervisor.properties(), after));
+    assertThat(supervisor.properties()).isSameAs(after);
+  }
+
   /** The starter thread must exist for every starting pipeline, or nothing ever retries it. */
   @Test
   void listenerErrorOnStartDoesNotLeaveThePipelineStartingWithoutStarterThread() {

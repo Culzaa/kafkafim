@@ -117,6 +117,26 @@ public final class PipelineSupervisor implements SmartLifecycle {
    */
   volatile Consumer<String> rollbackProbe = phase -> {};
 
+  /**
+   * Test seam, like {@link #rollbackProbe}: called with {@code "release"}, {@code
+   * "release:<pipeline>"} or {@code "retire"} before each cleanup step of the commit phase of an
+   * apply, so that a test can make it fail with an {@link Error} (closing an instance can).
+   */
+  volatile Consumer<String> commitProbe = step -> {};
+
+  /** One cleanup step of the commit phase: a failure is logged, the other steps still run. */
+  private void cleanUp(String step, Runnable action) {
+    try {
+      commitProbe.accept(step);
+      action.run();
+    } catch (RuntimeException | Error e) {
+      LOG.warn(
+          "Reload cleanup step '{}' failed; the new configuration is in effect regardless",
+          step,
+          e);
+    }
+  }
+
   private PipelineRuntime newRuntime(String name, PipelineRuntime.Context context) {
     return new PipelineRuntime(name, context, this::stateChanged, () -> meters.apply(name));
   }
@@ -348,15 +368,20 @@ public final class PipelineSupervisor implements SmartLifecycle {
         }
         throw e;
       }
+      // From here the new tree is in effect, in one step; what follows is cleanup that must not
+      // abort it (ADR-0041): a failure to close an instance is logged and the rest goes on.
       pipelines = Collections.unmodifiableMap(updated);
-      replaced.values().forEach(resources::release);
+      properties = next;
+      for (PipelineRuntime.Context previous : replaced.values()) {
+        cleanUp("release", () -> resources.release(previous));
+      }
       for (String name : diff.removed()) {
-        resources.release(current.get(name).context());
+        PipelineRuntime.Context removed = current.get(name).context();
+        cleanUp("release:" + name, () -> resources.release(removed));
         lastStates.remove(name);
         lastReasons.remove(name);
       }
-      resources.retireStale(next);
-      properties = next;
+      cleanUp("retire", () -> resources.retireStale(next));
       topologyListeners.forEach(PipelineSupervisor::runQuietly);
       if (running) {
         toStart.forEach(PipelineRuntime::start);
