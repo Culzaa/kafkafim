@@ -546,7 +546,7 @@ in the `variables:` block of `.gitlab-ci.yml`, so the repository needs no edit.
 | `MAVEN_REPO_USER`, `MAVEN_REPO_PASSWORD` | `gitlab-ci-token`, the job token | Credentials for it (HTTP Basic); masked for a real repository manager |
 | `KAFKAFIM_REGISTRY_USER`, `KAFKAFIM_REGISTRY_PASSWORD` | empty | `docker login` of the jobs to the registry of `KAFKAFIM_IMAGE_PREFIX`; empty uses the job's own credentials when that registry is this GitLab's |
 | `KAFKAFIM_BASE_DIGEST` | `drop` | The Dockerfile's base image: `drop` builds from the tag in the prefix registry, `keep` keeps its `@sha256` pin (see below) |
-| `KAFKAFIM_IMAGE_PLATFORMS` | `linux/amd64` | Platforms of the release image |
+| `KAFKAFIM_RELEASE_PLATFORMS` | `linux/amd64` | Platforms of the release image |
 | `KAFKAFIM_RELEASE_IMAGE` | `$CI_REGISTRY_IMAGE` | Repository the release image is pushed to |
 | `KAFKAFIM_RELEASE_CHART_REPO` | `oci://$CI_REGISTRY_IMAGE/charts` | OCI repository the chart is pushed to |
 | `KAFKAFIM_RELEASE_REGISTRY_USER`, `KAFKAFIM_RELEASE_REGISTRY_PASSWORD` | the job's registry credentials | Credentials for both of the above (masked for Artifactory) |
@@ -589,7 +589,9 @@ Docker, the JDK and the tools on the runner host.
 
 `rules:changes` cannot negate a pattern, so the list of non-documentation paths is explicit
 (`.code-paths` in `.gitlab-ci.yml`): a new top-level path that is not documentation must be added
-to it. A newer pipeline of the same merge request cancels the older one.
+to it. A newer pipeline of the same merge request cancels the older one (GitLab's default
+"auto-cancel redundant pipelines" also applies to the default branch; GitHub never cancels runs on
+`main`: turn that setting off in Settings, CI/CD, General pipelines if every commit needs a run).
 
 ### Release on a tag
 
@@ -619,7 +621,9 @@ base64 < cosign.key | tr -d '\n'                               # the value of CO
 ```
 
 Set `COSIGN_PRIVATE_KEY_B64` and `COSIGN_PASSWORD` as **masked and protected** variables (the key
-is base64 on one line because a multi-line value cannot be masked) and `COSIGN_PUBLIC_KEY` to the
+is base64 on one line because a multi-line value cannot be masked; GitLab masks only values of at
+least 8 characters on one line made of letters, digits and `+/=@:.~-_`, so choose the password
+accordingly) and `COSIGN_PUBLIC_KEY` to the
 text of `cosign.pub` (not secret). Keep `cosign.key` offline. With `KAFKAFIM_SIGNING=cosign` (the
 default), a missing variable fails `release-publish`; `KAFKAFIM_SIGNING=off` releases unsigned.
 

@@ -28,7 +28,7 @@ def request(method, url, token, body=None, content_type=None):
 
 
 def main(argv):
-    if len(argv) < 5:
+    if len(argv) < 4:
         sys.exit(__doc__)
     tag, image_ref, chart_ref, files = argv[0], argv[1], argv[2], argv[3:]
     api = os.environ["CI_API_V4_URL"].rstrip("/")

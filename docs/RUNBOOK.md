@@ -1156,7 +1156,7 @@ set `MAVEN_REPO_URL`, `KAFKAFIM_IMAGE_PREFIX` and the credentials (§ 8.6).
 
 ### 8.4 Build the job image
 
-The bundled images have no git, curl or unzip, so the pipeline runs in one image that is built from
+The bundled images lack curl, unzip and gpg (and, but for `docker:29-cli`, git), so the pipeline runs in one image that is built from
 the bundle, once, with no network but a registry that already has the images of § 8.3:
 
 ```bash

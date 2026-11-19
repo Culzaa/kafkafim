@@ -8,9 +8,9 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # shellcheck source=ci/lib.sh
 source ci/lib.sh
 
-yaml_imgs=$(grep -hE '^\s+image: ' compose.yaml loadtest/compose.yaml deploy/local/kafkafim-demo/values.yaml |
+yaml_imgs=$({ grep -hE '^\s+image: ' compose.yaml loadtest/compose.yaml deploy/local/kafkafim-demo/values.yaml || true; } |
   sed -E "s/^[[:space:]]+image: *['\"]?([^'\" #]+).*/\1/")
-test_imgs=$(grep -rhoE 'DockerImageName\.parse\("[^"]+"\)' src/test | sed -E 's/^.*\("([^"]+)"\)$/\1/')
+test_imgs=$({ grep -rhoE 'DockerImageName\.parse\("[^"]+"\)' src/test || true; } | sed -E 's/^.*\("([^"]+)"\)$/\1/')
 if [[ -z "$yaml_imgs" || -z "$test_imgs" ]]; then
   ci_error "found no images in the compose files/demo values or in src/test; update this check"
   exit 1

@@ -83,7 +83,7 @@ the pipeline, the release and the signing for later changes. This ADR is that ch
    chart package and the SBOM uploaded to the generic package registry and linked from a GitLab
    release created with the job token. The registries are variables (`KAFKAFIM_RELEASE_IMAGE`,
    `KAFKAFIM_RELEASE_CHART_REPO`, credentials), defaulting to the project's registry; Artifactory is
-   the real target. The image is single-platform by default (`KAFKAFIM_IMAGE_PLATFORMS`): the
+   the real target. The image is single-platform by default (`KAFKAFIM_RELEASE_PLATFORMS`): the
    Dockerfile needs no emulation for a second platform, but the registry needs that platform's
    base image, which `publish` pushes for one platform at a time. No air-gap bundle step.
 10. **Signing: a Cosign key pair** (option (a) of issue 483, accepted by the owner's delegate). The

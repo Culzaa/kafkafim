@@ -63,6 +63,6 @@ extra=()
 [[ "${KAFKAFIM_RELEASE_INSECURE:-}" != true ]] || extra+=(--allow-http-registry)
 COSIGN_PRIVATE_KEY="$(printf '%s' "$COSIGN_PRIVATE_KEY_B64" | base64 -d)" \
   cosign sign --yes --key env://COSIGN_PRIVATE_KEY --tlog-upload=false \
-  --use-signing-config=false --new-bundle-format=false "${extra[@]}" "$ref"
-cosign verify --key "$pub" --insecure-ignore-tlog=true "${extra[@]}" "$ref" >/dev/null
+  --use-signing-config=false --new-bundle-format=false ${extra[@]+"${extra[@]}"} "$ref"
+cosign verify --key "$pub" --insecure-ignore-tlog=true ${extra[@]+"${extra[@]}"} "$ref" >/dev/null
 echo "signed and verified $ref with the key in COSIGN_PUBLIC_KEY"

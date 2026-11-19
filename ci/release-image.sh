@@ -6,7 +6,7 @@
 #
 #   ci/release-image.sh vMAJOR.MINOR.PATCH[-prerelease]
 #
-# Variables: KAFKAFIM_RELEASE_IMAGE (default $CI_REGISTRY_IMAGE), KAFKAFIM_IMAGE_PLATFORMS
+# Variables: KAFKAFIM_RELEASE_IMAGE (default $CI_REGISTRY_IMAGE), KAFKAFIM_RELEASE_PLATFORMS
 # (default linux/amd64; a second platform needs that platform's base image in the registry and
 # the containerd image store), and those of ci/image-build.sh.
 set -euo pipefail
@@ -20,6 +20,9 @@ tags=("$image:$version" "$image:sha-${sha:0:7}")
 if [[ "$version" != *-* ]]; then
   tags+=("$image:$(cut -d. -f1,2 <<<"$version")")
 fi
+# A separate name from KAFKAFIM_IMAGE_PLATFORMS, so a project variable for the release cannot reach
+# the CI image job.
+export KAFKAFIM_IMAGE_PLATFORMS="${KAFKAFIM_RELEASE_PLATFORMS:-linux/amd64}"
 mkdir -p dist
 rm -f dist/image-build.json
 labels=(

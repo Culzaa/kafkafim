@@ -19,7 +19,7 @@ args=()
 [[ "${KAFKAFIM_RELEASE_INSECURE:-}" != true ]] || args+=(--plain-http)
 mkdir -p dist
 helm package charts/kafkafim --version "$v" --app-version "$v" -d dist
-helm push "dist/kafkafim-$v.tgz" "$repo" "${args[@]}" 2>&1 | tee dist/chart-push.log
+helm push "dist/kafkafim-$v.tgz" "$repo" ${args[@]+"${args[@]}"} 2>&1 | tee dist/chart-push.log
 digest="$(grep -o 'sha256:[a-f0-9]*' dist/chart-push.log | head -n 1)"
 [[ -n "$digest" ]] || {
   echo "no digest in the helm push output" >&2

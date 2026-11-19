@@ -11,7 +11,7 @@
 #     development bundle takes (tools/airgap-dev/pins.txt);
 #   - release.yml and the GitLab release disagree on the tag format (once the map has a release row);
 #   - .gitlab-ci.yml or a ci/release-* script builds an air-gap bundle (not wanted in GitLab).
-# Needs only bash, awk, grep and sed.
+# Needs bash and the usual POSIX tools (awk, grep, sed, sort, tr, cut, find).
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # shellcheck source=ci/lib.sh

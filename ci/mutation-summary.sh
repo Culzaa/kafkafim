@@ -9,6 +9,6 @@ source ci/lib.sh
 # Every <mutation> element has a status attribute: KILLED, SURVIVED, NO_COVERAGE, ...
 {
   echo 'Mutants by status:'
-  grep -o '<mutation [^>]*status=.[A-Z_]*' target/pit-reports/mutations.xml |
+  { grep -o '<mutation [^>]*status=.[A-Z_]*' target/pit-reports/mutations.xml || true; } |
     sed 's/.*status=.//' | sort | uniq -c | sort -rn
 } | ci_summary

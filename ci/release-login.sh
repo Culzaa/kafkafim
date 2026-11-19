@@ -24,5 +24,5 @@ image_host="${image%%/*}"
 chart_host="${chart_ref%%/*}"
 for host in $(printf '%s\n%s\n' "$image_host" "$chart_host" | sort -u); do
   echo "$password" | docker login "$host" -u "$user" --password-stdin
-  echo "$password" | helm registry login "$host" -u "$user" --password-stdin "${helm_args[@]}"
+  echo "$password" | helm registry login "$host" -u "$user" --password-stdin ${helm_args[@]+"${helm_args[@]}"}
 done
