@@ -496,7 +496,7 @@ medium. The `YAML format` job of `ci.yml` runs `tools/airgap-dev-bundle.sh check
 repository names an image or a workflow runs a Maven goal that the script does not take.
 
 `tools/airgap-dev-bundle.sh publish` uploads the Maven repository and the images to a
-repository manager (Artifactory, Nexus) or the GitLab registries
+repository manager (Artifactory; Nexus works the same, HTTP PUT)
 ([RUNBOOK § 7.4](RUNBOOK.md#74-publish-to-artifactory-or-nexus-or-the-gitlab-registries)).
 
 Set up a developer machine in the air gap from the bundle:

@@ -1032,12 +1032,17 @@ docker login artifactory.example
   --registry artifactory.example/kafkafim-docker/kafkafim
 ```
 
-`--dry-run` lists what would happen. The images land as `<registry>/<original name:tag>`, for
+`--dry-run` counts the Maven files and lists the images, and sends nothing. The images land as
+`<registry>/<original name:tag>`, for
 example `.../kafkafim/docker.elastic.co/elasticsearch/elasticsearch:9.5.6`. The script checks
-`SHA256SUMS` first, and warns when a pushed image has a different digest than the pin: the
+`SHA256SUMS` first, and warns when a pushed image has another digest than the pin. Expect that
+warning for most images (the pin is the multi-platform index, the push is one platform): the
 Dockerfile's `FROM eclipse-temurin:27-jre@sha256:...` then needs the registry prefix and the
 new digest. Point developers at the Maven repository with a `settings.xml` mirror (no `-o`).
-Create the repositories first: a local Maven repository and a local Docker repository.
+Create the repositories first: a local Maven repository and a local Docker repository. A
+release repository may refuse to overwrite a file that is already there, so run `publish` once
+per repository, or allow overwrite for the service user before a second run. Maven file names
+with spaces are not supported (Maven coordinates never have them).
 
 ## Known gaps
 

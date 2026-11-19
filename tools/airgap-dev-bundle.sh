@@ -586,20 +586,14 @@ publish() {
   local dir="" murl="" registry="" plat="" jobs=8 skip_maven=0 skip_images=0 dry=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --maven-url)
-        murl="${2%/}"
-        shift 2
-        ;;
-      --registry)
-        registry="${2%/}"
-        shift 2
-        ;;
-      --platform)
-        plat="$2"
-        shift 2
-        ;;
-      --jobs)
-        jobs="$2"
+      --maven-url | --registry | --platform | --jobs)
+        [[ $# -ge 2 ]] || die "$1 needs a value"
+        case "$1" in
+          --maven-url) murl="${2%/}" ;;
+          --registry) registry="${2%/}" ;;
+          --platform) plat="$2" ;;
+          --jobs) jobs="$2" ;;
+        esac
         shift 2
         ;;
       --skip-maven)
@@ -624,22 +618,30 @@ publish() {
   [[ -n "$dir" ]] || die "publish needs the bundle directory"
   [[ "$skip_maven" -eq 1 || -n "$murl" ]] || die "publish needs --maven-url (or --skip-maven)"
   [[ "$skip_images" -eq 1 || -n "$registry" ]] || die "publish needs --registry (or --skip-images)"
+  [[ "$jobs" =~ ^[0-9]+$ && "$jobs" -gt 0 ]] || die "--jobs needs a positive integer"
   need curl
   (cd "$dir" && sums -c SHA256SUMS >/dev/null) || die "SHA256SUMS does not match; not publishing"
 
   if [[ "$skip_maven" -eq 0 ]]; then
     local n
     n="$(find "$dir/maven-repo" -type f ! -name 'maven-metadata-*.xml' | wc -l | tr -d ' ')"
+    [[ "$n" -gt 0 ]] || die "no files in $dir/maven-repo"
     echo "== maven: $n files to $murl"
     if [[ "$dry" -eq 0 ]]; then
-      export PUB_URL="$murl" PUBLISH_USER="${PUBLISH_USER:-}" PUBLISH_PASSWORD="${PUBLISH_PASSWORD:-}"
+      # curl reads the credentials from a config file where backslash and quote are escapes.
+      local u="${PUBLISH_USER:-}" w="${PUBLISH_PASSWORD:-}"
+      u="${u//\\/\\\\}"
+      u="${u//\"/\\\"}"
+      w="${w//\\/\\\\}"
+      w="${w//\"/\\\"}"
+      export PUB_URL="$murl" PUBLISH_USER="$u" PUBLISH_PASSWORD="$w"
       # shellcheck disable=SC2016  # the worker script is expanded by the child bash
       find "$dir/maven-repo" -type f ! -name 'maven-metadata-*.xml' -print0 |
         xargs -0 -n 1 -P "$jobs" bash -c '
           rel="${1#"$0"/}"
           if [[ -n "$PUBLISH_USER" ]]; then
             printf "user = \"%s:%s\"\n" "$PUBLISH_USER" "$PUBLISH_PASSWORD"
-          fi | curl -fsS -K - -o /dev/null -T "$1" "$PUB_URL/$rel" || {
+          fi | curl -g -fsS -K - -o /dev/null -T "$1" "$PUB_URL/$rel" || {
             echo "upload failed: $rel" >&2
             exit 255
           }' "$dir/maven-repo"
@@ -654,6 +656,7 @@ publish() {
         *) plat=linux/amd64 ;;
       esac
     fi
+    [[ -f "$dir/images/images.lock" ]] || die "the bundle has no images/images.lock (built with --skip-images?)"
     echo "== images ($plat) to $registry"
     local pinned p file sum ref target got
     while read -r pinned p file sum; do
@@ -666,9 +669,9 @@ publish() {
       docker load -q -i "$dir/images/$file" >/dev/null
       docker tag "$ref" "$target"
       docker push -q "$target" >/dev/null
-      got="$(docker image inspect --format '{{index .RepoDigests 0}}' "$target" 2>/dev/null || true)"
+      got="$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$target" 2>/dev/null | grep -F "$target@" | head -n 1 || true)"
       if [[ "${got##*@}" != "${pinned##*@}" ]]; then
-        echo "note: $target has digest ${got##*@}, the pin is ${pinned##*@}; a FROM that pins the digest needs the new one" >&2
+        echo "note: $target has digest ${got##*@}, the pin was ${pinned##*@}; a FROM that pins a digest must be rewritten" >&2
       fi
     done <"$dir/images/images.lock"
   fi
