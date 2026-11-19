@@ -40,6 +40,10 @@ Helm distribution model and is what `helm pull`/`helm push` and `skopeo` underst
 
 ## CI (`.github/workflows/ci.yml`) on pull requests and `main`
 
+The command of each job below is a script in `ci/` that `.gitlab-ci.yml` calls too
+([CI and release on GitLab](#ci-and-release-on-gitlab-the-air-gap)); `ci.yml` keeps the setup that
+depends on GitHub (action pins, caches, tool downloads).
+
 | Job | What it proves |
 |---|---|
 | `changes` (check "Detect changes") | Nothing; it classifies the pull request's changed paths for the jobs below (see "Docs-only pull requests"). On pushes to `main` and merge queue runs it selects every job. |
@@ -48,7 +52,7 @@ Helm distribution model and is what `helm pull`/`helm push` and `skopeo` underst
 | `coverage` (check "Coverage") | Needs `build` and `integration`. Downloads both jobs' JaCoCo data, merges it, writes the HTML and CSV report (uploaded as `coverage-report`, with line and branch totals in the job summary) and enforces the coverage floor ([Coverage floor](#coverage-floor)). Not a required check. |
 | `mutation` (check "Mutation tests") | Needs only `changes`; skipped on docs-only pull requests. Runs PIT (`./mvnw test-compile org.pitest:pitest-maven:mutationCoverage`) on the `route` and `decode` packages, uploads the HTML and XML report as `mutation-report`, with the count of mutants per status in the job summary, and fails when the mutation score drops below the floor ([Mutation testing](#mutation-testing)). Not a required check. |
 | `image` (check "Container image") | Needs only `build`, so it runs while `integration` is still running. The Dockerfile builds from `build`'s jar (no push); `hadolint` on the Dockerfile; the container starts read-only and answers `/actuator/health/liveness` within 60 s. |
-| `helm` (check "Helm chart") | `helm lint`, `helm template` with every `charts/kafkafim/ci/*-values.yaml`, `kubeconform -strict` (v0.8.0) against Kubernetes schemas, `helm unittest` (helm-unittest 1.2.1) for the group-rendering logic and every template-time `fail`. Helm is pinned (`azure/setup-helm` `version:`, currently v4.3.1, the same in `release.yml`); helm-unittest is installed from its signed release tarball: the tarball and its `.prov` are fetched through the GitHub API asset endpoint (not `releases/download/`), checked against pinned SHA-256s, and Helm verifies the provenance with the release key committed at `.github/keys/helm-unittest-public-key.asc` (fingerprint pinned in `ci.yml`). Both tools are kept in an `actions/cache` keyed on their pins, so once a passing run has warmed it (caches unused for 7 days are evicted) an outage of github.com release downloads or of the Go module proxy cannot fail the job. Checkout, the Actions cache service, `azure/setup-helm` (get.helm.sh), and kubeconform's schemas (raw.githubusercontent.com) are still needed on every run. The local demo's chart ([`deploy/local/kafkafim-demo`](../deploy/local/README.md)) gets `helm lint`, `helm template`, and `kubeconform -strict` too, plus a check that every `deploy/grafana/dashboards/*.json` is in its dashboards ConfigMap and that kafkafim's OTLP endpoint is the `apm-server` Service. The chart steps are skipped until the chart exists, and on pull requests that change none of `charts/**`, `deploy/local/**`, `deploy/grafana/**` (the demo chart renders the dashboards), `.github/workflows/ci.yml` or `.github/keys/**`. The same job also checks [`deploy/grafana/`](../deploy/grafana/README.md), so the required checks stay the same: `jq empty` on every `dashboards/*.json`, `promtool check rules` on every `alerts/*.yaml` and `promtool test rules` on every `alerts/*.test.yaml` (run from `alerts/`, since the tests name their rule files relative to themselves); it fails if any of the three globs is empty. promtool comes from the Prometheus 3.15.1 `linux-amd64` release tarball, fetched through the GitHub API asset endpoint, checked against a pinned SHA-256 on every run and kept in its own `actions/cache`. These steps run on pull requests that change `deploy/grafana/**` or `ci.yml`, and on every push to `main`. The job is skipped on pull requests that change none of `charts/**`, `deploy/local/**`, `.github/keys/**`, `deploy/grafana/**`, and `ci.yml`. |
+| `helm` (check "Helm chart") | `helm lint`, `helm template` with every `charts/kafkafim/ci/*-values.yaml`, `kubeconform -strict` (v0.8.0) against Kubernetes schemas, `helm unittest` (helm-unittest 1.2.1) for the group-rendering logic and every template-time `fail`. Helm is pinned (`azure/setup-helm` `version:`, currently v4.3.1, the same in `release.yml`); helm-unittest is installed from its signed release tarball: the tarball and its `.prov` are fetched through the GitHub API asset endpoint (not `releases/download/`), checked against pinned SHA-256s, and Helm verifies the provenance with the release key committed at `.github/keys/helm-unittest-public-key.asc` (fingerprint pinned in `ci.yml`). Both tools are kept in an `actions/cache` keyed on their pins, so once a passing run has warmed it (caches unused for 7 days are evicted) an outage of github.com release downloads or of the Go module proxy cannot fail the job. Checkout, the Actions cache service, `azure/setup-helm` (get.helm.sh), and kubeconform's schemas (raw.githubusercontent.com) are still needed on every run. The local demo's chart ([`deploy/local/kafkafim-demo`](../deploy/local/README.md)) gets `helm lint`, `helm template`, and `kubeconform -strict` too, plus a check that every `deploy/grafana/dashboards/*.json` is in its dashboards ConfigMap and that kafkafim's OTLP endpoint is the `apm-server` Service. The chart steps are skipped until the chart exists, and on pull requests that change none of `charts/**`, `deploy/local/**`, `deploy/grafana/**` (the demo chart renders the dashboards), `.github/workflows/ci.yml`, `.github/keys/**` or `ci/**`. The same job also checks [`deploy/grafana/`](../deploy/grafana/README.md), so the required checks stay the same: `jq empty` on every `dashboards/*.json`, `promtool check rules` on every `alerts/*.yaml` and `promtool test rules` on every `alerts/*.test.yaml` (run from `alerts/`, since the tests name their rule files relative to themselves); it fails if any of the three globs is empty. promtool comes from the Prometheus 3.15.1 `linux-amd64` release tarball, fetched through the GitHub API asset endpoint, checked against a pinned SHA-256 on every run and kept in its own `actions/cache`. These steps run on pull requests that change `deploy/grafana/**`, `ci/**` or `ci.yml`, and on every push to `main`. The job is skipped on pull requests that change none of `charts/**`, `deploy/local/**`, `.github/keys/**`, `deploy/grafana/**`, `ci/**`, and `ci.yml`. |
 | `shell` (check "Shell style") | `shellcheck` v0.11.0 and `shfmt` v3.14.1 (release assets checked against pinned SHA-256s) on every `git ls-files '*.sh'`, and `actionlint` 1.7.12 (also SHA-256 pinned), which runs that shellcheck on the inline `run:` blocks of every workflow; `shfmt` takes its 2-space indent from `.editorconfig` ([ADR-0046](decisions/0046-google-style-guides-for-shell-markdown-prose-and-json-yaml.md)). No `needs`: runs on every pull request and push, docs-only included. Not a required check yet. |
 | `yaml` (check "YAML format") | `yamllint` 1.37.1 with the repo-root `.yamllint.yaml` over the chart's `Chart.yaml`, `values.yaml`, `ci/` and `tests/`, `deploy/grafana`, `.github`, both compose files, and `src/main/resources` (not `charts/*/templates`, which are Helm templates); plus a check that no tracked XML except `pom.xml` contains a tab. No `needs`. Not a required check. |
 | `markdown` (check "Markdown style") | `markdownlint-cli2` (action v25.0.0, bundling markdownlint-cli2 0.24.0) on every tracked `*.md`; rules and exceptions in `.markdownlint-cli2.jsonc` ([ADR-0046](decisions/0046-google-style-guides-for-shell-markdown-prose-and-json-yaml.md)). No `needs`: runs on every pull request and push, docs-only included. Not a required check yet. |
@@ -479,9 +483,11 @@ The bundle expects the operating system to provide `git`, `curl`, `bash`, `pytho
 CI uses `gh` and `go install` only to download tools, which the bundle ships as binaries, and
 markdownlint-cli2 runs from its image. The `tools.lock` column "how" says how each download was
 checked: `ci-pin` (the SHA-256 pinned in `ci.yml`), `upstream` (the release's checksum file) or
-`recorded` (no reference exists: the hash of what arrived). The GitLab job images are generic
-(`docker`, `docker:dind`, a JDK, Python); tool-specific job images come with the pipeline change
-(issue 482).
+`recorded` (no reference exists: the hash of what arrived). The GitLab jobs run in one image,
+`kafkafim-ci`, that the far side builds from the bundle (`ci/build-tools-image.sh`, no network:
+the JDK, Python, Docker CLI and hadolint images plus the static tools) and in the `docker`,
+`docker:dind` and markdownlint-cli2 images ([CI and release on
+GitLab](#ci-and-release-on-gitlab-the-air-gap)).
 
 Build it on a machine with a network, Docker, git, curl, jq, Python 3 with pip (for the
 yamllint wheels) and the project's JDK on the `PATH`:
@@ -506,6 +512,181 @@ repository manager (Artifactory; Nexus works the same, HTTP PUT)
 Set up a developer machine in the air gap from the bundle:
 [RUNBOOK § 7](RUNBOOK.md#7-developing-inside-the-air-gap). What the build proves, and what it
 cannot, is described there too.
+
+## CI and release on GitLab (the air gap)
+
+The air gap runs GitLab, so everything that works on GitHub has a counterpart there
+([ADR-0057](decisions/0057-gitlab-pipeline-shares-the-ci-scripts-with-github-actions.md)),
+except air-gap bundles: there is nowhere further to carry one. GitHub stays the upstream and its
+workflows behave as before. The far side needs GitLab 17 or later, **Free tier**, and a runner.
+First-time setup from an empty GitLab is in
+[RUNBOOK § 8](RUNBOOK.md#8-ci-and-release-in-gitlab-inside-the-air-gap).
+
+**One source of truth.** The check commands are scripts in `ci/` (`ci/build.sh`,
+`ci/integration-tests.sh`, `ci/chart-validate.sh`, and so on). `ci.yml` and `.gitlab-ci.yml` call
+the same ones; only what depends on the CI system differs. `ci/parity.map` lists the job pairs, and
+`ci/check-parity.sh` (a step of the `YAML format` job on both sides) fails when a job exists on one
+side only, when the two jobs of a pair call different scripts, when a script is in no row, when
+the GitLab pipeline names an image that the development bundle does not carry, or when it builds
+an air-gap bundle. Run any script locally: `ci/chart-lint.sh` needs `helm` on the `PATH`, and so on
+(each script's header says what it needs).
+
+### Variables
+
+Everything environment-specific is a CI/CD variable (Settings, CI/CD, Variables); the defaults are
+in the `variables:` block of `.gitlab-ci.yml`, so the repository needs no edit.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `KAFKAFIM_IMAGE_PREFIX` | `$CI_REGISTRY/$CI_PROJECT_NAMESPACE/mirror` | Registry path the job and service images, the Dockerfile's base images and the Testcontainers images come from. The images are `PREFIX/<name as written>`, as `publish --registry` pushes them |
+| `KAFKAFIM_CI_IMAGE` | `$KAFKAFIM_IMAGE_PREFIX/kafkafim-ci:1` | The job image, built from the bundle by `ci/build-tools-image.sh` |
+| `KAFKAFIM_DOCKER_MODE` | `dind` | `dind` (the `docker:dind` service, no TLS), `dind-tls`, or `socket` (the runner's mounted socket) |
+| `KAFKAFIM_DOCKER_HOST_ADDRESS` | `host.docker.internal` | `socket` mode: the name the job reaches the host's published ports at |
+| `MAVEN_REPO_URL` | the project's Maven package registry | The Maven repository to resolve from (the bundle's `maven-repo/`); a `settings.xml` mirror is generated from it, no `-o` |
+| `MAVEN_REPO_USER`, `MAVEN_REPO_PASSWORD` | `gitlab-ci-token`, the job token | Credentials for it (HTTP Basic); masked for a real repository manager |
+| `KAFKAFIM_REGISTRY_USER`, `KAFKAFIM_REGISTRY_PASSWORD` | empty | `docker login` of the jobs to the registry of `KAFKAFIM_IMAGE_PREFIX`; empty uses the job's own credentials when that registry is this GitLab's |
+| `KAFKAFIM_BASE_DIGEST` | `drop` | The Dockerfile's base image: `drop` builds from the tag in the prefix registry, `keep` keeps its `@sha256` pin (see below) |
+| `KAFKAFIM_RELEASE_PLATFORMS` | `linux/amd64` | Platforms of the release image |
+| `KAFKAFIM_RELEASE_IMAGE` | `$CI_REGISTRY_IMAGE` | Repository the release image is pushed to |
+| `KAFKAFIM_RELEASE_CHART_REPO` | `oci://$CI_REGISTRY_IMAGE/charts` | OCI repository the chart is pushed to |
+| `KAFKAFIM_RELEASE_REGISTRY_USER`, `KAFKAFIM_RELEASE_REGISTRY_PASSWORD` | the job's registry credentials | Credentials for both of the above (masked for Artifactory) |
+| `KAFKAFIM_RELEASE_INSECURE` | unset | `true` when those registries speak plain HTTP |
+| `KAFKAFIM_SIGNING` | `cosign` | `cosign`, or `off` to release unsigned |
+| `COSIGN_PRIVATE_KEY_B64`, `COSIGN_PASSWORD`, `COSIGN_PUBLIC_KEY` | none | The signing key (see Signing) |
+
+### Runner requirements
+
+A runner with the Docker executor. The Integration tests and Container image jobs need container
+access:
+
+- **`dind` (default).** A privileged runner (`privileged = true` in `config.toml`); the jobs start
+  a `docker:dind` service named `docker` and talk to it on port 2375. Testcontainers starts its
+  containers inside that daemon and reaches them at the host `docker`
+  (`TESTCONTAINERS_HOST_OVERRIDE`). No other runner setting is needed.
+- **`dind-tls`.** The same, with TLS on port 2376; the runner must mount the client certificates:
+  `volumes = ["/certs/client", "/cache"]`. Not exercised by the validation of this change.
+- **`socket`.** The runner mounts the host's socket
+  (`volumes = ["/var/run/docker.sock:/var/run/docker.sock", "/cache"]`) and resolves
+  `host.docker.internal` for jobs (`extra_hosts = ["host.docker.internal:host-gateway"]`). The
+  containers a job starts are siblings on the host, and anyone who can run a job controls that
+  host's Docker: use it only on a runner that is not shared.
+
+The runner pulls the job image and the service image from `KAFKAFIM_IMAGE_PREFIX`: the registry
+must allow it (a public or internal mirror project, the mirror's job token allowlist, or
+`DOCKER_AUTH_CONFIG`; [RUNBOOK § 8.5](RUNBOOK.md#85-runner-and-registry-access)). On Kubernetes
+and shell executors the pipeline is not designed to run: it needs a privileged Docker sidecar, or
+Docker, the JDK and the tools on the runner host.
+
+### Jobs
+
+| GitLab job | Runs | Skipped when |
+|---|---|---|
+| `build`, `integration`, `coverage`, `mutation`, `container-image` | merge requests that change a non-documentation path, and every push to the default branch | a merge request changes only `docs/`, `*.md` and `LICENSE` |
+| `helm` | merge requests that change `charts/`, `deploy/`, `.github/keys/`, `ci/` or `.gitlab-ci.yml`, and every push to the default branch | |
+| `grafana-format` | merge requests that change `deploy/grafana/`, `ci/` or `.gitlab-ci.yml`, and every push to the default branch | |
+| `shell`, `markdown`, `yaml` | every merge request and push to the default branch | |
+| `release-validate`, `release-verify`, `release-publish` | a tag `v*` | |
+
+`rules:changes` cannot negate a pattern, so the list of non-documentation paths is explicit
+(`.code-paths` in `.gitlab-ci.yml`): a new top-level path that is not documentation must be added
+to it. A newer pipeline of the same merge request cancels the older one (GitLab's default
+"auto-cancel redundant pipelines" also applies to the default branch; GitHub never cancels runs on
+`main`: turn that setting off in Settings, CI/CD, General pipelines if every commit needs a run).
+
+### Release on a tag
+
+Push a tag `vMAJOR.MINOR.PATCH[-prerelease]` from the default branch (protect `v*` tags: the
+signing variables are protected). `release-validate` checks the tag format and that the commit is
+on the default branch, `release-verify` runs `./mvnw verify` at the tag, `release-publish` pushes:
+
+- the image `KAFKAFIM_RELEASE_IMAGE` with the tags `1.2.3`, `1.2` (not for a pre-release) and
+  `sha-<7>`, never `latest`, with BuildKit provenance;
+- the chart `kafkafim-1.2.3` to `KAFKAFIM_RELEASE_CHART_REPO`;
+- the SBOM (SPDX JSON, from the bundled syft), the chart package, the alert rules, the dashboards
+  and, with signing, the public key, to the project's generic package registry, linked from a
+  GitLab release for the tag.
+
+There is no air-gap bundle step and no `SHA256SUMS`: the artifacts are in the registries and the
+release already.
+
+### Signing
+
+Keyless Cosign needs Sigstore, which an air gap cannot reach, so the GitLab release signs with a
+**Cosign key pair** generated on the far side (the private key never exists elsewhere). Generate
+it once:
+
+```bash
+COSIGN_PASSWORD='<a long password>' cosign generate-key-pair   # writes cosign.key and cosign.pub
+base64 < cosign.key | tr -d '\n'                               # the value of COSIGN_PRIVATE_KEY_B64
+```
+
+Set `COSIGN_PRIVATE_KEY_B64` and `COSIGN_PASSWORD` as **masked and protected** variables (the key
+is base64 on one line because a multi-line value cannot be masked; GitLab masks only values of at
+least 8 characters on one line made of letters, digits and `+/=@:.~-_`, so choose the password
+accordingly) and `COSIGN_PUBLIC_KEY` to the
+text of `cosign.pub` (not secret). Keep `cosign.key` offline. With `KAFKAFIM_SIGNING=cosign` (the
+default), a missing variable fails `release-publish`; `KAFKAFIM_SIGNING=off` releases unsigned.
+
+The image and the chart are signed in the legacy `.sig` format, like the GitHub release, with no
+transparency log upload, and checked with the public key in the same job. Anyone verifies with
+the public key from the release assets:
+
+```bash
+cosign verify --key cosign.pub --insecure-ignore-tlog=true "$IMAGE@sha256:<digest>"
+cosign verify --key cosign.pub --insecure-ignore-tlog=true "<registry>/<path>/charts/kafkafim@sha256:<digest>"
+```
+
+### Base image digests
+
+The Dockerfile pins its base image by the digest of the multi-arch index. `tools/airgap-dev-bundle.sh
+publish` pushes one platform, which makes another manifest, so that digest does not exist in the
+mirror ("not found"). The GitLab image build therefore reads the base image from the prefix
+registry by tag (`KAFKAFIM_BASE_DIGEST=drop`); what the tag points to is the mirror operator's
+decision. A mirror that holds a digest-preserving copy of the bundled index (`skopeo copy --all`,
+`crane copy`, Artifactory replication) can set `keep` and gets the same pin as on GitHub. The
+repository's Dockerfile is never edited: `ci/image-build.sh` builds a copy with the prefix.
+
+### Local demo, Dependabot and the merge queue
+
+- **Local demo and compose.** With `KAFKAFIM_IMAGE_PREFIX` set, `deploy/local/demo.sh up` reads the
+  demo chart's images, the Dockerfile's base image and, with `KIND_NODE_IMAGE`, the kind node
+  image from the registry ([deploy/local/README.md](../deploy/local/README.md#from-a-registry-mirror)).
+  `deploy/local/compose-prefix.sh` writes a compose override for `compose.yaml` and
+  `loadtest/compose.yaml`.
+- **Dependabot has no counterpart** inside the air gap: dependency and image updates arrive with
+  the next development bundle, built on the connected side from GitHub, where Dependabot keeps
+  working.
+- **The merge queue** becomes merge requests with *Pipelines must succeed* and the merge method
+  *Fast-forward merge* (or *Merge commit with semi-linear history*) on a protected default
+  branch. Merge trains are Premium and left out: a merge request can race another that landed
+  first, and the fast-forward rule makes the second rebase and rerun.
+
+### Parity: each GitHub job and feature, and its GitLab counterpart
+
+| GitHub | GitLab | Gap and reason |
+|---|---|---|
+| `Detect changes` | `rules:changes` | The path list is static (see Jobs) |
+| `Build and test` | `build` | |
+| `Integration tests` (Testcontainers) | `integration`, with `docker:dind` | |
+| `Coverage` (floor from `pom.xml`) | `coverage` | |
+| `Mutation tests` | `mutation` | |
+| `Container image` (hadolint, build, smoke run) | `container-image` | No layer cache (the GitHub job uses the Actions cache) |
+| `Helm chart`: lint, `kubeVersion`, kubeconform, demo chart, helm-unittest, dashboards and alert rules | `helm` | kubeconform reads the bundled schema cache, so it needs no network |
+| `Shell style` | `shell` | `actionlint` is GitHub-only: it checks workflow files |
+| `Markdown style` | `markdown` | |
+| `Grafana format` | `grafana-format` | |
+| `YAML format`: yamllint, image versions agree, XML tabs | `yaml` | `tools/airgap-dev-bundle.sh check` is GitHub-only: nothing builds bundles in GitLab |
+| CI definitions agree | `yaml` | |
+| Newer push cancels the run | `interruptible: true` | |
+| Required checks and merge queue | Protected branch, pipelines must succeed, semi-linear merge | No merge train (Premium) |
+| Dependabot | none | No offline equivalent; updates arrive with the bundle |
+| `release.yml`: verify, jar, image, chart | `release-validate`, `release-verify`, `release-publish` | Image is single-platform by default |
+| Cosign keyless signature | Cosign key-based signature | No transparency log |
+| SBOM (anchore) | syft from the bundle | |
+| GitHub release with generated notes, assets | GitLab release with the same assets | Notes are not generated |
+| Air-gap bundle step | none | Nowhere further to carry it |
+| Local demo | `deploy/local/demo.sh` with `KAFKAFIM_IMAGE_PREFIX` | |
+| Step summaries | job log; the `coverage` job's pattern reads the line coverage from it | |
 
 ## Local developer loop
 

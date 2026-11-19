@@ -1,0 +1,15 @@
+# KAFKAFIM_DOCKER_MODE=dind (default): Docker-in-Docker without TLS. The docker:dind service
+# runs next to the job (privileged runner) and only the job's own network reaches it, so port
+# 2375 needs no certificates and no runner configuration. DOCKER_HOST points at the service; the
+# containers that Testcontainers and the image smoke test start run inside it, so their
+# published ports are on the host named "docker", not on localhost.
+.docker:
+  services:
+    - name: ${KAFKAFIM_IMAGE_PREFIX}/docker:29-dind
+      alias: docker
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_DRIVER: overlay2
+    TESTCONTAINERS_HOST_OVERRIDE: docker
+    DOCKER_HOST_NAME: docker

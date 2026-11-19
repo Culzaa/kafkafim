@@ -1100,6 +1100,194 @@ release repository may refuse to overwrite a file that is already there, so run 
 per repository, or allow overwrite for the service user before a second run. Maven file names
 with spaces are not supported (Maven coordinates never have them).
 
+## 8. CI and release in GitLab inside the air gap
+
+The air gap runs GitLab. This section takes an empty GitLab to a first green pipeline and a first
+signed release, from the development bundle of [§ 7](#7-developing-inside-the-air-gap). What each
+job does and every variable are in
+[DELIVERY.md](DELIVERY.md#ci-and-release-on-gitlab-the-air-gap). Nothing of kafkafim is assumed to
+exist there: no repository, no Maven mirror, no images, no tools.
+
+You need: the bundle (`$BUNDLE`), GitLab 17 or later (Free), an administrator or owner who can create
+projects and variables, a runner with the Docker executor (§ 8.5), and a machine with Docker, git,
+gpg, `tar`, `curl` and `jq` that can reach GitLab (the bundle's machine, after § 7.2).
+
+### 8.1 Create the projects
+
+Create two projects in one group (here `dev`):
+
+- `dev/kafkafim`, empty, no README: the code, the pipeline and the releases.
+- `dev/mirror`, empty: only a container registry and a Maven package registry. It holds what the
+  bundle carries; keeping it apart lets many projects share it. The default
+  `KAFKAFIM_IMAGE_PREFIX` is `$CI_REGISTRY/$CI_PROJECT_NAMESPACE/mirror`, which is the registry of
+  `dev/mirror`.
+
+### 8.2 Push the repository and the tags
+
+```bash
+git clone "$BUNDLE/source/kafkafim.bundle" kafkafim
+cd kafkafim
+git remote add gitlab https://gitlab.example/dev/kafkafim.git
+git push gitlab --all
+git push gitlab --tags
+```
+
+`main` and every tag arrive with their history. In the project's settings, make `main` the default
+branch and protected (§ 8.8) and protect the tags `v*` (§ 8.9).
+
+### 8.3 Publish the Maven repository and the images
+
+Create a personal or project access token with `api` and `write_registry` (a token works as the
+password) and run [`publish`](#75-publish-to-artifactory-or-nexus):
+
+```bash
+export PUBLISH_USER=<user> PUBLISH_PASSWORD=<token>
+docker login registry.gitlab.example -u "$PUBLISH_USER" -p "$PUBLISH_PASSWORD"
+"$BUNDLE/airgap-dev-bundle.sh" publish "$BUNDLE" --platform linux/amd64 \
+  --maven-url https://gitlab.example/api/v4/projects/<id of dev/mirror>/packages/maven \
+  --registry registry.gitlab.example/dev/mirror
+```
+
+The images land as `registry.gitlab.example/dev/mirror/<name:tag>`, for example
+`.../mirror/docker:29-dind` and `.../mirror/docker.elastic.co/elasticsearch/elasticsearch:9.5.6`.
+Expect the digest warning ([§ 7.5](#75-publish-to-artifactory-or-nexus)); the pipeline's default
+copes with it (`KAFKAFIM_BASE_DIGEST=drop`). For Artifactory use its repository URLs instead and
+set `MAVEN_REPO_URL`, `KAFKAFIM_IMAGE_PREFIX` and the credentials (§ 8.6).
+
+### 8.4 Build the job image
+
+The bundled images lack curl, unzip and gpg (and, but for `docker:29-cli`, git), so the pipeline
+runs in one image that is built from the bundle, once, with no network but a registry that
+already has the images of § 8.3:
+
+```bash
+cd kafkafim
+docker login registry.gitlab.example
+ci/build-tools-image.sh "$BUNDLE" registry.gitlab.example/dev/mirror 1 --push
+```
+
+It builds `registry.gitlab.example/dev/mirror/kafkafim-ci:1`, the default of `KAFKAFIM_CI_IMAGE`. Run
+it again, with a new tag, when the next bundle changes a tool pin of `ci.yml`, and set
+`KAFKAFIM_CI_IMAGE` to the new tag.
+
+### 8.5 Runner and registry access
+
+The runner needs the Docker executor and, for the default `dind` mode, `privileged = true`:
+
+```toml
+[[runners]]
+  executor = "docker"
+  [runners.docker]
+    privileged = true
+    volumes = ["/cache"]
+    pull_policy = ["if-not-present"]
+```
+
+The runner also needs its own helper image (the one that clones the repository); how it gets there
+is part of the runner's installation, not of this project. For the other Docker modes
+(`KAFKAFIM_DOCKER_MODE`), change `volumes` as the table in
+[DELIVERY.md](DELIVERY.md#runner-requirements) says.
+
+The runner pulls the job image, the `docker:dind` service and the markdownlint image from
+`dev/mirror`, and the jobs' Docker daemon pulls base images from it: give them access.
+Either make `dev/mirror` internal, or in `dev/mirror`, Settings, CI/CD, Job token permissions, allow
+`dev/kafkafim`; or set the variable `DOCKER_AUTH_CONFIG` (a `{"auths": {...}}` JSON, masked) for
+the runner's pulls and `KAFKAFIM_REGISTRY_USER` and `KAFKAFIM_REGISTRY_PASSWORD` for the jobs'
+own `docker pull`. A private CA of GitLab or Artifactory must be trusted by the runner host, by
+the job image (Java's truststore too, for Maven) and by the Docker daemon; this project does not
+configure that.
+
+### 8.6 Set the variables
+
+In `dev/kafkafim`, Settings, CI/CD, Variables. Nothing is needed when the defaults suit (the images
+and the Maven repository in `dev/mirror`, the release in `dev/kafkafim`). Set what differs:
+
+| Situation | Variables |
+|---|---|
+| Artifactory for Docker | `KAFKAFIM_IMAGE_PREFIX=artifactory.example/kafkafim-docker/kafkafim`, `KAFKAFIM_REGISTRY_USER`, `KAFKAFIM_REGISTRY_PASSWORD` (masked), `KAFKAFIM_CI_IMAGE` if the tools image is elsewhere |
+| Artifactory for Maven | `MAVEN_REPO_URL=https://artifactory.example/artifactory/kafkafim-maven`, `MAVEN_REPO_USER`, `MAVEN_REPO_PASSWORD` (masked) |
+| Release to Artifactory | `KAFKAFIM_RELEASE_IMAGE=artifactory.example/kafkafim-docker/kafkafim`, `KAFKAFIM_RELEASE_CHART_REPO=oci://artifactory.example/kafkafim-helm`, `KAFKAFIM_RELEASE_REGISTRY_USER`, `KAFKAFIM_RELEASE_REGISTRY_PASSWORD` (masked) |
+| Container access | `KAFKAFIM_DOCKER_MODE` (`dind`, `dind-tls`, `socket`) |
+| Signing | § 8.9 |
+
+### 8.7 First pipeline
+
+Push a branch and open a merge request into `main`:
+
+```bash
+git switch -c first-pipeline
+git commit --allow-empty -m "ci: first pipeline"
+git push gitlab first-pipeline
+```
+
+Expect `build`, `integration`, `mutation`, `helm`, `shell`, `markdown`, `grafana-format` and `yaml`
+in stage `verify`, then `coverage` and `container-image`. An empty commit changes no path, so a
+merge request would skip the Java jobs; change a file under `src/` to see them run. A failing job
+is read like its GitHub twin: the same script, named in the job's log.
+
+| Symptom | Cause |
+|---|---|
+| The job stays pending | No runner takes it (tags, or the runner is paused) |
+| `pull access denied` for the job image | § 8.5: the runner cannot read `dev/mirror`, or `kafkafim-ci:1` was not built |
+| `no Docker daemon answered within 60 s` | The runner is not privileged (`dind`), or does not mount the socket (`socket`) |
+| Maven `401`, or `Could not transfer ... from/to kafkafim` | `MAVEN_REPO_URL` or its credentials; the repository has no `maven-repo/` content (§ 8.3) |
+| `manifest unknown` in `container-image` | The base image is not in the prefix registry, or `KAFKAFIM_BASE_DIGEST=keep` with a registry that changed the digest |
+| `ci/check-parity.sh` fails | A job or script was added on one side only; read its message |
+
+### 8.8 Replace the merge queue
+
+Settings, Merge requests: merge method *Fast-forward merge* (or *Merge commit with semi-linear
+history*), enable *Pipelines must succeed*, and *All threads must be resolved* if you want it.
+Settings, Repository, Protected branches: `main`, merging allowed for Maintainers, pushing not
+allowed. A merge request is then merged only with a green pipeline and a history that continues
+`main`; with fast-forward, a second request that raced the first is rebased and its pipeline reruns.
+GitLab's merge train is Premium and is not used. There is no Dependabot inside the air gap: the next
+bundle, built on the connected side, brings the updates.
+
+### 8.9 First release
+
+On a machine that holds the key, once:
+
+```bash
+COSIGN_PASSWORD='<a long password>' cosign generate-key-pair      # cosign.key, cosign.pub
+base64 < cosign.key | tr -d '\n'                                  # copy the line
+```
+
+In `dev/kafkafim`, Settings, CI/CD, Variables, add `COSIGN_PRIVATE_KEY_B64` (the line above) and
+`COSIGN_PASSWORD` (flags *Mask* and *Protect*) and `COSIGN_PUBLIC_KEY` (the text of `cosign.pub`,
+not masked, protected). Keep `cosign.key` and its password out of the repository and out of the
+pipeline. In Settings, Repository, Protected tags, protect `v*`, so only protected pipelines see
+the protected variables. Then tag the tip of `main`:
+
+```bash
+git switch main && git pull gitlab main
+git tag -a v0.5.0 -m "v0.5.0"
+git push gitlab v0.5.0
+```
+
+`release-validate`, `release-verify` and `release-publish` run. The release page of `dev/kafkafim`
+lists the SBOM, the chart package, the alert rules, the dashboards and `kafkafim-<version>.cosign.pub`.
+Check the signature from any machine that can read the registry:
+
+```bash
+cosign verify --key cosign.pub --insecure-ignore-tlog=true \
+  registry.gitlab.example/dev/kafkafim:0.5.0
+helm pull oci://registry.gitlab.example/dev/kafkafim/charts/kafkafim --version 0.5.0
+```
+
+The tags `0.5.0`, `0.5` and `sha-<7>` exist, and `latest` does not. To release without signing, set
+`KAFKAFIM_SIGNING=off`; without the key variables and without that setting, `release-publish` fails
+before it pushes. The signature has no transparency log entry (there is no Sigstore): its trust is
+the public key, so distribute `cosign.pub` through a channel the consumers trust. To deploy the
+release, continue at [§ 2](#2-deploy-upgrade-roll-back).
+
+### 8.10 Updates and other executors
+
+A new development bundle (from the connected side) brings new dependencies and images: repeat § 8.2
+(a push of the new tags), § 8.3 (publish), and § 8.4 if the tool pins changed. Kubernetes and shell
+executors are not designed for: they need a privileged Docker sidecar, or Docker, the JDK and the
+tools on the runner host.
+
 ## Known gaps
 
 Current behaviour that this runbook works around; each is a follow-up, not a feature:

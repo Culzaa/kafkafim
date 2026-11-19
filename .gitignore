@@ -32,3 +32,7 @@ build/
 ### VS Code ###
 .vscode/
 loadtest/results/
+/.m2/
+/dist/
+__pycache__/
+*.pyc

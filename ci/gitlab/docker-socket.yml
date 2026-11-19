@@ -1,0 +1,11 @@
+# KAFKAFIM_DOCKER_MODE=socket: the job talks to the runner host's Docker through the socket the
+# runner mounts (config.toml: volumes = ["/var/run/docker.sock:/var/run/docker.sock", "/cache"]).
+# No service, no privileged mode. The containers the job starts are siblings on the host, so
+# their published ports are on the host: the job reaches them at KAFKAFIM_DOCKER_HOST_ADDRESS
+# (default host.docker.internal, which the runner must resolve: extra_hosts = ["host.docker.internal:host-gateway"]). Anyone who can run a job can
+# start any container on that host: use this mode only on a runner that is not shared.
+.docker:
+  variables:
+    DOCKER_HOST: unix:///var/run/docker.sock
+    TESTCONTAINERS_HOST_OVERRIDE: ${KAFKAFIM_DOCKER_HOST_ADDRESS}
+    DOCKER_HOST_NAME: ${KAFKAFIM_DOCKER_HOST_ADDRESS}

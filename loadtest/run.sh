@@ -15,7 +15,8 @@ readonly OUTAGE_AT="${OUTAGE_AT:-30}"           # outage: seconds into the run w
 readonly OUTAGE_FOR="${OUTAGE_FOR:-60}"         # outage: seconds ES stays down
 readonly BOOT=localhost:19092
 readonly ES=http://localhost:19200
-readonly DC="docker compose -f compose.yaml"
+# KAFKAFIM_COMPOSE_OVERRIDE: an extra compose file, for example deploy/local/compose-prefix.sh's output.
+readonly DC="docker compose -f compose.yaml${KAFKAFIM_COMPOSE_OVERRIDE:+ -f $KAFKAFIM_COMPOSE_OVERRIDE}"
 
 # Set by init, which runs first in main (they depend on the script's directory and the scenario).
 JAR="${JAR:-}" # kafkafim jar; the environment may override

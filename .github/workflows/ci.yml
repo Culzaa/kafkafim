@@ -43,34 +43,11 @@ jobs:
           EVENT: ${{ github.event_name }}
         run: |
           if [ "$EVENT" != pull_request ]; then
-            # Pushes to main and merge queue runs (merge_group) run everything.
+            # Pushes to main and merge queue runs (merge_group) run everything. No checkout
+            # happened, so this decision is not in ci/changes.sh.
             printf 'docs_only=false\nhelm=true\ngrafana=true\n' >> "$GITHUB_OUTPUT"; exit 0
           fi
-          # What merging the PR would change. --no-renames lists both sides of a rename, so
-          # renaming code to *.md is not docs-only. quotePath=false keeps non-ASCII paths unquoted;
-          # git still quotes a path containing a control character (tab, newline, ...), " or \
-          # ("docs/a\tb.md"). It then matches no docs pattern and counts as non-docs (the safe
-          # side: build, integration and image run), but it matches no helm or grafana pattern.
-          git -c core.quotePath=false diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed"
-          sed 's/^/  /' "$RUNNER_TEMP/changed"
-          docs_only=false helm=false grafana=false
-          [ -s "$RUNNER_TEMP/changed" ] && docs_only=true
-          while IFS= read -r f; do
-            case "$f" in
-              src/*) docs_only=false ;;   # Maven packages src/main/resources, *.md included
-              *.md | docs/* | LICENSE) ;;
-              *) docs_only=false ;;
-            esac
-            case "$f" in
-              # deploy/grafana too: the demo chart renders the dashboards and their provider.
-              charts/* | deploy/local/* | deploy/grafana/* | .github/workflows/ci.yml | .github/keys/*) helm=true ;;
-            esac
-            case "$f" in
-              deploy/grafana/* | .github/workflows/ci.yml) grafana=true ;;
-            esac
-          done < "$RUNNER_TEMP/changed"
-          echo "docs_only=$docs_only helm=$helm grafana=$grafana"
-          printf 'docs_only=%s\nhelm=%s\ngrafana=%s\n' "$docs_only" "$helm" "$grafana" >> "$GITHUB_OUTPUT"
+          ci/changes.sh
 
   build:
     name: Build and test
@@ -88,7 +65,7 @@ jobs:
           cache: maven
       # Integration tests run in the parallel `integration` job, so `image` can start sooner.
       - name: Style, unit and architecture tests
-        run: ./mvnw -B -ntp verify -DskipITs -Djacoco.check.skip=true
+        run: ci/build.sh
       - name: Test reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -126,50 +103,24 @@ jobs:
       # Testcontainers' own ryuk image (2 MB) is not named in src/test and is left to it.
       - name: Pre-pull Testcontainers images
         shell: bash
-        run: |
-          images=$(grep -rhoE 'DockerImageName\.parse\("[^"]+"\)' src/test | sed -E 's/^.*\("([^"]+)"\)$/\1/' | sort -u) || true   # no match: warn below
-          if [ -z "$images" ]; then echo "::warning::no DockerImageName.parse(\"...\") found in src/test"; exit 0; fi
-          mkdir -p "$RUNNER_TEMP/pulls"
-          for i in $images; do
-            log="$RUNNER_TEMP/pulls/$(echo "$i" | tr '/:' '__').log"
-            echo "pulling $i"
-            # Detached from the step's output, so the step ends while the pulls go on.
-            ( start=$(date +%s)
-              if docker pull -q "$i"; then echo "ok $i $(( $(date +%s) - start ))s"; else echo "FAILED $i"; fi
-            ) > "$log" 2>&1 < /dev/null &
-          done
+        run: ci/prepull-images.sh
       - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with:
           distribution: temurin
           java-version: '27'
           cache: maven
       - name: Integration tests
-        run: >-
-          ./mvnw -B -ntp verify
-          -Dtest=NONE -Dsurefire.failIfNoSpecifiedTests=false
-          -Dspotless.check.skip=true -Dcheckstyle.skip=true -Djacoco.check.skip=true
+        run: ci/integration-tests.sh
       # Failsafe exits 0 when its **/*IntegrationTest.java include matches nothing, so a discovery
       # break (rename, pom edit, a swallowed fork crash) would turn this required check green with
-      # nothing run. Every *IntegrationTest source file must have produced a report.
+      # nothing run: the script fails unless every *IntegrationTest source file produced a report.
       - name: Check every integration test class ran
         shell: bash
-        run: |
-          expected=$(find src/test -name '*IntegrationTest.java' | wc -l)
-          ran=$(find target/failsafe-reports -name 'TEST-*IntegrationTest.xml' 2>/dev/null | wc -l)
-          echo "integration test classes in src/test: $expected, with a Failsafe report: $ran"
-          if [ "$expected" -eq 0 ] || [ "$ran" -lt "$expected" ]; then
-            echo "::error::expected a Failsafe report for each of $expected *IntegrationTest classes, found $ran"
-            exit 1
-          fi
+        run: ci/check-integration-ran.sh
       - name: Image pre-pull results
         if: always()
         shell: bash
-        run: |
-          for f in "$RUNNER_TEMP"/pulls/*.log; do
-            [ -e "$f" ] || continue
-            tail -n 1 "$f"
-            if grep -q '^FAILED' "$f"; then echo "::warning::pre-pull failed: $(cat "$f")"; fi
-          done
+        run: ci/prepull-results.sh
       - name: Integration test reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -207,18 +158,10 @@ jobs:
           path: coverage-data
           merge-multiple: true
       - name: Merge, report and check the floor
-        run: |
-          mkdir -p target
-          cp coverage-data/jacoco.exec coverage-data/jacoco-it.exec target/
-          ./mvnw -B -ntp -DskipTests -Dspotless.check.skip=true -Dcheckstyle.skip=true compile \
-            jacoco:merge@merge jacoco:report@report jacoco:check@check
+        run: ci/coverage.sh coverage-data
       - name: Coverage summary
         if: always()
-        run: |
-          [ -f target/site/jacoco/jacoco.csv ] || exit 0
-          awk -F, 'NR>1 {lm+=$8; lc+=$9; bm+=$6; bc+=$7}
-            END {printf "Line coverage: %.1f %%, branch coverage: %.1f %%\n", 100*lc/(lm+lc), 100*bc/(bm+bc)}' \
-            target/site/jacoco/jacoco.csv | tee -a "$GITHUB_STEP_SUMMARY"
+        run: ci/coverage-summary.sh
       - name: Coverage report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -244,17 +187,10 @@ jobs:
           java-version: '27'
           cache: maven
       - name: Mutation analysis
-        run: ./mvnw -B -ntp test-compile org.pitest:pitest-maven:mutationCoverage -Djacoco.skip=true
+        run: ci/mutation.sh
       - name: Mutation summary
         if: always()
-        run: |
-          [ -f target/pit-reports/mutations.xml ] || exit 0
-          # Every <mutation> element has a status attribute: KILLED, SURVIVED, NO_COVERAGE, ...
-          {
-            echo 'Mutants by status:'
-            grep -o '<mutation [^>]*status=.[A-Z_]*' target/pit-reports/mutations.xml \
-              | sed 's/.*status=.//' | sort | uniq -c | sort -rn
-          } | tee -a "$GITHUB_STEP_SUMMARY"
+        run: ci/mutation-summary.sh
       - name: Mutation report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -292,19 +228,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Smoke-run the image
-        run: |
-          cid=$(docker run -d --read-only --tmpfs /tmp -p 8080:8080 kafkafim:ci \
-            --spring.docker.compose.enabled=false \
-            --management.otlp.metrics.export.enabled=false \
-            --management.tracing.export.otlp.enabled=false \
-            --management.logging.export.otlp.enabled=false)
-          for _ in $(seq 1 30); do
-            if curl -sf localhost:8080/actuator/health/liveness; then
-              echo; docker rm -f "$cid" >/dev/null; exit 0
-            fi
-            sleep 2
-          done
-          echo "container did not become live"; docker logs "$cid"; docker rm -f "$cid" >/dev/null; exit 1
+        run: ci/image-smoke.sh kafkafim:ci
 
   # Also checks the Grafana dashboards and Prometheus alert rules under deploy/grafana/, so the
   # set of required checks stays the same. Each half runs only when its paths changed.
@@ -329,18 +253,12 @@ jobs:
         with:
           version: v4.3.1   # helm-unittest 1.2.1 supports Helm >= 4.3; keep ci.yml and release.yml in step
       - if: steps.chart.outputs.exists == 'true'
-        run: helm lint charts/kafkafim
+        run: ci/chart-lint.sh
       # helm-unittest does not enforce Chart.yaml kubeVersion, so assert it with helm itself.
       - if: steps.chart.outputs.exists == 'true'
         name: Chart refuses Kubernetes older than 1.27
         shell: bash
-        run: |
-          v=charts/kafkafim/ci/minimal-values.yaml
-          if out=$(helm template kafkafim charts/kafkafim -f "$v" --kube-version 1.26.9 2>&1); then
-            echo "kubeVersion is not enforced: helm template succeeded on Kubernetes 1.26.9" >&2; exit 1
-          fi
-          grep -q 'incompatible with Kubernetes' <<<"$out" || { echo "unexpected failure on 1.26.9: $out" >&2; exit 1; }
-          helm template kafkafim charts/kafkafim -f "$v" --kube-version 1.27.0 >/dev/null
+        run: ci/chart-kubeversion.sh
       # Third-party chart tools are pinned and cached so an outage of github.com release
       # downloads or of the Go module proxy cannot fail the gate once the cache is warm.
       # The key changes with every pin below; a cache is only saved by a passing job.
@@ -356,15 +274,9 @@ jobs:
         env:
           TOOLS: ${{ runner.temp }}/chart-tools
         run: |
-          shopt -s nullglob
-          files=(charts/kafkafim/ci/*-values.yaml)
-          if [ ${#files[@]} -eq 0 ]; then echo "no charts/kafkafim/ci/*-values.yaml; add at least one" >&2; exit 1; fi
           # go install verifies the module against sum.golang.org; the cached binary skips the proxy.
           [ -x "$TOOLS/bin/kubeconform" ] || GOBIN="$TOOLS/bin" go install github.com/yannh/kubeconform/cmd/kubeconform@v0.8.0
-          "$TOOLS/bin/kubeconform" -v >/dev/null   # smoke test only: a go-install build reports "development"
-          for v in "${files[@]}"; do
-            helm template kafkafim charts/kafkafim -f "$v" | "$TOOLS/bin/kubeconform" -strict -summary
-          done
+          PATH="$TOOLS/bin:$PATH" ci/chart-validate.sh
       # The local demo's umbrella chart (deploy/local/kafkafim-demo): charts/kafkafim as a
       # subchart plus Kafka, Elasticsearch and Grafana LGTM. Its symlinks into charts/ and
       # deploy/grafana must resolve in a plain checkout; the template fails without the dashboards.
@@ -373,14 +285,7 @@ jobs:
         shell: bash
         env:
           TOOLS: ${{ runner.temp }}/chart-tools
-        run: |
-          helm lint deploy/local/kafkafim-demo
-          helm template kafkafim deploy/local/kafkafim-demo -n kafkafim-demo > "$RUNNER_TEMP/demo.yaml"
-          "$TOOLS/bin/kubeconform" -strict -summary "$RUNNER_TEMP/demo.yaml"
-          for f in deploy/grafana/dashboards/*.json; do
-            grep -q "^  $(basename "$f"): " "$RUNNER_TEMP/demo.yaml" || { echo "$f is not in the demo's dashboards ConfigMap" >&2; exit 1; }
-          done
-          grep -q 'value: "http://apm-server:8200"' "$RUNNER_TEMP/demo.yaml" || { echo "kafkafim's OTLP endpoint does not point at the apm-server Service" >&2; exit 1; }
+        run: PATH="$TOOLS/bin:$PATH" ci/chart-demo.sh
       - if: steps.chart.outputs.exists == 'true'
         name: Chart unit tests
         shell: bash
@@ -417,16 +322,9 @@ jobs:
           fetch "$TGZ.prov" "$PROV_ASSET"
           unset ASSET_TOKEN
           printf '%s  %s\n' "$TGZ_SHA256" "$d/$TGZ" "$PROV_SHA256" "$d/$TGZ.prov" | sha256sum -c -
-          GNUPGHOME=$(mktemp -d)   # short path: gpg's socket paths have a length limit
-          export GNUPGHOME
-          gpg --batch --no-autostart --quiet --import .github/keys/helm-unittest-public-key.asc
-          fprs=$(gpg --batch --no-autostart --with-colons --list-keys | awk -F: '$1 == "pub" {p = 1; next} p && $1 == "fpr" {print $10; p = 0}')
-          if [ "$fprs" != "$KEY_FPR" ]; then echo "unexpected key(s) in keyring: $fprs" >&2; exit 1; fi
-          gpg --batch --no-autostart --export > "$RUNNER_TEMP/helm-unittest.gpg"   # Helm reads the legacy keyring format
+          ci/helm-unittest-keyring.sh .github/keys/helm-unittest-public-key.asc "$KEY_FPR" "$RUNNER_TEMP/helm-unittest.gpg"
           # Helm 4 checks the tarball against the signed .prov next to it.
-          helm plugin install "$d/$TGZ" --keyring "$RUNNER_TEMP/helm-unittest.gpg"
-          helm plugin list | grep -E '^unittest[[:space:]]+1\.2\.1[[:space:]].*[[:space:]]signed[[:space:]]'
-          helm unittest charts/kafkafim
+          ci/chart-unittest.sh "$d/$TGZ" "$RUNNER_TEMP/helm-unittest.gpg"
       # Same pinning as the chart tools: the Prometheus release tarball (promtool) is fetched
       # through the GitHub API asset endpoint, checked against a pinned SHA-256 on every run,
       # and cached under a key that changes with the pin.
@@ -448,18 +346,6 @@ jobs:
           TGZ_ASSET: '662697731'
           TGZ_SHA256: 6a726885328ad9efebbf36e876ce2fb6225468a71fd1e7ce3ba666d5f4d97a84
         run: |
-          shopt -s nullglob
-          dashboards=(deploy/grafana/dashboards/*.json)
-          cd deploy/grafana/alerts
-          tests=(*.test.yaml)
-          rules=()
-          for f in *.yaml; do [[ "$f" == *.test.yaml ]] || rules+=("$f"); done
-          cd - >/dev/null
-          if [ ${#dashboards[@]} -eq 0 ] || [ ${#rules[@]} -eq 0 ] || [ ${#tests[@]} -eq 0 ]; then
-            echo "expected deploy/grafana/dashboards/*.json, deploy/grafana/alerts/*.yaml and *.test.yaml" >&2; exit 1
-          fi
-          jq empty "${dashboards[@]}"
-          echo "dashboards: ${dashboards[*]} parse"
           mkdir -p "$TOOLS"
           if [ ! -s "$TOOLS/$TGZ" ]; then
             for i in 1 2 3 4 5; do
@@ -474,11 +360,7 @@ jobs:
           unset ASSET_TOKEN
           printf '%s  %s\n' "$TGZ_SHA256" "$TOOLS/$TGZ" | sha256sum -c -
           tar -xzf "$TOOLS/$TGZ" -C "$RUNNER_TEMP" --strip-components=1 "${TGZ%.tar.gz}/promtool"
-          promtool="$RUNNER_TEMP/promtool"
-          "$promtool" --version
-          cd deploy/grafana/alerts   # the tests name their rule_files relative to themselves
-          "$promtool" check rules "${rules[@]}"
-          "$promtool" test rules "${tests[@]}"
+          PATH="$RUNNER_TEMP:$PATH" ci/grafana-alerts.sh
 
   # --- Shell style (ADR-0046; Google Shell Style Guide): shellcheck + shfmt on every tracked *.sh.
   # Self-contained: no `needs`, runs on every change (a few seconds). Both tools are pinned and
@@ -510,12 +392,7 @@ jobs:
           echo "$bin" >> "$GITHUB_PATH"
       - name: shellcheck and shfmt
         shell: bash
-        run: |
-          set -euo pipefail
-          mapfile -d '' scripts < <(git ls-files -z '*.sh')
-          [ ${#scripts[@]} -gt 0 ] || { echo "no tracked *.sh files" >&2; exit 1; }
-          shellcheck -x "${scripts[@]}"
-          shfmt -d "${scripts[@]}"   # indent from .editorconfig ([*.sh]: 2 spaces)
+        run: ci/shell-style.sh
       - name: Install actionlint
         shell: bash
         env:
@@ -561,23 +438,8 @@ jobs:
           persist-credentials: false
       - name: Dashboards are canonical JSON
         shell: bash
-        # Google JSON Style Guide where Grafana's schema allows: valid JSON, 2-space indent,
-        # stable (sorted) key order, no comments, no trailing commas. Grafana fixes its own
-        # field names, so the guide's naming rules do not apply. Canonical form is
-        # `jq -S --indent 2 .`; fix a file with `jq -S --indent 2 . f.json > t && mv t f.json`.
-        run: |
-          shopt -s nullglob
-          mapfile -t files < <(find deploy/grafana -name '*.json' | sort)
-          [ ${#files[@]} -gt 0 ] || { echo "no deploy/grafana JSON found" >&2; exit 1; }
-          jq --version
-          bad=0
-          for f in "${files[@]}"; do
-            jq empty "$f" || { bad=1; continue; }
-            if ! jq -S --indent 2 . "$f" | diff -u "$f" - ; then
-              echo "::error file=$f::not canonical; run: jq -S --indent 2 . $f > t && mv t $f"; bad=1
-            fi
-          done
-          exit $bad
+        # Google JSON Style Guide where Grafana's schema allows (see ci/grafana-format.sh).
+        run: ci/grafana-format.sh
 
   # --- YAML format and XML whitespace (#280, #281; ADR-0046): Google has no YAML guide, so .yamllint.yaml is the standard.
   # Self-contained like "Shell style". charts/*/templates are Helm templates, not YAML.
@@ -591,37 +453,19 @@ jobs:
       - name: yamllint
         run: |
           pip install --disable-pip-version-check yamllint==1.37.1
-          yamllint -s -c .yamllint.yaml \
-            charts/kafkafim/Chart.yaml charts/kafkafim/values.yaml charts/kafkafim/ci \
-            charts/kafkafim/tests deploy/grafana .github compose.yaml loadtest/compose.yaml \
-            src/main/resources
+          ci/yaml-lint.sh
       - name: Container image versions agree
         # Dependabot's docker-compose entries bump the two compose files; the demo chart's values
         # and the Testcontainers constants name the same images and are bumped by hand (#386).
         # Each image must have one tag everywhere, so a half-done bump fails here.
-        run: |
-          yaml_imgs=$(grep -hE '^\s+image: ' compose.yaml loadtest/compose.yaml deploy/local/kafkafim-demo/values.yaml \
-            | sed -E "s/^[[:space:]]+image: *['\"]?([^'\" #]+).*/\1/")
-          test_imgs=$(grep -rhoE 'DockerImageName\.parse\("[^"]+"\)' src/test | sed -E 's/^.*\("([^"]+)"\)$/\1/')
-          if [ -z "$yaml_imgs" ] || [ -z "$test_imgs" ]; then
-            echo "::error::found no images in the compose files/demo values or in src/test; update this check"
-            exit 1
-          fi
-          imgs=$(printf '%s\n%s\n' "$yaml_imgs" "$test_imgs" | sort -u)
-          echo "$imgs"
-          bad=$(echo "$imgs" | awk -F: 'NF == 2 { n[$1]++ } END { for (r in n) if (n[r] > 1) print r }')
-          if [ -n "$bad" ]; then
-            echo "::error::image(s) with more than one tag across compose, demo values and src/test: $bad"
-            exit 1
-          fi
+        run: ci/image-versions-agree.sh
       - name: Air-gap development bundle inputs agree with the repository
         # docs/DELIVERY.md, "Air-gap development bundle" (ADR-0056): every image the repository
-        # names and every Maven goal a workflow runs must be one the bundle script takes.
+        # names and every Maven goal a workflow or ci/ script runs must be one the bundle script takes.
         run: tools/airgap-dev-bundle.sh check
+      - name: CI definitions agree
+        # ci.yml and .gitlab-ci.yml call the same ci/ scripts (docs/DELIVERY.md, "CI on GitLab").
+        run: ci/check-parity.sh
       - name: XML has no tabs
         # .editorconfig: XML indents with 2 spaces; pom.xml is the one declared tab exception (#280).
-        run: |
-          if git grep -nP '\t' -- '*.xml' ':!pom.xml'; then
-            echo "::error::tab indentation in XML; use 2 spaces (.editorconfig)"
-            exit 1
-          fi
+        run: ci/xml-tabs.sh
