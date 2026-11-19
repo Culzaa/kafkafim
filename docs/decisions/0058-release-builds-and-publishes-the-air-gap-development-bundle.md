@@ -70,9 +70,10 @@ project's plugin and dependency code, which the release workflow keeps away from
    it to save the test time; a bad tag fails both within seconds (`bundle` validates the tag first).
 7. **Runner disk and time.** `ci/bundle-free-disk.sh` removes the .NET, Android, GHC and CodeQL
    toolchains (they are never used here) and puts the work directory on the runner's second disk
-   (`/mnt`). Peak need is the unpacked bundle, its parts and the rejoin check, about three times 10 GB on `/mnt`; the build's temporary files go to `/mnt` too. `bundle` has a
-   five-hour timeout (hosted limit: six) and `bundle-publish` two. Ordinary pull-request CI is
-   untouched: both jobs exist only in `release.yml`, which runs on tags and manual dispatch.
+   (`/mnt`). Peak need is the unpacked bundle, its parts and the rejoin check, about three times 10
+   GB on `/mnt`; the build's temporary files go to `/mnt` too. `bundle` has a five-hour timeout
+   (hosted limit: six) and `bundle-publish` two. Ordinary pull-request CI is untouched: both jobs
+   exist only in `release.yml`, which runs on tags and manual dispatch.
 8. **Dry run.** `release.yml` has `workflow_dispatch`: it runs only `bundle`, on the selected
    branch or tag, ending in the one-day artifact. No release, signature or tag is involved.
 9. **GitLab keeps no bundle step.** `ci/parity.map` records both jobs as GitHub-only release
