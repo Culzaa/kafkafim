@@ -45,7 +45,8 @@ directories. On Windows, check out with `git config core.symlinks true`.
 ## Requirements
 
 Docker, `kubectl`, `helm`, and either [kind](https://kind.sigs.k8s.io/) or Docker
-Desktop's Kubernetes (kubeadm mode, which shares Docker's images). JDK 27 to build the
+Desktop's Kubernetes (kubeadm mode shares Docker's images; kind mode runs its nodes as
+containers, and `demo.sh` loads the image into them). JDK 27 to build the
 jar, as for the rest of the repository. With Nix:
 `nix shell nixpkgs#kind nixpkgs#kubectl nixpkgs#kubernetes-helm`.
 
@@ -57,7 +58,7 @@ at least 8 GiB.
 ## Run it
 
 ```bash
-deploy/local/demo.sh up       # jar + kafkafim:dev image, kind cluster, then the one helm install
+deploy/local/demo.sh up       # clean jar + image, kind cluster, then the one helm install
 ```
 
 ```bash
@@ -68,20 +69,29 @@ deploy/local/demo.sh smoke    # one record into demo.events; waits until it is i
 deploy/local/demo.sh down     # deletes the kind cluster
 ```
 
-`demo.sh up` only prepares what Helm cannot (the image and the cluster). The install
-itself is one command, which also works on its own against any cluster that can run the
-`kafkafim:dev` image:
+`demo.sh up` only prepares what Helm cannot (the image and the cluster). It builds with
+`./mvnw clean package`, because the Dockerfile copies `target/*.jar` and a stale jar left
+there would be baked into the image. The install itself is one command, which also works
+on its own against any cluster that can run the `kafkafim:dev` image:
 
 ```bash
 helm upgrade --install kafkafim deploy/local/kafkafim-demo -n kafkafim-demo --create-namespace --wait --timeout 10m
 ```
 
 `CLUSTER=docker-desktop` uses Docker Desktop's cluster instead (`down` then removes
-the release and the namespace). `SKIP_BUILD=1` reuses an existing `kafkafim:dev`
-image. `up` is safe to re-run: after a code change, run it again and restart the pods
-(`kubectl --context kind-kafkafim-demo -n kafkafim-demo rollout restart deploy/kafkafim-demo`),
-since the tag stays `dev`. The cluster pulls the Kafka, Elasticsearch, and LGTM images
-itself on the first install.
+the release and the namespace). The script finds the mode itself: if the cluster's nodes
+are Docker containers (kind mode, for example `desktop-control-plane`), it pipes
+`docker save kafkafim:dev` into `ctr -n k8s.io images import` of every one of them, since
+their containerd does not see Docker's image store; in kubeadm mode it does nothing.
+`SKIP_BUILD=1` skips the build and reuses an existing `kafkafim:dev` image (it is still
+loaded into the nodes). `up` is safe to re-run: after a code change, run it again and
+restart the pods, since the tag stays `dev`:
+
+```bash
+kubectl --context kind-kafkafim-demo -n kafkafim-demo rollout restart deploy/kafkafim-demo
+```
+
+The cluster pulls the Kafka, Elasticsearch, and LGTM images itself on the first install.
 
 ## Look around
 
@@ -183,9 +193,9 @@ On 2026-11-18, on Docker Desktop's Kubernetes (`CLUSTER=docker-desktop`, node
 
 - `helm upgrade --install` with all six pods ready: kafkafim, Kafka (2/2),
   Elasticsearch, APM Server, Kibana, LGTM.
-- The image had to be loaded by hand, since `demo.sh up` does not do it yet
-  ([#476](https://github.com/culzaa/kafkafim/issues/476)):
-  `docker save kafkafim:dev | docker exec -i desktop-control-plane ctr -n k8s.io images import -`.
+- The image had to be loaded by hand then
+  (`docker save kafkafim:dev | docker exec -i desktop-control-plane ctr -n k8s.io images import -`);
+  `demo.sh up` now does it ([#476](https://github.com/culzaa/kafkafim/issues/476)).
 - `demo.sh smoke`: records indexed in `demo-eu-<date>` and traces `demo.events process` →
   `pipeline.batch` → `es.bulk` in the APM indices.
 - Kibana `/api/status` returns 200 and signs in as `elastic`.

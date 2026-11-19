@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Local Kubernetes demo of kafkafim (deploy/local/README.md).
 #
-#   deploy/local/demo.sh up      build the image, create the cluster, then one `helm install`
-#                                of deploy/local/kafkafim-demo (Kafka, Elasticsearch, APM
-#                                Server, Kibana, Grafana LGTM and kafkafim)
+#   deploy/local/demo.sh up      build the jar from clean and the image, create the cluster, load
+#                                the image into its nodes, then one `helm install` of
+#                                deploy/local/kafkafim-demo (Kafka, Elasticsearch, APM Server,
+#                                Kibana, Grafana LGTM and kafkafim)
 #   deploy/local/demo.sh smoke   send one record to demo.events and wait for it in Elasticsearch
 #   deploy/local/demo.sh down    delete the kind cluster (Docker Desktop: the namespace)
 #
@@ -63,7 +64,37 @@ need() {
 }
 
 #######################################
-# Builds the image (unless SKIP_BUILD=1), creates the cluster (kind) and installs the demo chart.
+# Loads IMAGE into every node of a Docker Desktop cluster that runs as a container.
+# Docker Desktop has two Kubernetes modes. In kubeadm mode the node is the Docker VM and shares
+# Docker's image store, so there is nothing to do. In kind mode each node is a Docker container
+# (for example desktop-control-plane) whose containerd cannot see that store, so the image is
+# piped into every such node. Nodes are discovered from the cluster, not named here.
+# Globals:
+#   CONTEXT, IMAGE (read)
+# Arguments:
+#   None
+#######################################
+load_into_docker_desktop_nodes() {
+  local nodes node found=0
+  nodes="$(kubectl --context "$CONTEXT" get nodes -o jsonpath='{.items[*].metadata.name}')"
+  for node in $nodes; do
+    if docker inspect --type container "$node" >/dev/null 2>&1; then
+      echo "loading $IMAGE into node container $node"
+      docker save "$IMAGE" | docker exec -i "$node" ctr -n k8s.io images import -
+      found=1
+    fi
+  done
+  if [[ -z "$nodes" ]]; then
+    echo "cluster $CONTEXT reports no nodes" >&2
+    exit 1
+  elif [[ "$found" == 0 ]]; then
+    echo "no node of $CONTEXT is a Docker container (kubeadm mode): it shares Docker's images"
+  fi
+}
+
+#######################################
+# Builds the image (unless SKIP_BUILD=1), makes it available to the cluster and installs the demo
+# chart.
 # Globals:
 #   CLUSTER, KIND_NAME, IMAGE, RELEASE, NS, CONTEXT, HERE, ROOT (read); SKIP_BUILD (read)
 # Arguments:
@@ -72,15 +103,17 @@ need() {
 up() {
   need docker kubectl helm
   if [[ "${SKIP_BUILD:-}" != 1 ]]; then
-    (cd "$ROOT" && ./mvnw -B -ntp -q -DskipTests package && docker build -t "$IMAGE" .)
+    # clean: the Dockerfile copies target/*.jar, so a stale jar would be baked into the image.
+    (cd "$ROOT" && ./mvnw -B -ntp -q -DskipTests clean package && docker build -t "$IMAGE" .)
   fi
 
   if [[ "$CLUSTER" == kind ]]; then
     need kind
     kind get clusters 2>/dev/null | grep -x "$KIND_NAME" >/dev/null || kind create cluster --name "$KIND_NAME" --wait 120s
     kind load docker-image "$IMAGE" --name "$KIND_NAME"
+  else
+    load_into_docker_desktop_nodes
   fi
-  # Docker Desktop (kubeadm mode) runs on the same Docker engine, so it sees kafkafim:dev.
 
   # The whole demo is this one install: Kafka, Elasticsearch, APM Server, Kibana, Grafana LGTM
   # and kafkafim.
