@@ -447,7 +447,11 @@ save_images() {
       docker image inspect "${ref%%@*}" >/dev/null 2>&1 && had=1
       docker pull -q --platform "$plat" "$pinned" >/dev/null
       docker tag "$pinned" "${ref%%@*}"
-      docker save -o "$file" "${ref%%@*}"
+      # `--platform` saves only the platform that was pulled. Without it the containerd image
+      # store (the default since Docker 29) writes every manifest of the index and fails with
+      # "unable to create manifests file ... content digest ... not found" for a platform that
+      # was not pulled (issue 490).
+      docker save --platform "$plat" -o "$file" "${ref%%@*}"
       [[ "$had" -eq 1 ]] || docker rmi -f "${ref%%@*}" "$pinned" >/dev/null 2>&1 || true
       printf '%s  %s  %s  %s\n' "$pinned" "$plat" "${file#"$out"/}" "$(sha256_of "$file")" >>"$out/images.lock"
     done
