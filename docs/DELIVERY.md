@@ -476,9 +476,7 @@ second, separate bundle
 ([ADR-0056](decisions/0056-air-gap-development-bundle-is-built-by-a-script-and-not-published.md),
 published with each release by
 [ADR-0058](decisions/0058-release-builds-and-publishes-the-air-gap-development-bundle.md)).
-The release workflow builds it with `tools/airgap-dev-bundle.sh` (jobs `bundle` and
-`bundle-publish`),
-proves it with the offline `verify`, and attaches it to the release as parts, because the bundle
+The release workflow builds it with `tools/airgap-dev-bundle.sh` (jobs `bundle` and `bundle-publish`), proves it with the offline `verify`, and attaches it to the release as parts, because the bundle
 is about 10 GB and a release asset is capped at 2 GiB per file:
 
 | Release asset | Content |

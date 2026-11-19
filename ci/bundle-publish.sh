@@ -33,7 +33,7 @@ case "$mode" in
       }
     cosign sign-blob --yes --bundle "$sums.sigstore.json" "$sums"
     cosign verify-blob --bundle "$sums.sigstore.json" \
-      --certificate-identity-regexp "https://github.com/${repo}/" \
+      --certificate-identity-regexp "^https://github\\.com/${repo//./\\.}/\\.github/workflows/release\\.yml@refs/tags/v" \
       --certificate-oidc-issuer https://token.actions.githubusercontent.com "$sums"
     assets=("$dir/$name".tar.part-* "$sums" "$sums.sigstore.json")
     if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then

@@ -1,6 +1,10 @@
 # ADR-0058: The release builds and publishes the air-gap development bundle
 
-Status: accepted · Date: 2026-11-19 · Supersedes the "not published" part of [ADR-0056](0056-air-gap-development-bundle-is-built-by-a-script-and-not-published.md) (decision 1 and the signing sentence of decision 4); the rest of ADR-0056 stands
+Status: accepted · Date: 2026-11-19
+
+Supersedes the "not published" part of
+[ADR-0056](0056-air-gap-development-bundle-is-built-by-a-script-and-not-published.md) (decision 1
+and the signing sentence of decision 4); the rest of ADR-0056 stands.
 
 ## Context
 
@@ -47,8 +51,9 @@ project's plugin and dependency code, which the release workflow keeps away from
    - `bundle-publish` (`contents: write`, `id-token: write`, no Maven): downloads the artifact,
      checks the parts, signs the checksums file with Cosign keyless (`sign-blob --bundle`), verifies
      the signature at once, and uploads parts, checksums and signature to a **draft** release.
-5. **Integrity.** The checksums file is signed with the identity of the workflow, the same one as
-   the image and the chart: `--certificate-identity-regexp 'https://github.com/culzaa/kafkafim/'
+5. **Integrity.** The checksums file is signed with the identity of the workflow, the same
+   repository and issuer as the image and the chart, but anchored to this workflow file and to tags:
+   `--certificate-identity-regexp '^https://github\.com/culzaa/kafkafim/\.github/workflows/release\.yml@refs/tags/v'
    --certificate-oidc-issuer https://token.actions.githubusercontent.com`, checked with `cosign
    verify-blob --bundle`. That signs the parts, and the bundle's own `SHA256SUMS` (inside the parts)
    covers every file. The signature binds the bundle to the release workflow of this repository, not
@@ -65,7 +70,7 @@ project's plugin and dependency code, which the release workflow keeps away from
    it to save the test time; a bad tag fails both within seconds (`bundle` validates the tag first).
 7. **Runner disk and time.** `ci/bundle-free-disk.sh` removes the .NET, Android, GHC and CodeQL
    toolchains (they are never used here) and puts the work directory on the runner's second disk
-   (`/mnt`). Peak need is the unpacked bundle plus its parts, about twice 10 GB. `bundle` has a
+   (`/mnt`). Peak need is the unpacked bundle, its parts and the rejoin check, about three times 10 GB on `/mnt`; the build's temporary files go to `/mnt` too. `bundle` has a
    five-hour timeout (hosted limit: six) and `bundle-publish` two. Ordinary pull-request CI is
    untouched: both jobs exist only in `release.yml`, which runs on tags and manual dispatch.
 8. **Dry run.** `release.yml` has `workflow_dispatch`: it runs only `bundle`, on the selected

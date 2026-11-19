@@ -19,6 +19,9 @@ ref="${1:?usage: ci/bundle-build.sh REF OUT_DIR}"
 out="${2:?missing OUT_DIR}"
 split="${BUNDLE_SPLIT_MIB:-1900}"
 name="kafkafim-dev-${ref//\//-}-airgap-dev"
+# Temporary files (copies of the Maven repository, clones) stay on the disk that has the room.
+mkdir -p "$out/tmp"
+export TMPDIR="$out/tmp"
 
 src="$(mktemp -d)"
 git init -q --bare "$src/src.git"
@@ -30,5 +33,5 @@ work="$(mktemp -d "$out/rejoin.XXXXXX")"
 (cd "$out" && sha256sum -c "$name.parts.SHA256SUMS")
 cat "$out/$name".tar.part-* | tar -xf - -C "$work"
 (cd "$work/$name" && sha256sum -c SHA256SUMS >/dev/null)
-rm -rf "$work" "$src"
+rm -rf "$work" "$src" "$out/tmp"
 ls -l "$out"/"$name".tar.part-*

@@ -931,7 +931,7 @@ gh release download v1.2.3 --repo culzaa/kafkafim --pattern 'kafkafim-dev-v1.2.3
 ```
 
 ```bash
-cosign verify-blob --bundle kafkafim-dev-v1.2.3-airgap-dev.parts.SHA256SUMS.sigstore.json --certificate-identity-regexp 'https://github.com/culzaa/kafkafim/' --certificate-oidc-issuer https://token.actions.githubusercontent.com kafkafim-dev-v1.2.3-airgap-dev.parts.SHA256SUMS
+cosign verify-blob --bundle kafkafim-dev-v1.2.3-airgap-dev.parts.SHA256SUMS.sigstore.json --certificate-identity-regexp '^https://github\.com/culzaa/kafkafim/\.github/workflows/release\.yml@refs/tags/v' --certificate-oidc-issuer https://token.actions.githubusercontent.com kafkafim-dev-v1.2.3-airgap-dev.parts.SHA256SUMS
 ```
 
 ```bash
@@ -939,7 +939,7 @@ sha256sum -c kafkafim-dev-v1.2.3-airgap-dev.parts.SHA256SUMS
 ```
 
 The signature proves that the release workflow of `culzaa/kafkafim` wrote that list, and the
-second command that your parts are the listed ones. Carry the parts, the checksums file and its
+checksum check that your parts are the listed ones. Carry the parts, the checksums file and its
 signature across. Inside the air gap, check the parts again, join them, and check the bundle
 (`shasum -a 256 -c` where there is no `sha256sum`); `cosign` is also in the bundle, for later:
 
