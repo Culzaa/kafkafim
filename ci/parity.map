@@ -22,4 +22,6 @@ ci|shell|shell|shell-style.sh||
 ci|markdown|markdown|||markdown-lint.sh                                       # GitHub: markdownlint-cli2 action
 ci|grafana-format|grafana-format|grafana-format.sh||
 ci|yaml|yaml|yaml-lint.sh,image-versions-agree.sh,xml-tabs.sh,check-parity.sh||
+release|verify|release-validate,release-verify|||release-validate-tag.sh,release-verify.sh,maven-settings.sh,docker-wait.sh
+release|release|release-publish|||release-stage-grafana.sh,release-login.sh,release-image.sh,release-sign.sh,release-sbom.sh,release-chart.sh,release-assets.sh,docker-wait.sh
 support|||lib.sh,build-tools-image.sh||

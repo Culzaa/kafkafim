@@ -1,4 +1,4 @@
-# GitLab pipeline: the same checks as .github/workflows/ci.yml
+# GitLab pipeline: the same checks as .github/workflows/ci.yml and the release of release.yml
 # (docs/DELIVERY.md, "CI on GitLab"; ADR-0057). Every job calls a script in ci/ that the GitHub
 # workflow calls too; `ci/check-parity.sh` fails when the two disagree. GitLab Free is enough.
 # Nothing here builds an air-gap bundle: the far side has nowhere further to carry one.
@@ -16,6 +16,12 @@
 #   KAFKAFIM_DOCKER_HOST_ADDRESS  socket mode: where the host's published ports are reachable
 #   MAVEN_REPO_URL, MAVEN_REPO_USER, MAVEN_REPO_PASSWORD   the Maven repository to resolve from
 #   KAFKAFIM_BASE_DIGEST       drop (default) or keep the @sha256 of the Dockerfile's base image
+#   KAFKAFIM_IMAGE_PLATFORMS   release image platforms, default linux/amd64
+#   KAFKAFIM_RELEASE_IMAGE, KAFKAFIM_RELEASE_CHART_REPO, KAFKAFIM_RELEASE_REGISTRY_USER,
+#   KAFKAFIM_RELEASE_REGISTRY_PASSWORD, KAFKAFIM_RELEASE_INSECURE   where a tag pushes the
+#                              image and chart (defaults: this project's registry)
+#   KAFKAFIM_SIGNING           cosign (default) or off; COSIGN_PRIVATE_KEY_B64, COSIGN_PASSWORD
+#                              (masked, protected) and COSIGN_PUBLIC_KEY with cosign
 
 include:
   - local: ci/gitlab/docker-dind.yml
@@ -28,14 +34,15 @@ include:
     rules:
       - if: '$KAFKAFIM_DOCKER_MODE == "socket"'
 
-stages: [verify, report]
+stages: [verify, report, release]
 
-# Like ci.yml: merge request pipelines and pushes to the default branch.
+# Like ci.yml: pull request (merge request) pipelines, pushes to the default branch, and tags.
 # A newer pipeline for the same merge request cancels the older one (interruptible).
 workflow:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_TAG =~ /^v/'
 
 variables:
   KAFKAFIM_IMAGE_PREFIX: $CI_REGISTRY/$CI_PROJECT_NAMESPACE/mirror
@@ -43,6 +50,12 @@ variables:
   KAFKAFIM_DOCKER_MODE: dind
   KAFKAFIM_DOCKER_HOST_ADDRESS: host.docker.internal
   KAFKAFIM_BASE_DIGEST: drop
+  KAFKAFIM_IMAGE_PLATFORMS: linux/amd64
+  KAFKAFIM_SIGNING: cosign
+  KAFKAFIM_RELEASE_IMAGE: $CI_REGISTRY_IMAGE
+  KAFKAFIM_RELEASE_CHART_REPO: oci://$CI_REGISTRY_IMAGE/charts
+  KAFKAFIM_RELEASE_REGISTRY_USER: $CI_REGISTRY_USER
+  KAFKAFIM_RELEASE_REGISTRY_PASSWORD: $CI_REGISTRY_PASSWORD
   # Maven: the bundle's maven-repo/ published to the project's Maven package registry, or an
   # Artifactory/Nexus repository (`publish --maven-url`). The wrapper downloads Maven from there.
   MAVEN_REPO_URL: $CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/maven
@@ -117,6 +130,10 @@ default:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+.rules-tag:
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v/'
 
 .maven:
   cache:
@@ -253,3 +270,51 @@ yaml:
     - ci/image-versions-agree.sh
     - ci/xml-tabs.sh
     - ci/check-parity.sh
+
+# --- release.yml: a v* tag ----------------------------------------------------------------------
+# verify, then publish. The tag is checked first, so a bad tag fails before any test runs. The
+# image, chart, SBOM, dashboards and alert rules are built from the commit the tag names.
+release-validate:
+  extends: [.rules-tag]
+  stage: verify
+  image: $KAFKAFIM_IMAGE_PREFIX/docker:29-cli
+  variables:
+    GIT_DEPTH: "0"
+  script:
+    - ci/release-validate-tag.sh "$CI_COMMIT_TAG" "$CI_COMMIT_SHA" "$CI_DEFAULT_BRANCH"
+
+release-verify:
+  extends: [.docker, .maven, .rules-tag]
+  stage: verify
+  needs: [release-validate]
+  variables:
+    TESTCONTAINERS_IMAGE_SUBSTITUTOR: io.github.culzaa.kafkafim.RegistryPrefixImageNameSubstitutor
+  script:
+    - ci/maven-settings.sh
+    - ci/docker-wait.sh
+    - ci/release-verify.sh "$CI_COMMIT_TAG"
+  artifacts:
+    expire_in: 1 week
+    paths:
+      - target/*.jar
+
+# Pushes and signs; runs no Maven. The image is built from the jar that release-verify tested.
+release-publish:
+  extends: [.docker, .rules-tag]
+  stage: release
+  needs: [release-verify]
+  script:
+    - ci/release-sign.sh check
+    - ci/docker-wait.sh
+    - ci/release-stage-grafana.sh "${CI_COMMIT_TAG#v}"
+    - ci/release-login.sh
+    - ci/release-image.sh "$CI_COMMIT_TAG"
+    - ci/release-sign.sh image
+    - ci/release-sbom.sh "${CI_COMMIT_TAG#v}"
+    - ci/release-chart.sh "${CI_COMMIT_TAG#v}"
+    - ci/release-sign.sh chart
+    - ci/release-assets.sh "$CI_COMMIT_TAG"
+  artifacts:
+    expire_in: 1 week
+    paths:
+      - dist/
