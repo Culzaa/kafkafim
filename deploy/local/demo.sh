@@ -9,6 +9,10 @@
 #   deploy/local/demo.sh down    delete the kind cluster (Docker Desktop: the namespace)
 #
 # CLUSTER=kind (default) or CLUSTER=docker-desktop. SKIP_BUILD=1 reuses kafkafim:dev.
+# KAFKAFIM_IMAGE_PREFIX=registry/path (optional): every image the demo needs, the Dockerfile's
+# base image included, is read from PREFIX/<name as written in the repository> and loaded into
+# the cluster from this machine's Docker (log in to the registry first); nothing is edited.
+# KIND_NODE_IMAGE (optional): the kind node image, for example PREFIX/kindest/node:v1.35.1.
 set -euo pipefail
 
 readonly CLUSTER="${CLUSTER:-kind}"
@@ -20,6 +24,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly HERE
 ROOT="$(cd "$HERE/../.." && pwd)"
 readonly ROOT
+PREFIX="${KAFKAFIM_IMAGE_PREFIX:-}"
+readonly PREFIX="${PREFIX%/}"
 CONTEXT="" # kubectl context; set by set_context
 
 #######################################
@@ -93,10 +99,45 @@ load_into_docker_desktop_nodes() {
 }
 
 #######################################
+# Prints "--set key=PREFIX/image" for each third-party image of the demo chart, read from its
+# values.yaml, so the chart is installed from the registry prefix without editing it. Prints
+# nothing when no prefix is set.
+# Globals:
+#   PREFIX, HERE (read)
+# Arguments:
+#   None
+#######################################
+prefixed_chart_images() {
+  [[ -n "$PREFIX" ]] || return 0
+  awk -v p="$PREFIX" '
+    /^[A-Za-z]+:/ { key = $1; sub(/:$/, "", key) }
+    /^  image: [^ ]/ && key != "kafkafim" { print "--set"; print key ".image=" p "/" $2 }
+  ' "$HERE/kafkafim-demo/values.yaml"
+}
+
+#######################################
+# Pulls every third-party image of the demo chart through the prefix and loads it into the kind
+# cluster, so the nodes never contact the registry (it may need credentials or a private CA).
+# Globals:
+#   PREFIX, KIND_NAME, HERE (read)
+# Arguments:
+#   None
+#######################################
+load_prefixed_images_into_kind() {
+  local img
+  while read -r img; do
+    img="${img#*=}"
+    docker pull "$img"
+    kind load docker-image "$img" --name "$KIND_NAME"
+  done < <(prefixed_chart_images | grep -v '^--set$')
+}
+
+#######################################
 # Builds the image (unless SKIP_BUILD=1), makes it available to the cluster and installs the demo
 # chart.
 # Globals:
-#   CLUSTER, KIND_NAME, IMAGE, RELEASE, NS, CONTEXT, HERE, ROOT (read); SKIP_BUILD (read)
+#   CLUSTER, KIND_NAME, IMAGE, RELEASE, NS, CONTEXT, HERE, ROOT, PREFIX (read); SKIP_BUILD,
+#   KIND_NODE_IMAGE (read)
 # Arguments:
 #   None
 #######################################
@@ -104,21 +145,31 @@ up() {
   need docker kubectl helm
   if [[ "${SKIP_BUILD:-}" != 1 ]]; then
     # clean: the Dockerfile copies target/*.jar, so a stale jar would be baked into the image.
-    (cd "$ROOT" && ./mvnw -B -ntp -q -DskipTests clean package && docker build -t "$IMAGE" .)
+    (cd "$ROOT" && ./mvnw -B -ntp -q -DskipTests clean package)
+    if [[ -n "$PREFIX" ]]; then
+      (cd "$ROOT" && ci/image-build.sh "$IMAGE") # base images through the prefix
+    else
+      (cd "$ROOT" && docker build -t "$IMAGE" .)
+    fi
   fi
 
   if [[ "$CLUSTER" == kind ]]; then
     need kind
-    kind get clusters 2>/dev/null | grep -x "$KIND_NAME" >/dev/null || kind create cluster --name "$KIND_NAME" --wait 120s
+    kind get clusters 2>/dev/null | grep -x "$KIND_NAME" >/dev/null ||
+      kind create cluster --name "$KIND_NAME" --wait 120s ${KIND_NODE_IMAGE:+--image "$KIND_NODE_IMAGE"}
     kind load docker-image "$IMAGE" --name "$KIND_NAME"
+    load_prefixed_images_into_kind
   else
     load_into_docker_desktop_nodes
   fi
 
   # The whole demo is this one install: Kafka, Elasticsearch, APM Server, Kibana, Grafana LGTM
   # and kafkafim.
+  local -a image_args=()
+  local line
+  while IFS= read -r line; do image_args+=("$line"); done < <(prefixed_chart_images)
   helm --kube-context "$CONTEXT" upgrade --install "$RELEASE" "$HERE/kafkafim-demo" \
-    -n "$NS" --create-namespace --wait --timeout 10m
+    -n "$NS" --create-namespace --wait --timeout 10m ${image_args[@]+"${image_args[@]}"}
   k get pods
 }
 

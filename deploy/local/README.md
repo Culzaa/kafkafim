@@ -93,6 +93,43 @@ kubectl --context kind-kafkafim-demo -n kafkafim-demo rollout restart deploy/kaf
 
 The cluster pulls the Kafka, Elasticsearch, and LGTM images itself on the first install.
 
+## From a registry mirror
+
+Without internet access (the air gap, [DELIVERY.md](../../docs/DELIVERY.md#ci-and-release-on-gitlab-the-air-gap))
+every image comes from a registry that holds the development bundle's images
+(`tools/airgap-dev-bundle.sh publish --registry`), under `PREFIX/<name as written>`. Nothing in the
+repository is edited; one variable names the registry:
+
+```bash
+export KAFKAFIM_IMAGE_PREFIX=registry.example/dev/mirror
+docker login registry.example
+export KIND_NODE_IMAGE="$KAFKAFIM_IMAGE_PREFIX/kindest/node:v1.37.0"   # the bundle's kind node image
+deploy/local/demo.sh up
+```
+
+With the variable set, `demo.sh up` builds the image with the Dockerfile's base image read through
+the prefix (`ci/image-build.sh`; the Dockerfile itself is not touched), installs the chart with
+`--set kafka.image=...` and the same for Elasticsearch, LGTM, APM Server and Kibana (the values are
+read from `values.yaml` and prefixed), and, on kind, pulls those images with the local Docker and
+loads them into the cluster, so the nodes never contact the registry (it may need credentials or a
+private CA). The Maven build still needs the repository of the bundle
+([RUNBOOK § 7.2](../../docs/RUNBOOK.md#72-set-up-a-developer-machine)). `KIND_NODE_IMAGE` is the
+kind node image of the bundle (`images.lock` lists its tag).
+
+The compose files read through the prefix the same way, with an override file that
+`deploy/local/compose-prefix.sh` writes from the compose file:
+
+```bash
+COMPOSE_FILE="compose.yaml:$(deploy/local/compose-prefix.sh compose.yaml)" docker compose up -d
+```
+
+```bash
+KAFKAFIM_COMPOSE_OVERRIDE="$(deploy/local/compose-prefix.sh loadtest/compose.yaml)" loadtest/run.sh up
+```
+
+`./mvnw spring-boot:run` starts `compose.yaml` itself and ignores `COMPOSE_FILE`; give it both
+files: `-Dspring-boot.run.arguments="--spring.docker.compose.file=compose.yaml,<override>"`.
+
 ## Look around
 
 The commands below use the kind context; with `CLUSTER=docker-desktop` replace
