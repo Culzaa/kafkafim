@@ -44,14 +44,17 @@ file.
    seconds). It fails when an image named anywhere in tracked files (a new compose file,
    Dockerfile or Testcontainers constant) is not in the derived list, when a Maven plugin goal
    that a workflow runs is not in the script's goal sets, or when a source of images yields
-   nothing because a file moved. A new file the derivation does not read fails the check until
-   the script reads it, so the bundle cannot silently lose an image.
+   nothing because a file moved. A new file in one of those forms that the derivation does not read
+   fails the check until the script reads it. Images named in other ways (shell scripts,
+   `docker run` lines, chart templates) are not caught.
 4. **Integrity.** The bundle carries `SHA256SUMS` over every file, in the format of the release
    bundle (`sha256sum -c SHA256SUMS`), and `manifest.json` with the commit, the ref and every
    image digest. `tools/airgap-dev-bundle.sh verify <dir>` checks the sums, the git bundle and
    then runs a full offline build. Each downloaded component is checked at build time: Maven
-   distribution against Central's SHA-512, the JDK against Adoptium's SHA-256, images by
-   digest. Tie to the signed release: when the bundled ref is a release tag, the source commit
+   distribution against Central's SHA-512, the JDK against the SHA-256 that Adoptium's API
+   publishes next to the file (this guards against transport damage, not against a
+   compromised Adoptium), images by digest. Tie to the signed release: when the bundled ref is
+   a release tag, the source commit
    in the manifest is the commit the release workflow built and signed, and the bundle
    contains no image that claims to be kafkafim. The deployment bundle remains the only
    artifact that carries the signed kafkafim image. Signing the development bundle itself is
@@ -145,6 +148,9 @@ splits the work into the bundle (this change) and the GitLab pipelines (later ch
   the content of an internal repository manager.
 - A change to a goal set in a workflow, or a new image source, needs a matching change in the
   script; the check says so in the pull request that makes the change.
+- Loading the images by digest needs Docker's containerd image store (the default from
+  Docker 29); the classic store drops the digest on `docker load`, and a digest-pinned `FROM`
+  would then try to pull. This was shown on the containerd store only.
 - What `verify` does not prove: it runs on a machine that has a network. It uses `-o`, a
   Maven repository copied from the bundle and a wrapper served from the bundle, not a network
   namespace without routes. The runbook states this.

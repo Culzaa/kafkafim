@@ -929,65 +929,83 @@ tools/airgap-dev-bundle.sh build v1.2.3 --out /mnt/transfer --split-mib 1900
 
 The directory `kafkafim-dev-v1.2.3-airgap-dev/` is the bundle. With `--split-mib` the script
 also writes `.tar.part-*` files and `*.parts.SHA256SUMS`. Carry whichever you prefer. After
-the transfer, join the parts and check them:
+the transfer, check the parts, join them, and check the bundle (`shasum -a 256 -c` where there
+is no `sha256sum`):
+
+```bash
+sha256sum -c kafkafim-dev-v1.2.3-airgap-dev.parts.SHA256SUMS
+```
 
 ```bash
 cat kafkafim-dev-v1.2.3-airgap-dev.tar.part-* | tar -xf -
 ```
 
 ```bash
-cd kafkafim-dev-v1.2.3-airgap-dev && shasum -a 256 -c SHA256SUMS
+cd kafkafim-dev-v1.2.3-airgap-dev && sha256sum -c SHA256SUMS
 ```
 
 `SHA256SUMS` detects damage in transit. It does not prove who built the bundle (the build is
 not signed, ADR-0056): compare `manifest.json` `commit` with the tag on GitHub before you
-carry it.
+carry it. Build on a dedicated machine: the script retags the local copies of the images it
+saves (one platform at a time).
 
 ### 7.2 Set up a developer machine
 
-Inside the air gap, from the bundle directory. The JDK first (the file name is in
-`jdk/jdk.lock`; use the one for your platform):
+Inside the air gap. Every command below is run from the bundle directory, which `BUNDLE`
+names:
 
 ```bash
-mkdir -p ~/jdk && tar -xzf jdk/OpenJDK27U-jdk_x64_linux_hotspot_*.tar.gz -C ~/jdk
+cd kafkafim-dev-v1.2.3-airgap-dev && BUNDLE="$PWD"
+```
+
+The JDK (the file names are in `jdk/jdk.lock`; take the one for your platform):
+
+```bash
+mkdir -p ~/jdk && tar -xzf "$BUNDLE"/jdk/OpenJDK27U-jdk_x64_linux_hotspot_*.tar.gz -C ~/jdk
 ```
 
 ```bash
-export JAVA_HOME=$(echo ~/jdk/jdk-27*) PATH="$JAVA_HOME/bin:$PATH"
+export JAVA_HOME="$(echo ~/jdk/jdk-27*)" PATH="$JAVA_HOME/bin:$PATH"   # macOS: append /Contents/Home
 ```
 
 The Maven repository: copy it to `~/.m2/repository` (Maven writes bookkeeping files into the
 repository it uses, so work on a copy to keep the bundle's `SHA256SUMS` valid). To serve it
 from an internal repository manager instead, import the directory as a hosted repository: it
-has the standard layout and no resolver bookkeeping files. Then clone the source and build
-offline; `MVNW_REPOURL` makes the wrapper fetch the Maven distribution from the bundle:
+has the standard layout and no resolver bookkeeping files.
 
 ```bash
-cp -R "$BUNDLE/maven-repo" ~/.m2/repository
+mkdir -p ~/.m2/repository && cp -R "$BUNDLE/maven-repo/." ~/.m2/repository/
 ```
+
+Clone the source and build offline. `MVNW_REPOURL` makes the wrapper fetch the Maven
+distribution from the bundle; the user name and password (any value) make it use its Java
+downloader, because `wget` cannot read `file://` URLs:
 
 ```bash
 git clone "$BUNDLE/source/kafkafim.bundle" kafkafim && cd kafkafim
 ```
 
 ```bash
-MVNW_REPOURL="file://$BUNDLE/maven-repo" ./mvnw -o verify
+MVNW_REPOURL="file://$BUNDLE/maven-repo" MVNW_USERNAME=bundle MVNW_PASSWORD=bundle ./mvnw -o verify
 ```
 
-Load the images (the tar names match the images, the digests are in `images/images.lock`):
+Load the images first (the tar names match the images, the digests are in
+`images/images.lock`). The integration tests and the demo need them, and a missing image makes
+Testcontainers try to pull it. Use `linux-arm64` on an Apple silicon or Arm machine. The
+Docker must use the containerd image store (the default from Docker 29), so that the
+`FROM image@sha256:...` of the Dockerfile finds the loaded image by digest:
 
 ```bash
-for f in images/linux-amd64/*.tar; do docker load -i "$f"; done
+for f in "$BUNDLE"/images/linux-amd64/*.tar; do docker load -i "$f"; done
 ```
 
-Use `linux-arm64` on an Apple silicon or Arm machine. Then `docker build -t kafkafim:dev .`,
-`docker compose up` and `deploy/local/demo.sh up` start from the loaded images; Testcontainers
-finds its images (including Ryuk) in the local Docker.
+Then `docker build -t kafkafim:dev .`, `docker compose up` and `deploy/local/demo.sh up` start
+from the loaded images; Testcontainers finds its images (including Ryuk) in the local Docker.
 
 ### 7.3 Prove the bundle on the far side
 
 ```bash
-./airgap-dev-bundle.sh verify .
+./airgap-dev-bundle.sh verify "$BUNDLE"
 ```
 
 It checks `SHA256SUMS` and the git bundle, clones the source, and runs `./mvnw -o verify`

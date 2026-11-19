@@ -67,6 +67,13 @@ sha256_of() {
 }
 
 #######################################
+# Runs sha256sum, or shasum -a 256 where sha256sum does not exist (macOS), with the arguments.
+#######################################
+sums() {
+  if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi
+}
+
+#######################################
 # Image references named by Dockerfile FROM lines (stage aliases and scratch excluded).
 # Arguments:
 #   Repository root
@@ -175,7 +182,7 @@ inventory() {
 check() {
   local root="$1" bad=0 src n
   for src in images_from_dockerfile images_from_yaml images_from_tests; do
-    n="$("$src" "$root" | wc -l | tr -d ' ')"
+    n="$("$src" "$root" 2>/dev/null | wc -l | tr -d ' ')" || n=0
     if [[ "$n" -eq 0 ]]; then
       echo "::error::$src found no images; the repository layout changed, update $0" >&2
       bad=1
@@ -183,7 +190,7 @@ check() {
   done
 
   local derived tracked ref
-  derived="$(derived_images "$root")"
+  derived="$(derived_images "$root" 2>/dev/null)" || derived=""
   # Broad scan over every tracked file: YAML image keys, Dockerfile FROM lines, Testcontainers
   # constants. A file the derivation does not read shows up as an image it does not know.
   tracked="$(
@@ -210,8 +217,12 @@ check() {
   goals="$(
     cd "$root"
     git grep -h -A2 '\./mvnw ' -- .github/workflows |
-      grep -oE '(^|[[:space:]])([a-z.-]+:)+[a-zA-Z-]+(@[a-z-]+)?([[:space:]]|$)' | tr -d ' ' | sort -u || true
+      tr -s '[:space:]' '\n' | grep -E '^([a-z.-]+:)+[a-zA-Z-]+(@[a-z-]+)?$' | sort -u || true
   )"
+  if [[ -z "$goals" ]]; then
+    echo "::error::found no plugin goals after ./mvnw in .github/workflows; update the goal scan in $0" >&2
+    bad=1
+  fi
   while IFS= read -r goal; do
     [[ -n "$goal" ]] || continue
     if ! printf '%s\n' "${GOAL_SETS[@]}" | grep -qF "${goal%%@*}"; then
@@ -436,6 +447,8 @@ build() {
     esac
   done
   [[ -n "$ref" ]] || die "build needs a tag or branch"
+  mkdir -p "$out"
+  out="$(cd "$out" && pwd)"
   need git curl jq docker unzip strings tar
   case "$out" in "$ROOT"/*) die "--out must be outside the repository" ;; esac
 
@@ -487,14 +500,14 @@ build() {
 
   write_manifest "$dir" "$ref" "$commit" "$platforms" "${refs[@]}"
   cp "$ROOT/tools/airgap-dev-bundle.sh" "$dir/airgap-dev-bundle.sh"
-  (cd "$dir" && find . -type f ! -name SHA256SUMS ! -name '.phase-*' -print0 | sort -z | xargs -0 shasum -a 256) >"$dir/SHA256SUMS"
+  (cd "$dir" && find . -type f ! -name SHA256SUMS ! -name '.phase-*' | LC_ALL=C sort | while IFS= read -r f; do sums "$f"; done) >"$dir/SHA256SUMS"
   rm -rf "$work"
   du -sh "$dir"
 
   if [[ "$split" -gt 0 ]]; then
     echo "== split archive ($split MiB parts)"
     tar -cf - -C "$out" "$name" | split -b "${split}m" - "$out/$name.tar.part-"
-    (cd "$out" && shasum -a 256 "$name".tar.part-*) >"$out/$name.parts.SHA256SUMS"
+    (cd "$out" && sums "$name".tar.part-*) >"$out/$name.parts.SHA256SUMS"
   fi
 }
 
@@ -526,22 +539,24 @@ write_manifest() {
 verify() {
   local dir work
   dir="$(cd "$1" && pwd)"
-  need git unzip
+  need git jq
   echo "== checksums"
-  (cd "$dir" && shasum -a 256 -c SHA256SUMS >/dev/null) || die "SHA256SUMS does not match"
+  (cd "$dir" && sums -c SHA256SUMS >/dev/null) || die "SHA256SUMS does not match"
   echo "== git bundle"
   git bundle verify "$dir/source/kafkafim.bundle" >/dev/null
   work="$(mktemp -d)"
   git clone -q "$dir/source/kafkafim.bundle" "$work/src"
   git -C "$work/src" checkout -q "$(jq -r .commit "$dir/manifest.json")"
   echo "== offline build"
-  # The wrapper fetches Maven from the bundle (MVNW_REPOURL); Maven runs with -o and the
+  # The wrapper fetches Maven from the bundle (MVNW_REPOURL; a user name and password make it use
+  # its Java downloader, because wget cannot read file:// URLs); Maven runs with -o and the
   # bundled repository as its only local repository.
   cp -R "$dir/maven-repo" "$work/repo" # Maven writes bookkeeping files; the bundle stays untouched
   (
     cd "$work/src"
     # shellcheck disable=SC2086
     MAVEN_USER_HOME="$work/mavenhome" MVNW_REPOURL="file://$dir/maven-repo" \
+      MVNW_USERNAME=bundle MVNW_PASSWORD=bundle \
       ./mvnw -B -ntp -o -Dmaven.repo.local="$work/repo" ${VERIFY_GOALS:-verify}
   ) || die "offline build failed"
   rm -rf "$work"
