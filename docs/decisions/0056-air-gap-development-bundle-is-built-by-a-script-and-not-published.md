@@ -12,9 +12,10 @@ source code, as a git repo, all java dependencies in their structure, docker ima
 demo, ci, and everything I need to continue development in the airgap".
 
 Measured on the current tree (v0.4.x line): the Maven repository for every goal the project
-runs is 323 MB, the seven images plus Ryuk are about 2.5 GB per platform (Elasticsearch 756 MB,
-Grafana LGTM 883 MB, Kibana 566 MB), and a JDK is about 145 MB per platform. One platform is
-3.2 GB and both Linux platforms are about 6 GB. A GitHub release asset is capped at 2 GiB per
+runs is 323 MB (912 MB with the sources and Javadoc jars), the seven images plus Ryuk are about
+2.5 GB per platform
+(Elasticsearch 756 MB, Grafana LGTM 883 MB, Kibana 566 MB), and a JDK is about 145 MB per
+platform. One platform is 3.8 GB and both Linux platforms are about 6.5 GB. A GitHub release asset is capped at 2 GiB per
 file.
 
 ## Decision
@@ -36,6 +37,10 @@ file.
      check. `dependency:go-offline` is not used: it misses artifacts that plugins resolve
      while they run (Spotless' google-java-format, Checkstyle, PIT's JUnit plugin, Surefire and
      Failsafe providers).
+   - *Sources and Javadoc*: for every jar in the repository, plugins and transitive
+     dependencies included, the `-sources.jar` and `-javadoc.jar` that Maven Central has, each
+     checked against Central's SHA-1 (448 of 455 jars have sources, 435 have Javadoc; the
+     others have none on Central). Maven does not fetch them during a build.
    - *Maven distribution*: the file the wrapper's `distributionUrl` names, stored in the same
      repository layout, so `MVNW_REPOURL=file://<bundle>/maven-repo ./mvnw` works offline.
    - *JDK*: Temurin of the pom's `java.version`, from Adoptium, checked against the SHA-256

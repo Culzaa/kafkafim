@@ -16,7 +16,7 @@
 #
 # build options: --out DIR (default ./airgap-dev-out), --repo URL_OR_PATH (default: origin),
 # --platforms "linux/amd64 linux/arm64" (default both), --split-mib N (also write the bundle as
-# tar parts of N MiB, for example 1900; default none), --skip-maven, --skip-images, --skip-jdk (partial
+# tar parts of N MiB, for example 1900; default none), --skip-maven, --skip-images, --skip-jdk, --skip-sources (partial
 # builds; the manifest says what is missing), --resume (continue in an existing directory; a
 # finished phase is not repeated).
 # publish options: --maven-url URL (the repository to PUT into, for example
@@ -307,6 +307,36 @@ fill_maven() {
 }
 
 #######################################
+# Adds the -sources and -javadoc jars that Maven Central has for every jar in the repository,
+# plugins and transitive dependencies included, each checked against Central's SHA-1. Maven
+# itself resolves these only on request (IDE downloads, dependency:sources), so the build does
+# not fetch them. Jars Central has no such classifier for are left alone.
+# Arguments:
+#   Maven repository directory
+#######################################
+fetch_extra_jars() {
+  local repo="$1"
+  export CENTRAL="https://repo.maven.apache.org/maven2"
+  # shellcheck disable=SC2016  # the worker script is expanded by the child bash
+  find "$repo" -name '*.jar' ! -name '*-sources.jar' ! -name '*-javadoc.jar' -print0 |
+    xargs -0 -n 1 -P 8 bash -c '
+      jar="$1"
+      rel="${jar#"$0"/}"
+      for c in sources javadoc; do
+        dest="${jar%.jar}-$c.jar"
+        [[ -e "$dest" ]] && continue
+        url="$CENTRAL/${rel%.jar}-$c.jar"
+        if curl -fsSL -o "$dest.part" "$url" 2>/dev/null; then
+          want="$(curl -fsSL "$url.sha1" | cut -c1-40)"
+          if command -v sha1sum >/dev/null; then got="$(sha1sum "$dest.part" | cut -c1-40)"; else got="$(shasum -a 1 "$dest.part" | cut -c1-40)"; fi
+          if [[ "$got" == "$want" ]]; then mv "$dest.part" "$dest"; else echo "checksum mismatch: $url" >&2; rm -f "$dest.part"; exit 255; fi
+        else
+          rm -f "$dest.part"
+        fi
+      done' "$repo"
+}
+
+#######################################
 # Downloads the Maven distribution the wrapper fetches, into the repository layout, checked
 # against Maven Central's published SHA-512.
 # Arguments:
@@ -413,7 +443,7 @@ save_images() {
 #######################################
 build() {
   local ref="" out="$PWD/airgap-dev-out" url platforms="linux/amd64 linux/arm64" split=0
-  local skip_maven=0 skip_images=0 skip_jdk=0 resume=0
+  local skip_maven=0 skip_images=0 skip_jdk=0 skip_sources=0 resume=0
   url="$(git -C "$ROOT" remote get-url origin)"
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -443,6 +473,10 @@ build() {
         ;;
       --skip-jdk)
         skip_jdk=1
+        shift
+        ;;
+      --skip-sources)
+        skip_sources=1
         shift
         ;;
       --resume)
@@ -489,6 +523,11 @@ build() {
       fill_maven "$src" "$dir/maven-repo"
       fetch_maven_dist "$src" "$dir/maven-repo"
       touch "$dir/.phase-maven"
+    fi
+    if [[ "$skip_sources" -eq 0 && ! -e "$dir/.phase-sources" ]]; then
+      echo "== sources and javadoc jars"
+      fetch_extra_jars "$dir/maven-repo"
+      touch "$dir/.phase-sources"
     fi
   fi
 
@@ -618,7 +657,7 @@ publish() {
   [[ -n "$dir" ]] || die "publish needs the bundle directory"
   [[ "$skip_maven" -eq 1 || -n "$murl" ]] || die "publish needs --maven-url (or --skip-maven)"
   [[ "$skip_images" -eq 1 || -n "$registry" ]] || die "publish needs --registry (or --skip-images)"
-  [[ "$jobs" =~ ^[0-9]+$ && "$jobs" -gt 0 ]] || die "--jobs needs a positive integer"
+  [[ "$jobs" =~ ^[1-9][0-9]*$ ]] || die "--jobs needs a positive integer"
   need curl
   (cd "$dir" && sums -c SHA256SUMS >/dev/null) || die "SHA256SUMS does not match; not publishing"
 

@@ -466,7 +466,7 @@ at 2 GiB per file), and is not attached to any release; carrying it across is th
 | Directory | Content |
 |---|---|
 | `source/kafkafim.bundle` | The repository as a `git bundle`: `main` and every tag, full history |
-| `maven-repo/` | Every dependency and Maven plugin of `verify`, PIT and the coverage goals, in the standard repository layout (`org/springframework/...`), and the Maven distribution the wrapper downloads |
+| `maven-repo/` | Every dependency and Maven plugin of `verify`, PIT and the coverage goals, in the standard repository layout (`org/springframework/...`) with their `-sources.jar` and `-javadoc.jar` where Maven Central has them, and the Maven distribution the wrapper downloads |
 | `jdk/` | Temurin of the pom's `java.version`: Linux x64, Linux aarch64, macOS aarch64, with `jdk.lock` |
 | `images/linux-amd64/`, `images/linux-arm64/` | One `docker save` tar per image: the Dockerfile base image, the Testcontainers images and Ryuk, both compose files, the demo chart; `images.lock` has the pinned digests |
 | `manifest.json` | The ref, the commit, the build time, the phases and every image |
