@@ -11,12 +11,11 @@ use, none of the tools CI runs (issue 480). The owner asked for one bundle that 
 source code, as a git repo, all java dependencies in their structure, docker images used for
 demo, ci, and everything I need to continue development in the airgap".
 
-Measured on the current tree (v0.4.x line): the Maven repository for every goal the project
-runs is 323 MB (912 MB with the sources and Javadoc jars), the seven images plus Ryuk are about
-2.5 GB per platform
-(Elasticsearch 756 MB, Grafana LGTM 883 MB, Kibana 566 MB), and a JDK is about 145 MB per
-platform. One platform is 3.8 GB and both Linux platforms are about 6.5 GB. A GitHub release asset is capped at 2 GiB per
-file.
+Measured on the current tree (v0.4.x line): the Maven repository for every goal the project runs
+is 323 MB (912 MB with the sources and Javadoc jars), the seven images plus Ryuk are about 2.5
+GB per platform (Elasticsearch 756 MB, Grafana LGTM 883 MB, Kibana 566 MB), and a JDK is about
+145 MB per platform. One platform is 3.8 GB and both Linux platforms are about 6.5 GB. A GitHub
+release asset is capped at 2 GiB per file.
 
 ## Decision
 
