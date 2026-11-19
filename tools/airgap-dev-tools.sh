@@ -9,6 +9,10 @@
 
 # Platforms the tools are fetched for: name os arch (arch spelling differs per project).
 readonly -a TOOL_PLATFORMS=(linux-amd64 linux-arm64 darwin-arm64)
+# Tools fetched as release binaries (tool_asset has a case for each), and the ones handled by
+# their own function or as an image. `check` fails on a tool in tool_versions that is in neither.
+readonly -a FETCHED_TOOLS=(helm kubeconform shellcheck shfmt actionlint promtool cosign syft kind kubectl jq)
+readonly -a OTHER_TOOLS=(helm-unittest yamllint hadolint markdownlint-cli2)
 
 #######################################
 # Prints the value of KEY: in a workflow file, first occurrence, quotes and comments removed.
@@ -60,6 +64,7 @@ tool_versions() {
 #   Repository root
 #######################################
 pinned_images() {
+  [[ -f "$1/tools/airgap-dev/pins.txt" ]] || return 0
   sed -n 's/^image=//p' "$1/tools/airgap-dev/pins.txt" | sed -E 's/ *#.*//'
 }
 
@@ -81,13 +86,44 @@ tool_version() {
 #   1 when something disagrees
 #######################################
 check_tools() {
-  local root="$1" bad=0 name ver
+  local root="$1" bad=0 name ver t
   while read -r name ver; do
     if [[ -z "$ver" ]]; then
       echo "::error::no version found for tool $name (workflows or tools/airgap-dev/pins.txt); update tools/airgap-dev-tools.sh" >&2
       bad=1
     fi
   done < <(tool_versions "$root")
+  local known
+  while read -r name ver; do
+    known=0
+    for t in "${FETCHED_TOOLS[@]}" "${OTHER_TOOLS[@]}"; do [[ "$t" != "$name" ]] || known=1; done
+    if [[ "$known" -eq 0 ]]; then
+      echo "::error::tool $name has no download in tools/airgap-dev-tools.sh (FETCHED_TOOLS or OTHER_TOOLS)" >&2
+      bad=1
+    fi
+  done < <(tool_versions "$root")
+  local plat
+  for t in "${FETCHED_TOOLS[@]}"; do
+    [[ "$t" != syft ]] || continue # its asset name needs the network (SyftVersion.ts)
+    for plat in "${TOOL_PLATFORMS[@]}"; do
+      tool_asset "$root" "$t" "$plat"
+      [[ -n "$FILE" && -n "$URL" ]] || {
+        echo "::error::tools/airgap-dev-tools.sh has no download for $t on $plat" >&2
+        bad=1
+      }
+    done
+  done
+  local v
+  for v in SHELLCHECK_SHA256 SHFMT_SHA256 ACTIONLINT_SHA256 TGZ_SHA256 PROV_SHA256; do
+    [[ -n "$(wf_value "$root" "$v")" ]] || {
+      echo "::error::ci.yml no longer pins $v; the bundle checks its downloads against it" >&2
+      bad=1
+    }
+  done
+  pinned_images "$root" | grep -qxF "davidanson/markdownlint-cli2:v$(pin "$root" markdownlint-cli2)" || {
+    echo "::error::pins.txt: the markdownlint-cli2 image tag and the markdownlint-cli2 pin disagree" >&2
+    bad=1
+  }
   [[ -n "$(pinned_images "$root")" ]] || {
     echo "::error::tools/airgap-dev/pins.txt names no image" >&2
     bad=1
@@ -264,6 +300,7 @@ fetch_tool() {
     shellcheck/linux-amd64) pinned="$(wf_value "$r" SHELLCHECK_SHA256)" ;;
     shfmt/linux-amd64) pinned="$(wf_value "$r" SHFMT_SHA256)" ;;
     actionlint/linux-amd64) pinned="$(wf_value "$r" ACTIONLINT_SHA256)" ;;
+    promtool/linux-amd64) pinned="$(grep -A2 'TGZ: prometheus-' "$r"/.github/workflows/ci.yml | sed -n 's/.*TGZ_SHA256: *//p' | sed -E "s/ *#.*//; s/['\"]//g" | head -n 1)" ;;
   esac
   if [[ -n "$pinned" ]]; then
     [[ "$got" == "$pinned" ]] || die "$FILE does not match the SHA-256 pinned in ci.yml"
@@ -295,7 +332,7 @@ fetch_helm_unittest() {
   psha="$(grep -E '^[[:space:]]+PROV_SHA256:' "$r"/.github/workflows/ci.yml | head -n 1 | sed -E "s/.*: *//; s/ *#.*//; s/['\"]//g")"
   mkdir -p "$out"
   local base="https://github.com/helm-unittest/helm-unittest/releases/download/v$v"
-  curl -fsSL --retry 3 -o "$out/$tgz" "$base/$tgz" || die "download failed: $base/$tgz"
+  curl -fsSL --retry 5 --retry-delay 5 -o "$out/$tgz" "$base/$tgz" || die "download failed: $base/$tgz"
   curl -fsSL --retry 3 -o "$out/$tgz.prov" "$base/$tgz.prov" || die "download failed: $base/$tgz.prov"
   [[ "$(sha256_of "$out/$tgz")" == "$tsha" ]] || die "$tgz does not match the SHA-256 pinned in ci.yml"
   [[ "$(sha256_of "$out/$tgz.prov")" == "$psha" ]] || die "$tgz.prov does not match the SHA-256 pinned in ci.yml"
@@ -321,7 +358,7 @@ fetch_yamllint() {
       linux-arm64) tag=manylinux2014_aarch64 ;;
       darwin-arm64) tag=macosx_11_0_arm64 ;;
     esac
-    for pv in 3.10 3.11 3.12 3.13; do
+    for pv in 3.10 3.11 3.12 3.13 3.14; do
       python3 -m pip download --disable-pip-version-check -q --only-binary=:all: \
         --platform "$tag" --python-version "$pv" --implementation cp -d "$out" "yamllint==$v" ||
         die "pip download of yamllint failed ($tag, Python $pv)"
@@ -367,7 +404,7 @@ build_tools() {
   mkdir -p "$dir/tools"
   : >"$lock"
   for p in "${TOOL_PLATFORMS[@]}"; do
-    for t in helm kubeconform shellcheck shfmt actionlint promtool cosign syft kind kubectl jq; do
+    for t in "${FETCHED_TOOLS[@]}"; do
       echo "  $t $p"
       fetch_tool "$src" "$t" "$p" "$dir/tools/$p" "$lock"
     done

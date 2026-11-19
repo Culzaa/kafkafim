@@ -1023,12 +1023,19 @@ tar -xzf actionlint_*.tar.gz -C ~/bin actionlint && tar -xzf syft_*.tar.gz -C ~/
 The rest, as CI does them:
 
 ```bash
-python3 -m pip install --no-index --find-links "$BUNDLE/tools/yamllint-wheels" yamllint==1.37.1
+python3 -m pip install --no-index --find-links "$BUNDLE/tools/yamllint-wheels" yamllint
 ```
 
+The wheels cover Python 3.10 to 3.14 on the three platforms. For helm-unittest, import its
+release key into a throwaway keyring and check the fingerprint against `KEY_FPR` in `ci.yml`,
+then install the signed tarball (the version is in `tools/tools.lock`):
+
 ```bash
-gpg --import "$BUNDLE/tools/helm-unittest/helm-unittest-public-key.asc" && gpg --export > ut.gpg
-helm plugin install "$BUNDLE/tools/helm-unittest/unittest-1.2.1.tgz" --keyring ut.gpg
+export GNUPGHOME="$(mktemp -d)"
+gpg --batch --import "$BUNDLE/tools/helm-unittest/helm-unittest-public-key.asc"
+gpg --batch --with-colons --list-keys | awk -F: '$1 == "fpr" {print $10; exit}'
+gpg --batch --export > ut.gpg
+helm plugin install "$BUNDLE"/tools/helm-unittest/unittest-*.tgz --keyring ut.gpg
 ```
 
 ```bash
@@ -1036,11 +1043,20 @@ helm template kafkafim charts/kafkafim -f charts/kafkafim/ci/minimal-values.yaml
   kubeconform -strict -summary -cache "$BUNDLE/tools/kubeconform-schemas"
 ```
 
-hadolint and markdownlint-cli2 run from their images (`docker run --rm -i ghcr.io/hadolint/hadolint
-< Dockerfile`, and the `davidanson/markdownlint-cli2` image on the repository). The job images
-for the GitLab runner (`docker`, `docker:dind`, a JDK, Python) are in `images/` and are pushed
-with the rest by `publish` (§7.5). The checks themselves, and their GitLab pipeline, come with
-issues 482 to 484.
+hadolint and markdownlint-cli2 run from their images. Use the exact tags in
+`images/images.lock` (a bare name means `:latest`, which is not in the bundle):
+
+```bash
+docker run --rm -i ghcr.io/hadolint/hadolint:v2.15.1-debian < Dockerfile
+docker run --rm -v "$PWD":/workdir davidanson/markdownlint-cli2:v0.24.0
+```
+
+`tar --wildcards` above is GNU tar; with macOS `tar` name the member, for example
+`shellcheck-v0.11.0/shellcheck`.
+
+The job images for the GitLab runner (`docker`, `docker:dind`, a JDK, Python) are in `images/`
+and are pushed with the rest by `publish` (§7.5). The checks themselves, and their GitLab
+pipeline, come with issues 482 to 484.
 
 ### 7.4 Prove the bundle on the far side
 

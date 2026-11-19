@@ -459,7 +459,8 @@ save_images() {
 host_platform() {
   local os arch
   os="$(uname -s | tr '[:upper:]' '[:lower:]')"
-  case "$(uname -m)" in aarch64 | arm64) arch=arm64 ;; *) arch=amd64 ;; esac
+  case "$(uname -m)" in aarch64 | arm64) arch=arm64 ;; x86_64 | amd64) arch=amd64 ;; *) die "unsupported CPU $(uname -m)" ;; esac
+  [[ "$os-$arch" != darwin-amd64 ]] || die "macOS on Intel is not covered by the bundle's tools"
   echo "$os-$arch"
 }
 
@@ -580,8 +581,13 @@ build() {
 
   local -a refs=()
   local line
-  while IFS= read -r line; do refs+=("$line"); done < <(derived_images "$inputs")
-  refs+=("$(hadolint_image "$inputs")" "$(kind_node_image "$inputs")")
+  while IFS= read -r line; do refs+=("$line"); done < <({
+    derived_images "$src"
+    pinned_images "$inputs"
+  } | sort -u)
+  if [[ "$skip_images" -eq 0 && ! -e "$dir/.phase-images" ]]; then
+    refs+=("$(hadolint_image "$inputs")" "$(kind_node_image "$inputs")")
+  fi
   [[ ! -d "$dir/maven-repo" ]] || refs+=("$(ryuk_from_repo "$dir/maven-repo")")
   if [[ "$skip_images" -eq 0 && ! -e "$dir/.phase-images" ]]; then
     echo "== images (${#refs[@]})"
@@ -589,6 +595,11 @@ build() {
     touch "$dir/.phase-images"
   fi
 
+  # The manifest lists what was saved (images.lock), which also covers a resumed build.
+  if [[ -s "$dir/images/images.lock" ]]; then
+    refs=()
+    while IFS= read -r line; do refs+=("$line"); done < <(cut -d' ' -f1 "$dir/images/images.lock" | sort -u)
+  fi
   write_manifest "$dir" "$ref" "$commit" "$platforms" "${refs[@]}"
   cp "$ROOT/tools/airgap-dev-bundle.sh" "$ROOT/tools/airgap-dev-tools.sh" "$dir/"
   (cd "$dir" && find . -type f ! -name SHA256SUMS ! -name '.phase-*' | LC_ALL=C sort | while IFS= read -r f; do sums "$f"; done) >"$dir/SHA256SUMS"

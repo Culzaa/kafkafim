@@ -47,7 +47,8 @@ capped at 2 GiB per file.
      fetches are cached by running it on the charts, so `kubeconform -cache` works offline.
      hadolint and syft versions are not in the workflows: they come from the pinned actions'
      own files (the hadolint action's Dockerfile, the sbom action's `SyftVersion.ts`).
-   - *Job images* for the GitLab runner (`docker`, `docker:dind`, a JDK, Python, the
+   - *Job images* for the GitLab runner (generic: tool-specific job images come with the pipeline
+     change, issue 482) (`docker`, `docker:dind`, a JDK, Python, the
      markdownlint-cli2 image, hadolint) and kind's node image, pinned by digest like the rest.
    - *Sources and Javadoc*: for every jar in the repository, plugins and transitive
      dependencies included, the `-sources.jar` and `-javadoc.jar` that Maven Central has, each

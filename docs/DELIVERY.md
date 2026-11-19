@@ -472,7 +472,16 @@ at 2 GiB per file), and is not attached to any release; carrying it across is th
 | `tools/<platform>/` | The CI tools of `ci.yml` and `release.yml` for `linux-amd64`, `linux-arm64`, `darwin-arm64` (Helm, kubeconform, shellcheck, shfmt, actionlint, promtool, cosign, syft, kind, kubectl, jq), `tools/helm-unittest/` (signed plugin and key), `tools/yamllint-wheels/`, `tools/kubeconform-schemas/` (offline schema cache) and `tools/tools.lock` (version, SHA-256 and how it was checked) |
 | `manifest.json` | The ref, the commit, the build time, the phases and every image |
 | `SHA256SUMS` | Every file above, same format as the release bundle |
-| `airgap-dev-bundle.sh` | The script that built it, with the `verify` subcommand |
+| `airgap-dev-bundle.sh`, `airgap-dev-tools.sh` | The scripts that built it, with the `verify` and `publish` subcommands (keep them together) |
+
+The bundle expects the operating system to provide `git`, `curl`, `bash`, `python3`, `gpg`,
+`docker` (with the compose plugin) and a JDK from `jdk/`. It has no `gh`, `go`, `npm` or Node:
+CI uses `gh` and `go install` only to download tools, which the bundle ships as binaries, and
+markdownlint-cli2 runs from its image. The `tools.lock` column "how" says how each download was
+checked: `ci-pin` (the SHA-256 pinned in `ci.yml`), `upstream` (the release's checksum file) or
+`recorded` (no reference exists: the hash of what arrived). The GitLab job images are generic
+(`docker`, `docker:dind`, a JDK, Python); tool-specific job images come with the pipeline change
+(issue 482).
 
 Build it on a machine with a network, Docker, git, curl, jq, Python 3 with pip (for the
 yamllint wheels) and the project's JDK on the `PATH`:
