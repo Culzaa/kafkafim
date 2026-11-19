@@ -912,6 +912,94 @@ Before escalating to the kafkafim maintainers, collect for the affected pod(s):
 
 Logs never contain document bodies or secret values; they are safe to attach.
 
+## 7. Developing inside the air gap
+
+This section is for developers, not operators: it sets up a machine with no network to build,
+test and run kafkafim from the development bundle
+([DELIVERY.md § Air-gap development bundle](DELIVERY.md#air-gap-development-bundle),
+ADR-0056). Deploying a release is [§2.1](#21-import-a-release-into-the-air-gap).
+
+### 7.1 Build the bundle and carry it across
+
+On a machine with a network, Docker, git, curl, jq and the project's JDK on the `PATH`:
+
+```bash
+tools/airgap-dev-bundle.sh build v1.2.3 --out /mnt/transfer --split-mib 1900
+```
+
+The directory `kafkafim-dev-v1.2.3-airgap-dev/` is the bundle. With `--split-mib` the script
+also writes `.tar.part-*` files and `*.parts.SHA256SUMS`. Carry whichever you prefer. After
+the transfer, join the parts and check them:
+
+```bash
+cat kafkafim-dev-v1.2.3-airgap-dev.tar.part-* | tar -xf -
+```
+
+```bash
+cd kafkafim-dev-v1.2.3-airgap-dev && shasum -a 256 -c SHA256SUMS
+```
+
+`SHA256SUMS` detects damage in transit. It does not prove who built the bundle (the build is
+not signed, ADR-0056): compare `manifest.json` `commit` with the tag on GitHub before you
+carry it.
+
+### 7.2 Set up a developer machine
+
+Inside the air gap, from the bundle directory. The JDK first (the file name is in
+`jdk/jdk.lock`; use the one for your platform):
+
+```bash
+mkdir -p ~/jdk && tar -xzf jdk/OpenJDK27U-jdk_x64_linux_hotspot_*.tar.gz -C ~/jdk
+```
+
+```bash
+export JAVA_HOME=$(echo ~/jdk/jdk-27*) PATH="$JAVA_HOME/bin:$PATH"
+```
+
+The Maven repository: copy it to `~/.m2/repository` (Maven writes bookkeeping files into the
+repository it uses, so work on a copy to keep the bundle's `SHA256SUMS` valid). To serve it
+from an internal repository manager instead, import the directory as a hosted repository: it
+has the standard layout and no resolver bookkeeping files. Then clone the source and build
+offline; `MVNW_REPOURL` makes the wrapper fetch the Maven distribution from the bundle:
+
+```bash
+cp -R "$BUNDLE/maven-repo" ~/.m2/repository
+```
+
+```bash
+git clone "$BUNDLE/source/kafkafim.bundle" kafkafim && cd kafkafim
+```
+
+```bash
+MVNW_REPOURL="file://$BUNDLE/maven-repo" ./mvnw -o verify
+```
+
+Load the images (the tar names match the images, the digests are in `images/images.lock`):
+
+```bash
+for f in images/linux-amd64/*.tar; do docker load -i "$f"; done
+```
+
+Use `linux-arm64` on an Apple silicon or Arm machine. Then `docker build -t kafkafim:dev .`,
+`docker compose up` and `deploy/local/demo.sh up` start from the loaded images; Testcontainers
+finds its images (including Ryuk) in the local Docker.
+
+### 7.3 Prove the bundle on the far side
+
+```bash
+./airgap-dev-bundle.sh verify .
+```
+
+It checks `SHA256SUMS` and the git bundle, clones the source, and runs `./mvnw -o verify`
+(Spotless, Checkstyle, unit and integration tests, JaCoCo, packaging) with the Maven
+distribution and the repository both taken from the bundle. Set `VERIFY_GOALS` to run other
+goals, for example the PIT goal of `ci.yml`.
+
+What this does not prove: the check runs `-o` and from copies, on a machine that may still have
+a network. A network-less machine is the real test, and a bundle built from a ref whose build
+needs a goal that is not in the script's list fails there, not at build time; the CI check
+(`tools/airgap-dev-bundle.sh check`) exists to catch that in the pull request.
+
 ## Known gaps
 
 Current behaviour that this runbook works around; each is a follow-up, not a feature:

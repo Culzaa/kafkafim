@@ -456,6 +456,49 @@ Thresholds marked "tune" in the rules file are starting points. Keep local chang
 them as a patch applied after each import, since the next bundle's file replaces them.
 `deploy/grafana/README.md` in the repository lists every alert with its runbook section.
 
+## Air-gap development bundle
+
+The release bundle above deploys a release. To keep *developing* inside the air gap there is a
+second, separate bundle ([ADR-0056](decisions/0056-air-gap-development-bundle-is-built-by-a-script-and-not-published.md)).
+It is built by a script on a connected machine, is several GB (a GitHub release asset is capped
+at 2 GiB per file), and is not attached to any release; carrying it across is the operator's job.
+
+| Directory | Content |
+|---|---|
+| `source/kafkafim.bundle` | The repository as a `git bundle`: `main` and every tag, full history |
+| `maven-repo/` | Every dependency and Maven plugin of `verify`, PIT and the coverage goals, in the standard repository layout (`org/springframework/...`), and the Maven distribution the wrapper downloads |
+| `jdk/` | Temurin of the pom's `java.version`: Linux x64, Linux aarch64, macOS aarch64, with `jdk.lock` |
+| `images/linux-amd64/`, `images/linux-arm64/` | One `docker save` tar per image: the Dockerfile base image, the Testcontainers images and Ryuk, both compose files, the demo chart; `images.lock` has the pinned digests |
+| `manifest.json` | The ref, the commit, the build time, the phases and every image |
+| `SHA256SUMS` | Every file above, same format as the release bundle |
+| `airgap-dev-bundle.sh` | The script that built it, with the `verify` subcommand |
+
+What it does not hold yet (later changes of the series, issues 481 to 484): the CI tools and
+job images (Helm and helm-unittest, kubeconform and its schemas, shellcheck, shfmt, actionlint,
+yamllint, markdownlint-cli2, promtool, hadolint, cosign, syft, kind and kubectl), and the
+GitLab pipelines that run the checks and the release inside the air gap, where GitLab, not
+GitHub, is the platform (ADR-0056). GitLab pipelines do not build bundles. Until then the
+bundle covers the Maven, test, image and Compose demo paths.
+
+Build it on a machine with a network, Docker, git, curl, jq and the project's JDK on the `PATH`:
+
+```bash
+tools/airgap-dev-bundle.sh build v1.2.3 --out /mnt/transfer --split-mib 1900
+```
+
+`v1.2.3` is any tag or branch. The script derives the images from the repository (`FROM`,
+`image:` and `DockerImageName.parse` lines), fills the Maven repository by running the goals
+that `ci.yml` and `release.yml` run against an empty local repository (so `dependency:go-offline`
+and its blind spots are not relied on), and pins each image to the digest of its multi-arch
+index. `--platforms "linux/arm64"` limits the images, `--resume` continues an interrupted
+build, and `--split-mib` also writes the bundle as parts that fit a release asset or a small
+medium. The `YAML format` job of `ci.yml` runs `tools/airgap-dev-bundle.sh check`: it fails when the
+repository names an image or a workflow runs a Maven goal that the script does not take.
+
+Set up a developer machine in the air gap from the bundle:
+[RUNBOOK § 7](RUNBOOK.md#7-developing-inside-the-air-gap). What the build proves, and what it
+cannot, is described there too.
+
 ## Local developer loop
 
 ```bash
