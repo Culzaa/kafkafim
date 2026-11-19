@@ -2,6 +2,9 @@
 
 Status: accepted · Date: 2026-11-19 · Extends [ADR-0022](0022-delivery-github-actions-ghcr-airgap.md)
 
+The "not published" part is superseded by
+[ADR-0058](0058-release-builds-and-publishes-the-air-gap-development-bundle.md).
+
 ## Context
 
 The release bundle of ADR-0022 (`kafkafim-<ver>-airgap.tar.gz`) lets a team deploy a signed

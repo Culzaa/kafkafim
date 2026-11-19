@@ -8,7 +8,9 @@
 # side has no such job (the reason is the comment after the row). kind "release": the GitHub job
 # is in release.yml, which stays inline because only a tag can run it; the GitLab jobs listed
 # (comma separated) call exactly the GitLab-only scripts. kind "support": scripts that no job
-# calls directly (helpers and tools for the people who set the pipeline up).
+# calls directly (helpers and tools for the people who set the pipeline up). A "release" row with
+# "-" as the GitLab job is a GitHub-only job: its GitLab-only column must stay empty and the
+# comment after the row says why (ADR-0058: nothing in GitLab builds or publishes a bundle).
 #
 # Scripts are named without the ci/ prefix. Every ci/*.sh must appear in this file.
 ci|changes|-||changes.sh|                                                      # GitLab: rules:changes
@@ -24,4 +26,6 @@ ci|grafana-format|grafana-format|grafana-format.sh||
 ci|yaml|yaml|yaml-lint.sh,image-versions-agree.sh,xml-tabs.sh,check-parity.sh||
 release|verify|release-validate,release-verify|||release-validate-tag.sh,release-verify.sh,maven-settings.sh,docker-wait.sh
 release|release|release-publish|||release-stage-grafana.sh,release-login.sh,release-image.sh,release-sign.sh,release-sbom.sh,release-chart.sh,release-assets.sh,docker-wait.sh
+release|bundle|-||bundle-free-disk.sh,bundle-build.sh| # GitHub: builds the development bundle; the GitLab release has no bundle step (owner, issue 480: no further air gap to carry to)
+release|bundle-publish|-||bundle-publish.sh| # GitHub: signs the bundle's checksums and drafts the release; GitLab has no bundle and signs with a key
 support|||lib.sh,build-tools-image.sh||

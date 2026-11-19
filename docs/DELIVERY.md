@@ -170,6 +170,14 @@ against the Spring Boot BOM's OpenTelemetry SDK (instrumentation 2.N pairs with 
 
 ## CD (`.github/workflows/release.yml`) on tag `v*`
 
+0. Jobs `verify` and `bundle` start together on the tag, both with a `contents: read` token (no
+   write, no `id-token`). Job `bundle` builds the air-gap development bundle
+   ([below](#air-gap-development-bundle),
+   [ADR-0058](decisions/0058-release-builds-and-publishes-the-air-gap-development-bundle.md)).
+   Job `bundle-publish` needs both: it signs the bundle's checksums and creates the **draft**
+   GitHub release with the parts. Job `release` (steps 2 onward) needs `bundle-publish`, so the
+   image is pushed only after the development bundle was built, verified and attached. The release
+   stays a draft until the last step of `release`.
 1. Job `verify` (token: `contents: read` only) first validates the tag: it must match
    `^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$` (so `v1.0` or `vfoo` publishes nothing) and the
    tagged commit must be an ancestor of `origin/main` (a tag on an unmerged branch commit publishes
@@ -216,11 +224,12 @@ against the Spring Boot BOM's OpenTelemetry SDK (instrumentation 2.N pairs with 
    - `SHA256SUMS` (every file in the bundle)
    - `IMPORT.md` (this document with the exact version filled in; the procedure is
      "Importing into the air-gapped environment" below)
-8. GitHub Release created with auto-generated notes (a version with a `-`, such as
-   `0.3.0-rc.1`, is marked a pre-release). Besides the bundle it carries the
-   SBOM, the chart, the alert rules, and the dashboards as separate assets
-   (`kafkafim-alerts.yaml`, `kafkafim-overview.json`, `kafkafim-elasticsearch.json`), so
-   whoever runs Prometheus and Grafana can fetch them without the image.
+8. GitHub Release (a draft since `bundle-publish`, made public by the last step) with auto-generated
+   notes (a version with a `-`, such as `0.3.0-rc.1`, is marked a pre-release). Besides the bundle
+   it carries the SBOM, the chart, the alert rules, and the dashboards as separate assets
+   (`kafkafim-alerts.yaml`, `kafkafim-overview.json`, `kafkafim-elasticsearch.json`), so whoever
+   runs Prometheus and Grafana can fetch them without the image. The release also carries the
+   development bundle's parts, checksums and signature (see below).
 
 The chart installs no alert rules and no dashboards (no `PrometheusRule`, no dashboard
 ConfigMap): the production clusters have no Prometheus Operator CRDs. They travel in the
@@ -463,9 +472,26 @@ them as a patch applied after each import, since the next bundle's file replaces
 ## Air-gap development bundle
 
 The release bundle above deploys a release. To keep *developing* inside the air gap there is a
-second, separate bundle ([ADR-0056](decisions/0056-air-gap-development-bundle-is-built-by-a-script-and-not-published.md)).
-It is built by a script on a connected machine, is several GB (a GitHub release asset is capped
-at 2 GiB per file), and is not attached to any release; carrying it across is the operator's job.
+second, separate bundle
+([ADR-0056](decisions/0056-air-gap-development-bundle-is-built-by-a-script-and-not-published.md),
+published with each release by
+[ADR-0058](decisions/0058-release-builds-and-publishes-the-air-gap-development-bundle.md)). The
+release workflow builds it with `tools/airgap-dev-bundle.sh` (jobs `bundle` and `bundle-publish`),
+proves it with the offline `verify`, and attaches it to the release as parts, because the bundle is
+about 10 GB and a release asset is capped at 2 GiB per file:
+
+| Release asset | Content |
+|---|---|
+| `kafkafim-dev-v1.2.3-airgap-dev.tar.part-aa`, `-ab`, ... | The bundle as one tar stream, cut into parts of 1900 MiB |
+| `kafkafim-dev-v1.2.3-airgap-dev.parts.SHA256SUMS` | SHA-256 of every part |
+| `kafkafim-dev-v1.2.3-airgap-dev.parts.SHA256SUMS.sigstore.json` | Cosign keyless signature of that checksums file, same identity as the image and chart |
+
+Do not confuse it with `kafkafim-1.2.3-airgap.tar.gz`, the deployment bundle. Fetching,
+verifying and reassembling it: [RUNBOOK § 7.1](RUNBOOK.md#71-get-the-bundle-and-carry-it-across).
+GitLab has no bundle step (`ci/parity.map`); the bundle is how the GitLab side is fed. The job
+frees runner disk (`ci/bundle-free-disk.sh`) and works on the runner's second disk; a manual run
+of `release.yml` (`workflow_dispatch`) is a dry run that builds and verifies the bundle on a
+branch and attaches nothing to a release. Contents:
 
 | Directory | Content |
 |---|---|
@@ -489,8 +515,8 @@ the JDK, Python, Docker CLI and hadolint images plus the static tools) and in th
 `docker:dind` and markdownlint-cli2 images ([CI and release on
 GitLab](#ci-and-release-on-gitlab-the-air-gap)).
 
-Build it on a machine with a network, Docker, git, curl, jq, Python 3 with pip (for the
-yamllint wheels) and the project's JDK on the `PATH`:
+You can also build it by hand, for any tag or branch, on a machine with a network, Docker, git,
+curl, jq, Python 3 with pip (for the yamllint wheels) and the project's JDK on the `PATH`:
 
 ```bash
 tools/airgap-dev-bundle.sh build v1.2.3 --out /mnt/transfer --split-mib 1900
