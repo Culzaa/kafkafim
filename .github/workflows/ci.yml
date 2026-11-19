@@ -614,6 +614,10 @@ jobs:
             echo "::error::image(s) with more than one tag across compose, demo values and src/test: $bad"
             exit 1
           fi
+      - name: Air-gap development bundle inputs agree with the repository
+        # docs/DELIVERY.md, "Air-gap development bundle" (ADR-0056): every image the repository
+        # names and every Maven goal a workflow runs must be one the bundle script takes.
+        run: tools/airgap-dev-bundle.sh check
       - name: XML has no tabs
         # .editorconfig: XML indents with 2 spaces; pom.xml is the one declared tab exception (#280).
         run: |

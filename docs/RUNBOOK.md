@@ -912,6 +912,194 @@ Before escalating to the kafkafim maintainers, collect for the affected pod(s):
 
 Logs never contain document bodies or secret values; they are safe to attach.
 
+## 7. Developing inside the air gap
+
+This section is for developers, not operators: it sets up a machine with no network to build,
+test and run kafkafim from the development bundle
+([DELIVERY.md § Air-gap development bundle](DELIVERY.md#air-gap-development-bundle),
+ADR-0056). Deploying a release is [§2.1](#21-import-a-release-into-the-air-gap).
+
+### 7.1 Build the bundle and carry it across
+
+On a machine with a network, Docker, git, curl, jq, Python 3 with pip and the project's JDK on
+the `PATH`:
+
+```bash
+tools/airgap-dev-bundle.sh build v1.2.3 --out /mnt/transfer --split-mib 1900
+```
+
+The directory `kafkafim-dev-v1.2.3-airgap-dev/` is the bundle. With `--split-mib` the script
+also writes `.tar.part-*` files and `*.parts.SHA256SUMS`. Carry whichever you prefer. After
+the transfer, check the parts, join them, and check the bundle (`shasum -a 256 -c` where there
+is no `sha256sum`):
+
+```bash
+sha256sum -c kafkafim-dev-v1.2.3-airgap-dev.parts.SHA256SUMS
+```
+
+```bash
+cat kafkafim-dev-v1.2.3-airgap-dev.tar.part-* | tar -xf -
+```
+
+```bash
+cd kafkafim-dev-v1.2.3-airgap-dev && sha256sum -c SHA256SUMS
+```
+
+`SHA256SUMS` detects damage in transit. It does not prove who built the bundle (the build is
+not signed, ADR-0056): compare `manifest.json` `commit` with the tag on GitHub before you
+carry it. Build on a dedicated machine: the script retags the local copies of the images it
+saves (one platform at a time).
+
+### 7.2 Set up a developer machine
+
+Inside the air gap. Every command below is run from the bundle directory, which `BUNDLE`
+names:
+
+```bash
+cd kafkafim-dev-v1.2.3-airgap-dev && BUNDLE="$PWD"
+```
+
+The JDK (the file names are in `jdk/jdk.lock`; take the one for your platform):
+
+```bash
+mkdir -p ~/jdk && tar -xzf "$BUNDLE"/jdk/OpenJDK27U-jdk_x64_linux_hotspot_*.tar.gz -C ~/jdk
+```
+
+```bash
+export JAVA_HOME="$(echo ~/jdk/jdk-27*)" PATH="$JAVA_HOME/bin:$PATH"   # macOS: append /Contents/Home
+```
+
+The Maven repository: copy it to `~/.m2/repository` (Maven writes bookkeeping files into the
+repository it uses, so work on a copy to keep the bundle's `SHA256SUMS` valid). To serve it
+from an internal repository manager instead, import the directory as a hosted repository: it
+has the standard layout and no resolver bookkeeping files.
+
+```bash
+mkdir -p ~/.m2/repository && cp -R "$BUNDLE/maven-repo/." ~/.m2/repository/
+```
+
+Clone the source and build offline. `MVNW_REPOURL` makes the wrapper fetch the Maven
+distribution from the bundle; the user name and password (any value) make it use its Java
+downloader, because `wget` cannot read `file://` URLs:
+
+```bash
+git clone "$BUNDLE/source/kafkafim.bundle" kafkafim && cd kafkafim
+```
+
+```bash
+MVNW_REPOURL="file://$BUNDLE/maven-repo" MVNW_USERNAME=bundle MVNW_PASSWORD=bundle ./mvnw -o verify
+```
+
+Load the images first (the tar names match the images, the digests are in
+`images/images.lock`). The integration tests and the demo need them, and a missing image makes
+Testcontainers try to pull it. Use `linux-arm64` on an Apple silicon or Arm machine. The
+Docker must use the containerd image store (the default from Docker 29), so that the
+`FROM image@sha256:...` of the Dockerfile finds the loaded image by digest:
+
+```bash
+for f in "$BUNDLE"/images/linux-amd64/*.tar; do docker load -i "$f"; done
+```
+
+Then `docker build -t kafkafim:dev .`, `docker compose up` and `deploy/local/demo.sh up` start
+from the loaded images; Testcontainers finds its images (including Ryuk) in the local Docker.
+
+### 7.3 Install the CI tools
+
+The tools are in `tools/<platform>/` (`linux-amd64`, `linux-arm64`, `darwin-arm64`); versions
+and SHA-256 values are in `tools/tools.lock`. Unpack what you need onto the `PATH`, for example
+on Linux x64:
+
+```bash
+mkdir -p ~/bin && cd "$BUNDLE/tools/linux-amd64"
+tar -xzf helm-v*.tar.gz --strip-components=1 -C ~/bin linux-amd64/helm
+tar -xzf kubeconform-*.tar.gz -C ~/bin kubeconform
+tar -xJf shellcheck-*.tar.xz --strip-components=1 -C ~/bin --wildcards '*/shellcheck'
+install -m 0755 shfmt_* ~/bin/shfmt && install -m 0755 promtool kubectl ~/bin/
+install -m 0755 cosign-* ~/bin/cosign && install -m 0755 kind-* ~/bin/kind
+install -m 0755 jq-* ~/bin/jq
+tar -xzf actionlint_*.tar.gz -C ~/bin actionlint && tar -xzf syft_*.tar.gz -C ~/bin syft
+```
+
+The rest, as CI does them:
+
+```bash
+python3 -m pip install --no-index --find-links "$BUNDLE/tools/yamllint-wheels" yamllint
+```
+
+The wheels cover Python 3.10 to 3.14 on the three platforms. For helm-unittest, import its
+release key into a throwaway keyring and check the fingerprint against `KEY_FPR` in `ci.yml`,
+then install the signed tarball (the version is in `tools/tools.lock`):
+
+```bash
+export GNUPGHOME="$(mktemp -d)"
+gpg --batch --import "$BUNDLE/tools/helm-unittest/helm-unittest-public-key.asc"
+gpg --batch --with-colons --list-keys | awk -F: '$1 == "fpr" {print $10; exit}'
+gpg --batch --export > ut.gpg
+helm plugin install "$BUNDLE"/tools/helm-unittest/unittest-*.tgz --keyring ut.gpg
+```
+
+```bash
+helm template kafkafim charts/kafkafim -f charts/kafkafim/ci/minimal-values.yaml |
+  kubeconform -strict -summary -cache "$BUNDLE/tools/kubeconform-schemas"
+```
+
+hadolint and markdownlint-cli2 run from their images. Use the exact tags in
+`images/images.lock` (a bare name means `:latest`, which is not in the bundle):
+
+```bash
+docker run --rm -i ghcr.io/hadolint/hadolint:v2.15.1-debian < Dockerfile
+docker run --rm -v "$PWD":/workdir davidanson/markdownlint-cli2:v0.24.0
+```
+
+`tar --wildcards` above is GNU tar; with macOS `tar` name the member, for example
+`shellcheck-v0.11.0/shellcheck`.
+
+The job images for the GitLab runner (`docker`, `docker:dind`, a JDK, Python) are in `images/`
+and are pushed with the rest by `publish` (§7.5). The checks themselves, and their GitLab
+pipeline, come with issues 482 to 484.
+
+### 7.4 Prove the bundle on the far side
+
+```bash
+"$BUNDLE/airgap-dev-bundle.sh" verify "$BUNDLE"
+```
+
+It checks `SHA256SUMS` and the git bundle, clones the source, and runs `./mvnw -o verify`
+(Spotless, Checkstyle, unit and integration tests, JaCoCo, packaging) with the Maven
+distribution and the repository both taken from the bundle. Set `VERIFY_GOALS` to run other
+goals, for example the PIT goal of `ci.yml`.
+
+What this does not prove: the check runs `-o` and from copies, on a machine that may still have
+a network. A network-less machine is the real test, and a bundle built from a ref whose build
+needs a goal that is not in the script's list fails there, not at build time; the CI check
+(`tools/airgap-dev-bundle.sh check`) exists to catch that in the pull request.
+
+### 7.5 Publish to Artifactory (or Nexus)
+
+If the air gap has a repository manager, upload once and let developers and CI use it instead
+of local copies. The script PUTs every file of `maven-repo/` into a Maven repository and
+pushes the images of one platform to a registry path:
+
+```bash
+export PUBLISH_USER=svc-kafkafim PUBLISH_PASSWORD=...   # a token works as the password
+docker login artifactory.example
+"$BUNDLE/airgap-dev-bundle.sh" publish "$BUNDLE" --platform linux/amd64 \
+  --maven-url https://artifactory.example/artifactory/kafkafim-maven \
+  --registry artifactory.example/kafkafim-docker/kafkafim
+```
+
+`--dry-run` counts the Maven files and lists the images, and sends nothing. The images land as
+`<registry>/<original name:tag>`, for
+example `.../kafkafim/docker.elastic.co/elasticsearch/elasticsearch:9.5.6`. The script checks
+`SHA256SUMS` first, and warns when a pushed image has another digest than the pin. Expect that
+warning for most images (the pin is the multi-platform index, the push is one platform): the
+Dockerfile's `FROM eclipse-temurin:27-jre@sha256:...` then needs the registry prefix and the
+new digest. Point developers at the Maven repository with a `settings.xml` mirror (no `-o`).
+Create the repositories first: a local Maven repository and a local Docker repository. A
+release repository may refuse to overwrite a file that is already there, so run `publish` once
+per repository, or allow overwrite for the service user before a second run. Maven file names
+with spaces are not supported (Maven coordinates never have them).
+
 ## Known gaps
 
 Current behaviour that this runbook works around; each is a follow-up, not a feature:

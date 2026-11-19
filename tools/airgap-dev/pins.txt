@@ -1,0 +1,20 @@
+# Inputs of the air-gap development bundle (ADR-0056) that no workflow pins. Everything the
+# workflows pin (Helm, helm-unittest, kubeconform, shellcheck, shfmt, actionlint, promtool,
+# yamllint, cosign, hadolint, syft) is read from .github/workflows, not from here.
+# name=value; "image=" lines are job images for the GitLab runner, pinned by digest when the
+# bundle is built. `tools/airgap-dev-bundle.sh check` fails when a value is missing.
+
+# The local demo (deploy/local/demo.sh) and its docs use these; CI does not pin them.
+kind=v0.33.0                # its default node image is read from kind's source at this tag
+kubectl=v1.37.2
+jq=jq-1.8.2                 # CI uses the runner's jq
+
+# The markdownlint action bundles this markdownlint-cli2 (ci.yml says so in a comment).
+markdownlint-cli2=0.24.0
+
+# Job images for the GitLab runner (Docker executor, Docker-in-Docker; #482).
+image=docker:29-cli
+image=docker:29-dind
+image=eclipse-temurin:27-jdk
+image=python:3.13-slim
+image=davidanson/markdownlint-cli2:v0.24.0
