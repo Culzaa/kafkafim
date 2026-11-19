@@ -17,7 +17,7 @@
 # build options: --out DIR (default ./airgap-dev-out), --repo URL_OR_PATH (default: origin),
 # --platforms "linux/amd64 linux/arm64" (default both), --split-mib N (also write the bundle as
 # tar parts of N MiB, for example 1900; default none), --skip-maven, --skip-images, --skip-jdk,
-# --skip-sources (partial builds; the manifest says what is missing), --resume (continue in an existing directory; a
+# --skip-sources, --skip-tools (partial builds; the manifest says what is missing), --resume (continue in an existing directory; a
 # finished phase is not repeated).
 # publish options: --maven-url URL (the repository to PUT into, for example
 # https://artifactory.example/artifactory/kafkafim-maven), --registry PREFIX (images are pushed
@@ -30,6 +30,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly HERE
 ROOT="$(cd "$HERE/.." && pwd)"
 readonly ROOT
+# shellcheck source=tools/airgap-dev-tools.sh
+source "$HERE/airgap-dev-tools.sh"
 
 # Maven goals the project runs, in the order that fills one repository. They mirror ci.yml
 # (build, integration, coverage, mutation) and release.yml; `check` fails when a workflow runs a
@@ -127,6 +129,7 @@ derived_images() {
     images_from_dockerfile "$1"
     images_from_yaml "$1"
     images_from_tests "$1"
+    pinned_images "$1"
   } | sort -u
 }
 
@@ -248,6 +251,7 @@ check() {
     echo "::error::no distributionUrl in .mvn/wrapper/maven-wrapper.properties" >&2
     bad=1
   }
+  check_tools "$root" || bad=1
   [[ "$bad" -eq 0 ]] || exit 1
   echo "airgap-dev-bundle: inputs agree with the repository ($(wc -l <<<"$derived" | tr -d ' ') images, ${#GOAL_SETS[@]} Maven goal sets)"
 }
@@ -429,13 +433,15 @@ save_images() {
   local out="$1" platforms="$2" ref pinned plat dir file had
   shift 2
   mkdir -p "$out"
-  : >"$out/images.lock"
+  touch "$out/images.lock"
   for ref in "$@"; do
     pinned="$(pin_ref "$ref")"
     for plat in $platforms; do
       dir="$out/${plat//\//-}"
       mkdir -p "$dir"
       file="$dir/$(safe_name "$ref").tar"
+      # A resumed build keeps the images it already saved.
+      if [[ -s "$file" ]] && grep -qF "  ${file#"$out"/}  " "$out/images.lock"; then continue; fi
       had=0
       docker image inspect "${ref%%@*}" >/dev/null 2>&1 && had=1
       docker pull -q --platform "$plat" "$pinned" >/dev/null
@@ -448,13 +454,23 @@ save_images() {
 }
 
 #######################################
+# Prints this machine's tool platform: linux-amd64, linux-arm64 or darwin-arm64.
+#######################################
+host_platform() {
+  local os arch
+  os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  case "$(uname -m)" in aarch64 | arm64) arch=arm64 ;; *) arch=amd64 ;; esac
+  echo "$os-$arch"
+}
+
+#######################################
 # Builds the bundle.
 # Arguments:
 #   The build arguments (see the header)
 #######################################
 build() {
   local ref="" out="$PWD/airgap-dev-out" url platforms="linux/amd64 linux/arm64" split=0
-  local skip_maven=0 skip_images=0 skip_jdk=0 skip_sources=0 resume=0
+  local skip_maven=0 skip_images=0 skip_jdk=0 skip_sources=0 skip_tools=0 resume=0
   url="$(git -C "$ROOT" remote get-url origin)"
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -488,6 +504,10 @@ build() {
         ;;
       --skip-sources)
         skip_sources=1
+        shift
+        ;;
+      --skip-tools)
+        skip_tools=1
         shift
         ;;
       --resume)
@@ -548,9 +568,20 @@ build() {
     touch "$dir/.phase-jdk"
   fi
 
+  # Tools, job images and kind come from the tree being bundled; a ref older than the pins
+  # file falls back to the running script's checkout.
+  local inputs="$src"
+  [[ -f "$src/tools/airgap-dev/pins.txt" ]] || inputs="$ROOT"
+  if [[ "$skip_tools" -eq 0 && ! -e "$dir/.phase-tools" ]]; then
+    echo "== tools"
+    build_tools "$inputs" "$dir" "$(host_platform)"
+    touch "$dir/.phase-tools"
+  fi
+
   local -a refs=()
   local line
-  while IFS= read -r line; do refs+=("$line"); done < <(derived_images "$src")
+  while IFS= read -r line; do refs+=("$line"); done < <(derived_images "$inputs")
+  refs+=("$(hadolint_image "$inputs")" "$(kind_node_image "$inputs")")
   [[ ! -d "$dir/maven-repo" ]] || refs+=("$(ryuk_from_repo "$dir/maven-repo")")
   if [[ "$skip_images" -eq 0 && ! -e "$dir/.phase-images" ]]; then
     echo "== images (${#refs[@]})"
@@ -559,7 +590,7 @@ build() {
   fi
 
   write_manifest "$dir" "$ref" "$commit" "$platforms" "${refs[@]}"
-  cp "$ROOT/tools/airgap-dev-bundle.sh" "$dir/airgap-dev-bundle.sh"
+  cp "$ROOT/tools/airgap-dev-bundle.sh" "$ROOT/tools/airgap-dev-tools.sh" "$dir/"
   (cd "$dir" && find . -type f ! -name SHA256SUMS ! -name '.phase-*' | LC_ALL=C sort | while IFS= read -r f; do sums "$f"; done) >"$dir/SHA256SUMS"
   rm -rf "$work"
   du -sh "$dir"

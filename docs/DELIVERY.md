@@ -468,19 +468,14 @@ at 2 GiB per file), and is not attached to any release; carrying it across is th
 | `source/kafkafim.bundle` | The repository as a `git bundle`: `main` and every tag, full history |
 | `maven-repo/` | Every dependency and Maven plugin of `verify`, PIT and the coverage goals, in the standard repository layout (`org/springframework/...`) with their `-sources.jar` and `-javadoc.jar` where Maven Central has them, and the Maven distribution the wrapper downloads |
 | `jdk/` | Temurin of the pom's `java.version`: Linux x64, Linux aarch64, macOS aarch64, with `jdk.lock` |
-| `images/linux-amd64/`, `images/linux-arm64/` | One `docker save` tar per image: the Dockerfile base image, the Testcontainers images and Ryuk, both compose files, the demo chart; `images.lock` has the pinned digests |
+| `images/linux-amd64/`, `images/linux-arm64/` | One `docker save` tar per image: the Dockerfile base image, the Testcontainers images and Ryuk, both compose files, the demo chart, kind's node image, hadolint, markdownlint-cli2 and the GitLab job images (`docker`, `docker:dind`, a JDK, Python); `images.lock` has the pinned digests |
+| `tools/<platform>/` | The CI tools of `ci.yml` and `release.yml` for `linux-amd64`, `linux-arm64`, `darwin-arm64` (Helm, kubeconform, shellcheck, shfmt, actionlint, promtool, cosign, syft, kind, kubectl, jq), `tools/helm-unittest/` (signed plugin and key), `tools/yamllint-wheels/`, `tools/kubeconform-schemas/` (offline schema cache) and `tools/tools.lock` (version, SHA-256 and how it was checked) |
 | `manifest.json` | The ref, the commit, the build time, the phases and every image |
 | `SHA256SUMS` | Every file above, same format as the release bundle |
 | `airgap-dev-bundle.sh` | The script that built it, with the `verify` subcommand |
 
-What it does not hold yet (later changes of the series, issues 481 to 484): the CI tools and
-job images (Helm and helm-unittest, kubeconform and its schemas, shellcheck, shfmt, actionlint,
-yamllint, markdownlint-cli2, promtool, hadolint, cosign, syft, kind and kubectl), and the
-GitLab pipelines that run the checks and the release inside the air gap, where GitLab, not
-GitHub, is the platform (ADR-0056). GitLab pipelines do not build bundles. Until then the
-bundle covers the Maven, test, image and Compose demo paths.
-
-Build it on a machine with a network, Docker, git, curl, jq and the project's JDK on the `PATH`:
+Build it on a machine with a network, Docker, git, curl, jq, Python 3 with pip (for the
+yamllint wheels) and the project's JDK on the `PATH`:
 
 ```bash
 tools/airgap-dev-bundle.sh build v1.2.3 --out /mnt/transfer --split-mib 1900
@@ -497,7 +492,7 @@ repository names an image or a workflow runs a Maven goal that the script does n
 
 `tools/airgap-dev-bundle.sh publish` uploads the Maven repository and the images to a
 repository manager (Artifactory; Nexus works the same, HTTP PUT)
-([RUNBOOK § 7.4](RUNBOOK.md#74-publish-to-artifactory-or-nexus-or-the-gitlab-registries)).
+([RUNBOOK § 7.5](RUNBOOK.md#75-publish-to-artifactory-or-nexus)).
 
 Set up a developer machine in the air gap from the bundle:
 [RUNBOOK § 7](RUNBOOK.md#7-developing-inside-the-air-gap). What the build proves, and what it

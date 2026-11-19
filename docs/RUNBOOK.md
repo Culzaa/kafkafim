@@ -921,7 +921,8 @@ ADR-0056). Deploying a release is [§2.1](#21-import-a-release-into-the-air-gap)
 
 ### 7.1 Build the bundle and carry it across
 
-On a machine with a network, Docker, git, curl, jq and the project's JDK on the `PATH`:
+On a machine with a network, Docker, git, curl, jq, Python 3 with pip and the project's JDK on
+the `PATH`:
 
 ```bash
 tools/airgap-dev-bundle.sh build v1.2.3 --out /mnt/transfer --split-mib 1900
@@ -1002,7 +1003,46 @@ for f in "$BUNDLE"/images/linux-amd64/*.tar; do docker load -i "$f"; done
 Then `docker build -t kafkafim:dev .`, `docker compose up` and `deploy/local/demo.sh up` start
 from the loaded images; Testcontainers finds its images (including Ryuk) in the local Docker.
 
-### 7.3 Prove the bundle on the far side
+### 7.3 Install the CI tools
+
+The tools are in `tools/<platform>/` (`linux-amd64`, `linux-arm64`, `darwin-arm64`); versions
+and SHA-256 values are in `tools/tools.lock`. Unpack what you need onto the `PATH`, for example
+on Linux x64:
+
+```bash
+mkdir -p ~/bin && cd "$BUNDLE/tools/linux-amd64"
+tar -xzf helm-v*.tar.gz --strip-components=1 -C ~/bin linux-amd64/helm
+tar -xzf kubeconform-*.tar.gz -C ~/bin kubeconform
+tar -xJf shellcheck-*.tar.xz --strip-components=1 -C ~/bin --wildcards '*/shellcheck'
+install -m 0755 shfmt_* ~/bin/shfmt && install -m 0755 promtool kubectl ~/bin/
+install -m 0755 cosign-* ~/bin/cosign && install -m 0755 kind-* ~/bin/kind
+install -m 0755 jq-* ~/bin/jq
+tar -xzf actionlint_*.tar.gz -C ~/bin actionlint && tar -xzf syft_*.tar.gz -C ~/bin syft
+```
+
+The rest, as CI does them:
+
+```bash
+python3 -m pip install --no-index --find-links "$BUNDLE/tools/yamllint-wheels" yamllint==1.37.1
+```
+
+```bash
+gpg --import "$BUNDLE/tools/helm-unittest/helm-unittest-public-key.asc" && gpg --export > ut.gpg
+helm plugin install "$BUNDLE/tools/helm-unittest/unittest-1.2.1.tgz" --keyring ut.gpg
+```
+
+```bash
+helm template kafkafim charts/kafkafim -f charts/kafkafim/ci/minimal-values.yaml |
+  kubeconform -strict -summary -cache "$BUNDLE/tools/kubeconform-schemas"
+```
+
+hadolint and markdownlint-cli2 run from their images (`docker run --rm -i ghcr.io/hadolint/hadolint
+< Dockerfile`, and the `davidanson/markdownlint-cli2` image on the repository). The job images
+for the GitLab runner (`docker`, `docker:dind`, a JDK, Python) are in `images/` and are pushed
+with the rest by `publish` (§7.5). The checks themselves, and their GitLab pipeline, come with
+issues 482 to 484.
+
+### 7.4 Prove the bundle on the far side
 
 ```bash
 "$BUNDLE/airgap-dev-bundle.sh" verify "$BUNDLE"
@@ -1018,7 +1058,7 @@ a network. A network-less machine is the real test, and a bundle built from a re
 needs a goal that is not in the script's list fails there, not at build time; the CI check
 (`tools/airgap-dev-bundle.sh check`) exists to catch that in the pull request.
 
-### 7.4 Publish to Artifactory (or Nexus, or the GitLab registries)
+### 7.5 Publish to Artifactory (or Nexus)
 
 If the air gap has a repository manager, upload once and let developers and CI use it instead
 of local copies. The script PUTs every file of `maven-repo/` into a Maven repository and

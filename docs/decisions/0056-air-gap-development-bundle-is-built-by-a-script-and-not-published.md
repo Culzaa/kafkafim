@@ -11,11 +11,12 @@ use, none of the tools CI runs (issue 480). The owner asked for one bundle that 
 source code, as a git repo, all java dependencies in their structure, docker images used for
 demo, ci, and everything I need to continue development in the airgap".
 
-Measured on the current tree (v0.4.x line): the Maven repository for every goal the project runs
-is 323 MB (912 MB with the sources and Javadoc jars), the seven images plus Ryuk are about 2.5
-GB per platform (Elasticsearch 756 MB, Grafana LGTM 883 MB, Kibana 566 MB), and a JDK is about
-145 MB per platform. One platform is 3.8 GB and both Linux platforms are about 6.5 GB. A GitHub
-release asset is capped at 2 GiB per file.
+Measured on the current tree (v0.4.x line), built for linux/arm64 images: the Maven repository
+for every goal the project runs is 323 MB (912 MB with sources and Javadoc jars); the images,
+runtime and job images together, are 3.2 GB per platform; the CI tools for three platforms are
+1.3 GB (helm-unittest alone 208 MB); a JDK is about 145 MB per platform. The bundle is 5.8 GB
+with one image platform and about 9 GB with both Linux platforms. A GitHub release asset is
+capped at 2 GiB per file.
 
 ## Decision
 
@@ -36,6 +37,18 @@ release asset is capped at 2 GiB per file.
      check. `dependency:go-offline` is not used: it misses artifacts that plugins resolve
      while they run (Spotless' google-java-format, Checkstyle, PIT's JUnit plugin, Surefire and
      Failsafe providers).
+   - *CI tools*: the versions pinned in `ci.yml` and `release.yml` (Helm, helm-unittest with its
+     signed tarball and key, kubeconform, shellcheck, shfmt, actionlint, promtool, cosign, syft,
+     yamllint as wheels), as binaries for linux-amd64, linux-arm64 and darwin-arm64, plus kind,
+     kubectl and jq (pinned in `tools/airgap-dev/pins.txt`, the only hand-kept list: CI does not
+     pin them). Each is checked against the SHA-256 pinned in `ci.yml` where CI pins one, else
+     against the upstream checksum file, else (shellcheck, shfmt on arm64 and macOS) recorded
+     on download and marked `recorded` in `tools/tools.lock`. The Kubernetes schemas kubeconform
+     fetches are cached by running it on the charts, so `kubeconform -cache` works offline.
+     hadolint and syft versions are not in the workflows: they come from the pinned actions'
+     own files (the hadolint action's Dockerfile, the sbom action's `SyftVersion.ts`).
+   - *Job images* for the GitLab runner (`docker`, `docker:dind`, a JDK, Python, the
+     markdownlint-cli2 image, hadolint) and kind's node image, pinned by digest like the rest.
    - *Sources and Javadoc*: for every jar in the repository, plugins and transitive
      dependencies included, the `-sources.jar` and `-javadoc.jar` that Maven Central has, each
      checked against Central's SHA-1 (448 of 455 jars have sources, 435 have Javadoc; the
