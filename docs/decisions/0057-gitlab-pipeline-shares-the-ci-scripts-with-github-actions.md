@@ -128,5 +128,9 @@ the pipeline, the release and the signing for later changes. This ADR is that ch
   unless the mirror keeps digests.
 - `rules:changes` and `ci/changes.sh` implement the same idea twice; they can disagree for a new
   path.
-- The multi-platform release image, the TLS dind mode, a real Artifactory and a real GitLab
-  server are not exercised by this change's validation; the pull request lists what ran where.
+- What the validation of this change did not exercise: the `dind-tls` mode, a real Artifactory,
+  GitLab's own container registry (the release was run against a plain-HTTP registry, and the
+  GitLab release and package calls against a real GitLab), the integration job on a real GitLab
+  runner (it ran in a simulation of the Docker executor with `docker:dind` and no route out, and
+  on a local Docker with the socket), and `release-publish` as a whole on a real GitLab. The pull
+  request lists what ran where.
