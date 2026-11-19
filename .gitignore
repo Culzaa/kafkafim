@@ -34,3 +34,5 @@ build/
 loadtest/results/
 /.m2/
 /dist/
+__pycache__/
+*.pyc
