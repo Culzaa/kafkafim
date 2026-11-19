@@ -1005,7 +1005,7 @@ from the loaded images; Testcontainers finds its images (including Ryuk) in the 
 ### 7.3 Prove the bundle on the far side
 
 ```bash
-./airgap-dev-bundle.sh verify "$BUNDLE"
+"$BUNDLE/airgap-dev-bundle.sh" verify "$BUNDLE"
 ```
 
 It checks `SHA256SUMS` and the git bundle, clones the source, and runs `./mvnw -o verify`

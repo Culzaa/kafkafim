@@ -449,8 +449,8 @@ build() {
   [[ -n "$ref" ]] || die "build needs a tag or branch"
   mkdir -p "$out"
   out="$(cd "$out" && pwd)"
-  need git curl jq docker unzip strings tar
   case "$out" in "$ROOT"/*) die "--out must be outside the repository" ;; esac
+  need git curl jq docker unzip strings tar
 
   local name dir work src
   name="kafkafim-dev-${ref//\//-}-airgap-dev"
