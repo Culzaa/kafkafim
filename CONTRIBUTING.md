@@ -56,6 +56,11 @@ A separate "Mutation tests" job runs PIT on the `route` and `decode` packages an
 `./mvnw test-compile org.pitest:pitest-maven:mutationCoverage`.
 A docs-only change needs only `./mvnw -DskipTests verify`; CI skips the Java and image jobs for it.
 
+The commands of every CI job are scripts in `ci/`, which the GitHub workflow and the GitLab
+pipeline of the air-gapped side (`.gitlab-ci.yml`) both call; change a check there, not in
+`ci.yml`. `ci/parity.map` lists which job calls which script, and `ci/check-parity.sh` fails when
+the two CI definitions drift apart (see [DELIVERY.md](docs/DELIVERY.md#ci-and-release-on-gitlab-the-air-gap)).
+
 Shell scripts follow the [Google Shell Style Guide](https://google.github.io/styleguide/shellguide.html)
 (ADR-0046). If you change a `*.sh` file, run `shellcheck` and `shfmt` (2-space indent, read from
 `.editorconfig`); CI's "Shell style" job runs the same pinned versions on every tracked script:
