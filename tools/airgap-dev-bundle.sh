@@ -208,9 +208,9 @@ check() {
   tracked="$(
     cd "$root"
     {
-      git grep -hE '^[[:space:]]+image: [^[:space:]{]' -- '*.yaml' '*.yml' ':!.github' ':!charts/*/templates' ':!deploy/local/kafkafim-demo/templates' ':!deploy/local/kafkafim-demo/charts' |
+      git grep -hE '^[[:space:]]+image: [^[:space:]{]' -- '*.yaml' '*.yml' ':!.github' ':!.gitlab-ci.yml' ':!ci' ':!charts/*/templates' ':!deploy/local/kafkafim-demo/templates' ':!deploy/local/kafkafim-demo/charts' |
         sed -E "s/^[[:space:]]+image: *['\"]?([^'\" #]+).*/\1/" || true
-      git grep -hE '^FROM[[:space:]]' -- 'Dockerfile*' '*/Dockerfile*' |
+      git grep -hE '^FROM[[:space:]]' -- 'Dockerfile*' '*/Dockerfile*' ':!ci/tools-image' |
         sed -nE 's/^FROM[[:space:]]+(--[a-z]+=[^[:space:]]+[[:space:]]+)*([^[:space:]]+).*/\2/p' | grep -vx scratch || true
       git grep -hoE 'DockerImageName\.parse\("[^"]+"\)' -- src | sed -E 's/^.*\("([^"]+)"\)$/\1/' || true
       git grep -hoE '(withImage|new GenericContainer<>)\("[^"]+"' -- src | sed -E 's/^.*\("([^"]+)"$/\1/' || true
@@ -224,15 +224,16 @@ check() {
     fi
   done <<<"$tracked"
 
-  # Maven goals: every `prefix:goal` or fully qualified goal a workflow runs after ./mvnw.
+  # Maven goals: every `prefix:goal` or fully qualified goal a workflow or a ci/ script runs after
+  # ./mvnw (the check commands live in ci/, ADR-0057).
   local goals goal
   goals="$(
     cd "$root"
-    git grep -h -A2 '\./mvnw ' -- .github/workflows |
+    git grep -h -A2 '\./mvnw ' -- .github/workflows ci |
       tr -s '[:space:]' '\n' | grep -E '^([a-z.-]+:)+[a-zA-Z-]+(@[a-z-]+)?$' | sort -u || true
   )"
   if [[ -z "$goals" ]]; then
-    echo "::error::found no plugin goals after ./mvnw in .github/workflows; update the goal scan in $0" >&2
+    echo "::error::found no plugin goals after ./mvnw in .github/workflows and ci/; update the goal scan in $0" >&2
     bad=1
   fi
   while IFS= read -r goal; do
