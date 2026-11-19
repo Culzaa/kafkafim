@@ -10,7 +10,8 @@
 #   - an image the GitLab pipeline names through KAFKAFIM_IMAGE_PREFIX is not one the
 #     development bundle takes (tools/airgap-dev/pins.txt);
 #   - release.yml and the GitLab release disagree on the tag format (once the map has a release row);
-#   - .gitlab-ci.yml or a ci/release-* script builds an air-gap bundle (not wanted in GitLab).
+#   - .gitlab-ci.yml or a ci/release-* script builds an air-gap bundle (not wanted in GitLab), or
+#     a script of a GitHub-only release row (GitLab job "-") is called from GitLab or another script.
 # Needs bash and the usual POSIX tools (awk, grep, sed, sort, tr, cut, find).
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -84,7 +85,7 @@ scripts_of() { awk -F'\t' -v j="$2" '$1 == j {print $2}' <<<"$1"; }
 has_job() { awk -F'\t' -v j="$2" '$1 == j {f = 1} END {exit !f}' <<<"$1"; }
 sorted_words() { tr ', ' '\n' <<<"$1" | { grep -v '^$' || true; } | sort -u | tr '\n' ' ' | sed 's/ $//'; }
 
-mapped_gh="" mapped_gl="" mapped_scripts=""
+mapped_gh="" mapped_gl="" mapped_scripts="" gh_scripts=""
 while IFS='|' read -r kind ghj glj shared ghonly glonly _; do
   kind="${kind// /}"
   [[ -n "$kind" && "$kind" != \#* ]] || continue
@@ -113,6 +114,12 @@ while IFS='|' read -r kind ghj glj shared ghonly glonly _; do
       ;;
     release)
       grep -qxF "$ghj" <<<"$rel_jobs" || fail "$MAP: job '$ghj' is not in $REL"
+      if [[ "$glj" == - ]]; then
+        # A GitHub-only release job (the development bundle, ADR-0058): its scripts are GitHub-only,
+        # and no GitLab job may call them.
+        gh_scripts+=",$ghonly"
+        continue
+      fi
       mapped_gl+=" ${glj//,/ }"
       got=""
       for j in ${glj//,/ }; do
@@ -166,6 +173,14 @@ shopt -s nullglob
 if grep -nE 'airgap-dev-bundle\.sh (build|verify)|airgap\.tar|SHA256SUMS' "$GL" ci/release-*.sh >&2; then
   fail "the GitLab pipeline must not build air-gap bundles"
 fi
+# The GitHub-only release scripts (the bundle) are called by no GitLab job and by no shared script.
+for s in $(tr ',' ' ' <<<"$gh_scripts"); do
+  others=()
+  for f in ci/*.sh; do [[ "$f" == ci/bundle-*.sh || "$f" == ci/check-parity.sh ]] || others+=("$f"); done
+  if grep -nE "ci/$s" "$GL" ci/gitlab/*.yml "${others[@]}" >&2 2>/dev/null; then
+    fail "ci/$s is GitHub-only (ci/parity.map) but the GitLab pipeline or another script calls it"
+  fi
+done
 
 if [[ "$bad" -ne 0 ]]; then exit 1; fi
 echo "CI definitions agree: $(grep -c . <<<"$gh_jobs") GitHub jobs, $(grep -c . <<<"$gl_jobs") GitLab jobs, $(find ci -name '*.sh' | wc -l | tr -d ' ') scripts"

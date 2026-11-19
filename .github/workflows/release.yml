@@ -2,12 +2,17 @@ name: Release
 on:
   push:
     tags: ['v*']
+  # Dry run of the development bundle only (ADR-0058): builds, verifies and rejoins it on the
+  # selected branch or tag and uploads it as a one-day workflow artifact. No other job runs, and
+  # nothing is signed or attached to a release.
+  workflow_dispatch:
 permissions:
   contents: read      # default for every job; the publish job below raises what it needs
 jobs:
   # Runs the tests (and so Maven plugins and dependency code) at the tag with a read-only token:
   # no write, packages or id-token permission is available to it. `release` needs it to pass.
   verify:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -43,9 +48,81 @@ jobs:
           name: jar
           path: target/*.jar
           if-no-files-found: error
+  # The air-gap development bundle (ADR-0058). Runs Maven (the bundle build runs the project's
+  # goals against an empty repository), so like `verify` it has a read-only token and no OIDC.
+  # It runs beside `verify`, not after it, to save an hour; `bundle-publish` and `release` need
+  # both. It can fail or be cancelled with nothing public yet: the image is pushed only by `release`.
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    defaults:
+      run:
+        shell: bash   # -eo pipefail
+    env:
+      BUNDLE_OUT: /mnt/bundle
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0   # the bundle carries the full history
+      - name: Validate the tag
+        if: github.event_name == 'push'
+        run: ci/release-validate-tag.sh "$GITHUB_REF_NAME" "$GITHUB_SHA" main
+      - name: Free disk space
+        run: ci/bundle-free-disk.sh "$BUNDLE_OUT"
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: '27'   # the pom's java.version: the bundle build checks it
+      - name: Build and verify the bundle
+        run: ci/bundle-build.sh "$GITHUB_REF_NAME" "$BUNDLE_OUT"
+      # Parts and checksums only: the unpacked directory stays on the runner. Parts are already
+      # compressed, so no compression; one day is enough for `bundle-publish`.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dev-bundle
+          path: |
+            ${{ env.BUNDLE_OUT }}/*.tar.part-*
+            ${{ env.BUNDLE_OUT }}/*.parts.SHA256SUMS
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+  # Signs the bundle's checksums and attaches the parts to a DRAFT release, so a failure from
+  # here on leaves nothing public. Runs no Maven (it has the write and id-token permissions).
+  bundle-publish:
+    if: github.event_name == 'push'
+    needs: [verify, bundle]
+    permissions:
+      contents: write     # draft GitHub Release
+      id-token: write     # Cosign keyless
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash   # -eo pipefail
+    env:
+      BUNDLE_OUT: /mnt/bundle
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Free disk space
+        run: ci/bundle-free-disk.sh "$BUNDLE_OUT"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dev-bundle
+          path: ${{ env.BUNDLE_OUT }}
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
+      - name: Sign the checksums and attach the parts to a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ci/bundle-publish.sh draft "$GITHUB_REF_NAME" "$BUNDLE_OUT"
   # Publishes and signs; runs no Maven. The image is built from the jar that `verify` tested.
   release:
-    needs: verify
+    if: github.event_name == 'push'
+    needs: [verify, bundle-publish]   # the image is pushed only after the bundle is built, verified and attached to a draft
     permissions:
       contents: write     # GitHub Release
       packages: write     # GHCR image + chart
@@ -183,6 +260,7 @@ jobs:
         with:
           generate_release_notes: true
           prerelease: ${{ contains(steps.ver.outputs.version, '-') }}   # v0.3.0-rc.1 must not become the "latest" release
+          draft: true   # stays a draft (the bundle parts are already attached to it) until the last step
           fail_on_unmatched_files: true   # the default only warns when a pattern below matches nothing
           files: |
             kafkafim-*-airgap.tar.gz
@@ -190,3 +268,9 @@ jobs:
             dist/*.tgz
             dist/kafkafim-*-grafana/alerts/kafkafim-alerts.yaml
             dist/kafkafim-*-grafana/dashboards/*.json
+      # Last: the release becomes public only when the image, chart, bundle parts and every asset
+      # are attached. A failure before this step leaves a draft, visible to writers only.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ci/bundle-publish.sh finish "$GITHUB_REF_NAME"

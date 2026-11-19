@@ -919,19 +919,29 @@ test and run kafkafim from the development bundle
 ([DELIVERY.md § Air-gap development bundle](DELIVERY.md#air-gap-development-bundle),
 ADR-0056). Deploying a release is [§2.1](#21-import-a-release-into-the-air-gap).
 
-### 7.1 Build the bundle and carry it across
+### 7.1 Get the bundle and carry it across
 
-On a machine with a network, Docker, git, curl, jq, Python 3 with pip and the project's JDK on
-the `PATH`:
+Every release carries the bundle ([ADR-0058](decisions/0058-release-builds-and-publishes-the-air-gap-development-bundle.md)).
+On a machine with a network and about twice the bundle's size (10 GB or more) free, download the
+parts of one release, then verify the signature of the checksums file **before** carrying
+anything across:
 
 ```bash
-tools/airgap-dev-bundle.sh build v1.2.3 --out /mnt/transfer --split-mib 1900
+gh release download v1.2.3 --repo culzaa/kafkafim --pattern 'kafkafim-dev-v1.2.3-airgap-dev.*'
 ```
 
-The directory `kafkafim-dev-v1.2.3-airgap-dev/` is the bundle. With `--split-mib` the script
-also writes `.tar.part-*` files and `*.parts.SHA256SUMS`. Carry whichever you prefer. After
-the transfer, check the parts, join them, and check the bundle (`shasum -a 256 -c` where there
-is no `sha256sum`):
+```bash
+cosign verify-blob --bundle kafkafim-dev-v1.2.3-airgap-dev.parts.SHA256SUMS.sigstore.json --certificate-identity-regexp 'https://github.com/culzaa/kafkafim/' --certificate-oidc-issuer https://token.actions.githubusercontent.com kafkafim-dev-v1.2.3-airgap-dev.parts.SHA256SUMS
+```
+
+```bash
+sha256sum -c kafkafim-dev-v1.2.3-airgap-dev.parts.SHA256SUMS
+```
+
+The signature proves that the release workflow of `culzaa/kafkafim` wrote that list, and the
+second command that your parts are the listed ones. Carry the parts, the checksums file and its
+signature across. Inside the air gap, check the parts again, join them, and check the bundle
+(`shasum -a 256 -c` where there is no `sha256sum`); `cosign` is also in the bundle, for later:
 
 ```bash
 sha256sum -c kafkafim-dev-v1.2.3-airgap-dev.parts.SHA256SUMS
@@ -945,10 +955,21 @@ cat kafkafim-dev-v1.2.3-airgap-dev.tar.part-* | tar -xf -
 cd kafkafim-dev-v1.2.3-airgap-dev && sha256sum -c SHA256SUMS
 ```
 
-`SHA256SUMS` detects damage in transit. It does not prove who built the bundle (the build is
-not signed, ADR-0056): compare `manifest.json` `commit` with the tag on GitHub before you
-carry it. Build on a dedicated machine: the script retags the local copies of the images it
-saves (one platform at a time).
+`manifest.json` `commit` is the commit of the tag. The release workflow ran the offline `verify`
+below on this exact bundle before publishing it, and you run it again on the far side (§ 7.2).
+
+To build the bundle yourself (a branch, a platform subset, a release older than this one), on a
+machine with a network, Docker, git, curl, jq, Python 3 with pip and the project's JDK on the
+`PATH`:
+
+```bash
+tools/airgap-dev-bundle.sh build v1.2.3 --out /mnt/transfer --split-mib 1900
+```
+
+It writes the directory `kafkafim-dev-v1.2.3-airgap-dev/` and, with `--split-mib`, the same
+`.tar.part-*` and `*.parts.SHA256SUMS` files as the release. A hand-built bundle is not signed:
+compare `manifest.json` `commit` with the tag on GitHub before you carry it. Build on a dedicated
+machine: the script retags the local copies of the images it saves (one platform at a time).
 
 ### 7.2 Set up a developer machine
 

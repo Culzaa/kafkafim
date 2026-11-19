@@ -1,6 +1,6 @@
 # ADR-0056: The air-gap development bundle is built by a script and not published
 
-Status: accepted · Date: 2026-11-19 · Extends [ADR-0022](0022-delivery-github-actions-ghcr-airgap.md)
+Status: accepted · Date: 2026-11-19 · Extends [ADR-0022](0022-delivery-github-actions-ghcr-airgap.md) · The "not published" part is superseded by [ADR-0058](0058-release-builds-and-publishes-the-air-gap-development-bundle.md)
 
 ## Context
 
