@@ -463,6 +463,9 @@ jobs:
         # docs/DELIVERY.md, "Air-gap development bundle" (ADR-0056): every image the repository
         # names and every Maven goal a workflow or ci/ script runs must be one the bundle script takes.
         run: tools/airgap-dev-bundle.sh check
+      - name: CI definitions agree
+        # ci.yml and .gitlab-ci.yml call the same ci/ scripts (docs/DELIVERY.md, "CI on GitLab").
+        run: ci/check-parity.sh
       - name: XML has no tabs
         # .editorconfig: XML indents with 2 spaces; pom.xml is the one declared tab exception (#280).
         run: ci/xml-tabs.sh

@@ -9,6 +9,7 @@ import co.elastic.clients.transport.rest5_client.low_level.Request;
 import co.elastic.clients.transport.rest5_client.low_level.Response;
 import co.elastic.clients.transport.rest5_client.low_level.ResponseException;
 import co.elastic.clients.transport.rest5_client.low_level.Rest5Client;
+import io.github.culzaa.kafkafim.DockerHostNames;
 import io.github.culzaa.kafkafim.config.ElasticsearchCluster;
 import io.github.culzaa.kafkafim.config.ElasticsearchCluster.ElasticsearchIdentity;
 import io.github.culzaa.kafkafim.config.ElasticsearchCluster.Trust;
@@ -60,7 +61,9 @@ class ElasticsearchSinkSecurityIntegrationTest {
           .withPassword(ADMIN_PASSWORD)
           .withEnv("ES_JAVA_OPTS", "-Xms512m -Xmx512m -XX:TieredStopAtLevel=1")
           // Parallel Failsafe forks can boot several nodes at once; the 60 s default is tight.
-          .withStartupTimeout(Duration.ofMinutes(3));
+          .withStartupTimeout(Duration.ofMinutes(3))
+          // Docker-in-Docker: the certificate must name the host the test connects to.
+          .withCreateContainerCmdModifier(DockerHostNames.reachableAsDockerHost());
 
   @TempDir static Path dir;
   static Path caFile;

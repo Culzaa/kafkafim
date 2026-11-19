@@ -1,0 +1,25 @@
+# The pairs of jobs that .github/workflows/ci.yml and .gitlab-ci.yml run, and the ci/ scripts
+# each side calls (ci/check-parity.sh fails when the files disagree with this map, or when the
+# two CI definitions call different scripts for a pair). One row per line, fields separated by |:
+#
+#   kind | GitHub job id | GitLab job | shared scripts | GitHub-only scripts | GitLab-only scripts
+#
+# kind "ci": both sides must call exactly the shared scripts plus their own. A "-" job means the
+# side has no such job (the reason is the comment after the row). kind "release": the GitHub job
+# is in release.yml, which stays inline because only a tag can run it; the GitLab jobs listed
+# (comma separated) call exactly the GitLab-only scripts. kind "support": scripts that no job
+# calls directly (helpers and tools for the people who set the pipeline up).
+#
+# Scripts are named without the ci/ prefix. Every ci/*.sh must appear in this file.
+ci|changes|-||changes.sh|                                                      # GitLab: rules:changes
+ci|build|build|build.sh||maven-settings.sh
+ci|integration|integration|prepull-images.sh,integration-tests.sh,check-integration-ran.sh,prepull-results.sh||docker-wait.sh,maven-settings.sh
+ci|coverage|coverage|coverage.sh,coverage-summary.sh||maven-settings.sh
+ci|mutation|mutation|mutation.sh,mutation-summary.sh||maven-settings.sh
+ci|image|container-image|image-smoke.sh||docker-wait.sh,image-lint.sh,image-build.sh   # GitHub: hadolint and buildx actions
+ci|helm|helm|chart-lint.sh,chart-kubeversion.sh,chart-validate.sh,chart-demo.sh,chart-unittest.sh,grafana-alerts.sh|helm-unittest-keyring.sh|
+ci|shell|shell|shell-style.sh||
+ci|markdown|markdown|||markdown-lint.sh                                       # GitHub: markdownlint-cli2 action
+ci|grafana-format|grafana-format|grafana-format.sh||
+ci|yaml|yaml|yaml-lint.sh,image-versions-agree.sh,xml-tabs.sh,check-parity.sh||
+support|||lib.sh,build-tools-image.sh||

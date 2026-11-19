@@ -1,0 +1,15 @@
+# KAFKAFIM_DOCKER_MODE=dind-tls: Docker-in-Docker with TLS (what GitLab's documentation
+# recommends). The runner's config.toml must mount /certs/client into the job container:
+# volumes = ["/certs/client", "/cache"]. Otherwise the job cannot read the client certificate.
+.docker:
+  services:
+    - name: ${KAFKAFIM_IMAGE_PREFIX}/docker:29-dind
+      alias: docker
+  variables:
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_CERTDIR: /certs
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: /certs/client
+    DOCKER_DRIVER: overlay2
+    TESTCONTAINERS_HOST_OVERRIDE: docker
+    DOCKER_HOST_NAME: docker

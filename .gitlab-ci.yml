@@ -1,0 +1,255 @@
+# GitLab pipeline: the same checks as .github/workflows/ci.yml
+# (docs/DELIVERY.md, "CI on GitLab"; ADR-0057). Every job calls a script in ci/ that the GitHub
+# workflow calls too; `ci/check-parity.sh` fails when the two disagree. GitLab Free is enough.
+# Nothing here builds an air-gap bundle: the far side has nowhere further to carry one.
+#
+# Everything environment-specific is a CI/CD variable. The defaults below suit a GitLab whose
+# container registry holds the images (under <group>/mirror) and whose package registry holds the
+# Maven repository; set the same names under Settings > CI/CD > Variables to override them, no
+# edit of this file needed.
+#
+#   KAFKAFIM_IMAGE_PREFIX      registry path the job and service images, the Dockerfile's base
+#                              images and the Testcontainers images are pulled through, as
+#                              published by `tools/airgap-dev-bundle.sh publish --registry`
+#   KAFKAFIM_CI_IMAGE          the job image (ci/build-tools-image.sh builds it from the bundle)
+#   KAFKAFIM_DOCKER_MODE       dind (default), dind-tls or socket
+#   KAFKAFIM_DOCKER_HOST_ADDRESS  socket mode: where the host's published ports are reachable
+#   MAVEN_REPO_URL, MAVEN_REPO_USER, MAVEN_REPO_PASSWORD   the Maven repository to resolve from
+#   KAFKAFIM_BASE_DIGEST       drop (default) or keep the @sha256 of the Dockerfile's base image
+
+include:
+  - local: ci/gitlab/docker-dind.yml
+    rules:
+      - if: '$KAFKAFIM_DOCKER_MODE != "socket" && $KAFKAFIM_DOCKER_MODE != "dind-tls"'
+  - local: ci/gitlab/docker-dind-tls.yml
+    rules:
+      - if: '$KAFKAFIM_DOCKER_MODE == "dind-tls"'
+  - local: ci/gitlab/docker-socket.yml
+    rules:
+      - if: '$KAFKAFIM_DOCKER_MODE == "socket"'
+
+stages: [verify, report]
+
+# Like ci.yml: merge request pipelines and pushes to the default branch.
+# A newer pipeline for the same merge request cancels the older one (interruptible).
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+variables:
+  KAFKAFIM_IMAGE_PREFIX: $CI_REGISTRY/$CI_PROJECT_NAMESPACE/mirror
+  KAFKAFIM_CI_IMAGE: $KAFKAFIM_IMAGE_PREFIX/kafkafim-ci:1
+  KAFKAFIM_DOCKER_MODE: dind
+  KAFKAFIM_DOCKER_HOST_ADDRESS: host.docker.internal
+  KAFKAFIM_BASE_DIGEST: drop
+  # Maven: the bundle's maven-repo/ published to the project's Maven package registry, or an
+  # Artifactory/Nexus repository (`publish --maven-url`). The wrapper downloads Maven from there.
+  MAVEN_REPO_URL: $CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/maven
+  MAVEN_REPO_USER: gitlab-ci-token
+  MAVEN_REPO_PASSWORD: $CI_JOB_TOKEN
+  MVNW_REPOURL: $MAVEN_REPO_URL
+  MVNW_USERNAME: $MAVEN_REPO_USER
+  MVNW_PASSWORD: $MAVEN_REPO_PASSWORD
+  MAVEN_ARGS: -Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository
+  # Registry credentials for the job's docker login to KAFKAFIM_IMAGE_PREFIX's registry when it is
+  # not this GitLab's (ci/docker-wait.sh).
+  KAFKAFIM_REGISTRY_USER: ""
+  KAFKAFIM_REGISTRY_PASSWORD: ""
+
+default:
+  image: $KAFKAFIM_CI_IMAGE
+  interruptible: true
+
+# docs-only merge requests skip the Java, image and chart jobs (ci.yml's "Detect changes"):
+# a merge request needs them when it changes anything outside docs/, *.md and LICENSE. Pushes to
+# the default branch run everything. GitLab cannot negate a pattern, so the paths are listed;
+# a new top-level path that is not documentation must be added here.
+.code-paths: &code-paths
+  - src/**/*
+  - pom.xml
+  - .mvn/**/*
+  - mvnw
+  - mvnw.cmd
+  - Dockerfile
+  - .dockerignore
+  - .editorconfig
+  - .gitattributes
+  - .gitignore
+  - .yamllint.yaml
+  - .markdownlint-cli2.jsonc
+  - compose.yaml
+  - loadtest/**/*
+  - charts/**/*
+  - deploy/**/*
+  - tools/**/*
+  - ci/**/*
+  - .github/**/*
+  - .gitlab-ci.yml
+
+.rules-code:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: *code-paths
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+.rules-chart:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - charts/**/*
+        - deploy/**/*
+        - .github/keys/*
+        - ci/**/*
+        - .gitlab-ci.yml
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+.rules-grafana:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - deploy/grafana/**/*
+        - ci/**/*
+        - .gitlab-ci.yml
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+.rules-always:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+.maven:
+  cache:
+    key:
+      files: [pom.xml]
+    paths: [.m2/repository]
+
+# --- ci.yml: Build and test -------------------------------------------------------------------
+build:
+  extends: [.maven, .rules-code]
+  stage: verify
+  script:
+    - ci/maven-settings.sh
+    - ci/build.sh
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - target/*.jar
+      - target/jacoco.exec
+      - target/surefire-reports/
+    reports:
+      junit: target/surefire-reports/TEST-*.xml
+
+# --- ci.yml: Integration tests (Testcontainers) -----------------------------------------------
+integration:
+  extends: [.docker, .maven, .rules-code]
+  stage: verify
+  variables:
+    # Pulls every Testcontainers image through KAFKAFIM_IMAGE_PREFIX, docker.elastic.co and ghcr.io
+    # ones included (Testcontainers' own hub prefix would leave those on the internet).
+    TESTCONTAINERS_IMAGE_SUBSTITUTOR: io.github.culzaa.kafkafim.RegistryPrefixImageNameSubstitutor
+  script:
+    - ci/maven-settings.sh
+    - ci/docker-wait.sh
+    - ci/prepull-images.sh
+    - ci/integration-tests.sh
+    - ci/check-integration-ran.sh
+  after_script:
+    - ci/prepull-results.sh
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - target/failsafe-reports/
+      - target/jacoco-it.exec
+    reports:
+      junit: target/failsafe-reports/TEST-*.xml
+
+# --- ci.yml: Coverage -------------------------------------------------------------------------
+coverage:
+  extends: [.maven, .rules-code]
+  stage: report
+  needs: [build, integration]
+  script:
+    - ci/maven-settings.sh
+    - ci/coverage.sh target
+  after_script:
+    - ci/coverage-summary.sh
+  coverage: '/Line coverage: (\d+\.\d+) %/'
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - target/site/jacoco/
+
+# --- ci.yml: Mutation tests -------------------------------------------------------------------
+mutation:
+  extends: [.maven, .rules-code]
+  stage: verify
+  script:
+    - ci/maven-settings.sh
+    - ci/mutation.sh
+  after_script:
+    - ci/mutation-summary.sh
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - target/pit-reports/
+
+# --- ci.yml: Container image (the job cannot be called `image`: that is a GitLab keyword) ------------------------------------------------------------------
+container-image:
+  extends: [.docker, .rules-code]
+  stage: report
+  needs: [build]
+  variables:
+    KAFKAFIM_IMAGE_PLATFORMS: ""   # the daemon's own platform, like the GitHub job
+  script:
+    - ci/docker-wait.sh
+    - ci/image-lint.sh
+    - ci/image-build.sh kafkafim:ci
+    - ci/image-smoke.sh kafkafim:ci
+
+# --- ci.yml: Helm chart (with the Grafana dashboards and alert rules) -------------------------
+helm:
+  extends: [.rules-chart]
+  stage: verify
+  script:
+    - ci/chart-lint.sh
+    - ci/chart-kubeversion.sh
+    - ci/chart-validate.sh
+    - ci/chart-demo.sh
+    - ci/chart-unittest.sh /opt/helm-unittest/unittest-*.tgz "$KAFKAFIM_HELM_UNITTEST_KEYRING"
+    - ci/grafana-alerts.sh
+
+# --- ci.yml: Shell style, Markdown style, Grafana format, YAML format -------------------------
+shell:
+  extends: [.rules-always]
+  stage: verify
+  script:
+    - ci/shell-style.sh
+
+markdown:
+  extends: [.rules-always]
+  stage: verify
+  image:
+    name: $KAFKAFIM_IMAGE_PREFIX/davidanson/markdownlint-cli2:v0.24.0
+    entrypoint: [""]
+  script:
+    - ci/markdown-lint.sh
+
+grafana-format:
+  extends: [.rules-grafana]
+  stage: verify
+  script:
+    - ci/grafana-format.sh
+
+yaml:
+  extends: [.rules-always]
+  stage: verify
+  script:
+    - ci/yaml-lint.sh
+    - ci/image-versions-agree.sh
+    - ci/xml-tabs.sh
+    - ci/check-parity.sh
