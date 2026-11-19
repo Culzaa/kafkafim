@@ -16,8 +16,8 @@
 #
 # build options: --out DIR (default ./airgap-dev-out), --repo URL_OR_PATH (default: origin),
 # --platforms "linux/amd64 linux/arm64" (default both), --split-mib N (also write the bundle as
-# tar parts of N MiB, for example 1900; default none), --skip-maven, --skip-images, --skip-jdk, --skip-sources (partial
-# builds; the manifest says what is missing), --resume (continue in an existing directory; a
+# tar parts of N MiB, for example 1900; default none), --skip-maven, --skip-images, --skip-jdk,
+# --skip-sources (partial builds; the manifest says what is missing), --resume (continue in an existing directory; a
 # finished phase is not repeated).
 # publish options: --maven-url URL (the repository to PUT into, for example
 # https://artifactory.example/artifactory/kafkafim-maven), --registry PREFIX (images are pushed
@@ -310,13 +310,15 @@ fill_maven() {
 # Adds the -sources and -javadoc jars that Maven Central has for every jar in the repository,
 # plugins and transitive dependencies included, each checked against Central's SHA-1. Maven
 # itself resolves these only on request (IDE downloads, dependency:sources), so the build does
-# not fetch them. Jars Central has no such classifier for are left alone.
+# not fetch them. A 404 means Central has none (normal); any other failure is fatal, so a
+# network error cannot leave a bundle quietly incomplete.
 # Arguments:
 #   Maven repository directory
 #######################################
 fetch_extra_jars() {
-  local repo="$1"
+  local repo="$1" total src jav
   export CENTRAL="https://repo.maven.apache.org/maven2"
+  find "$repo" -name '*.part' -delete
   # shellcheck disable=SC2016  # the worker script is expanded by the child bash
   find "$repo" -name '*.jar' ! -name '*-sources.jar' ! -name '*-javadoc.jar' -print0 |
     xargs -0 -n 1 -P 8 bash -c '
@@ -326,14 +328,23 @@ fetch_extra_jars() {
         dest="${jar%.jar}-$c.jar"
         [[ -e "$dest" ]] && continue
         url="$CENTRAL/${rel%.jar}-$c.jar"
-        if curl -fsSL -o "$dest.part" "$url" 2>/dev/null; then
-          want="$(curl -fsSL "$url.sha1" | cut -c1-40)"
-          if command -v sha1sum >/dev/null; then got="$(sha1sum "$dest.part" | cut -c1-40)"; else got="$(shasum -a 1 "$dest.part" | cut -c1-40)"; fi
-          if [[ "$got" == "$want" ]]; then mv "$dest.part" "$dest"; else echo "checksum mismatch: $url" >&2; rm -f "$dest.part"; exit 255; fi
-        else
-          rm -f "$dest.part"
-        fi
+        code="$(curl -sSL --retry 3 --connect-timeout 20 --max-time 300 -o "$dest.part" -w "%{http_code}" "$url")" || code=000
+        case "$code" in
+          200)
+            want="$(curl -fsSL --retry 3 --max-time 60 "$url.sha1" | cut -c1-40)" || want=""
+            [[ -n "$want" ]] || { echo "sha1 fetch failed: $url" >&2; rm -f "$dest.part"; exit 255; }
+            if command -v sha1sum >/dev/null; then got="$(sha1sum "$dest.part" | cut -c1-40)"; else got="$(shasum -a 1 "$dest.part" | cut -c1-40)"; fi
+            [[ "$got" == "$want" ]] || { echo "checksum mismatch: $url" >&2; rm -f "$dest.part"; exit 255; }
+            mv "$dest.part" "$dest"
+            ;;
+          404) rm -f "$dest.part" ;;
+          *) echo "HTTP $code for $url" >&2; rm -f "$dest.part"; exit 255 ;;
+        esac
       done' "$repo"
+  total="$(find "$repo" -name '*.jar' ! -name '*-sources.jar' ! -name '*-javadoc.jar' | wc -l | tr -d ' ')"
+  src="$(find "$repo" -name '*-sources.jar' | wc -l | tr -d ' ')"
+  jav="$(find "$repo" -name '*-javadoc.jar' | wc -l | tr -d ' ')"
+  echo "sources: $src of $total jars, javadoc: $jav of $total (the rest have none on Central)"
 }
 
 #######################################
