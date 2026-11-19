@@ -495,6 +495,10 @@ build, and `--split-mib` also writes the bundle as parts that fit a release asse
 medium. The `YAML format` job of `ci.yml` runs `tools/airgap-dev-bundle.sh check`: it fails when the
 repository names an image or a workflow runs a Maven goal that the script does not take.
 
+`tools/airgap-dev-bundle.sh publish` uploads the Maven repository and the images to a
+repository manager (Artifactory, Nexus) or the GitLab registries
+([RUNBOOK § 7.4](RUNBOOK.md#74-publish-to-artifactory-or-nexus-or-the-gitlab-registries)).
+
 Set up a developer machine in the air gap from the bundle:
 [RUNBOOK § 7](RUNBOOK.md#7-developing-inside-the-air-gap). What the build proves, and what it
 cannot, is described there too.

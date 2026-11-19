@@ -9,12 +9,21 @@
 #                                          Docker, a JDK of the pom's java.version, git, curl, jq)
 #   tools/airgap-dev-bundle.sh verify DIR  the far-side proof: checksums, git bundle, then
 #                                          `./mvnw -o verify` against the bundled repository only
+#   tools/airgap-dev-bundle.sh publish DIR --maven-url URL --registry HOST/PATH
+#                                          upload the Maven repository (HTTP PUT, for Artifactory,
+#                                          Nexus or the GitLab package registry) and push the
+#                                          images; see the publish options below
 #
 # build options: --out DIR (default ./airgap-dev-out), --repo URL_OR_PATH (default: origin),
 # --platforms "linux/amd64 linux/arm64" (default both), --split-mib N (also write the bundle as
 # tar parts of N MiB, for example 1900; default none), --skip-maven, --skip-images, --skip-jdk (partial
 # builds; the manifest says what is missing), --resume (continue in an existing directory; a
 # finished phase is not repeated).
+# publish options: --maven-url URL (the repository to PUT into, for example
+# https://artifactory.example/artifactory/kafkafim-maven), --registry PREFIX (images are pushed
+# as PREFIX/<original name:tag>), --platform linux/amd64|linux/arm64 (default: this Docker's),
+# --jobs N (parallel uploads, default 8), --skip-maven, --skip-images, --dry-run. Credentials:
+# PUBLISH_USER and PUBLISH_PASSWORD (a token works as the password); run `docker login` first.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -293,6 +302,7 @@ fill_maven() {
   rm -rf "$home"
   # Resolver bookkeeping ties an artifact to the repository it came from and records failed
   # lookups: neither belongs in a repository that is moved or served.
+  rm -rf "$repo/.locks"
   find "$repo" \( -name '_remote.repositories' -o -name '*.lastUpdated' -o -name 'resolver-status.properties' \) -delete
 }
 
@@ -564,6 +574,108 @@ verify() {
 }
 
 #######################################
+# Uploads the bundle's Maven repository with HTTP PUT and pushes its images to a registry.
+# Resolver metadata files named maven-metadata-*.xml are not uploaded: they only describe a
+# local repository, and the repository manager writes its own.
+# Globals:
+#   PUBLISH_USER, PUBLISH_PASSWORD (read, optional)
+# Arguments:
+#   Bundle directory, then the options in the header
+#######################################
+publish() {
+  local dir="" murl="" registry="" plat="" jobs=8 skip_maven=0 skip_images=0 dry=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --maven-url)
+        murl="${2%/}"
+        shift 2
+        ;;
+      --registry)
+        registry="${2%/}"
+        shift 2
+        ;;
+      --platform)
+        plat="$2"
+        shift 2
+        ;;
+      --jobs)
+        jobs="$2"
+        shift 2
+        ;;
+      --skip-maven)
+        skip_maven=1
+        shift
+        ;;
+      --skip-images)
+        skip_images=1
+        shift
+        ;;
+      --dry-run)
+        dry=1
+        shift
+        ;;
+      -*) die "unknown option $1" ;;
+      *)
+        dir="$(cd "$1" && pwd)"
+        shift
+        ;;
+    esac
+  done
+  [[ -n "$dir" ]] || die "publish needs the bundle directory"
+  [[ "$skip_maven" -eq 1 || -n "$murl" ]] || die "publish needs --maven-url (or --skip-maven)"
+  [[ "$skip_images" -eq 1 || -n "$registry" ]] || die "publish needs --registry (or --skip-images)"
+  need curl
+  (cd "$dir" && sums -c SHA256SUMS >/dev/null) || die "SHA256SUMS does not match; not publishing"
+
+  if [[ "$skip_maven" -eq 0 ]]; then
+    local n
+    n="$(find "$dir/maven-repo" -type f ! -name 'maven-metadata-*.xml' | wc -l | tr -d ' ')"
+    echo "== maven: $n files to $murl"
+    if [[ "$dry" -eq 0 ]]; then
+      export PUB_URL="$murl" PUBLISH_USER="${PUBLISH_USER:-}" PUBLISH_PASSWORD="${PUBLISH_PASSWORD:-}"
+      # shellcheck disable=SC2016  # the worker script is expanded by the child bash
+      find "$dir/maven-repo" -type f ! -name 'maven-metadata-*.xml' -print0 |
+        xargs -0 -n 1 -P "$jobs" bash -c '
+          rel="${1#"$0"/}"
+          if [[ -n "$PUBLISH_USER" ]]; then
+            printf "user = \"%s:%s\"\n" "$PUBLISH_USER" "$PUBLISH_PASSWORD"
+          fi | curl -fsS -K - -o /dev/null -T "$1" "$PUB_URL/$rel" || {
+            echo "upload failed: $rel" >&2
+            exit 255
+          }' "$dir/maven-repo"
+    fi
+  fi
+
+  if [[ "$skip_images" -eq 0 ]]; then
+    need docker
+    if [[ -z "$plat" ]]; then
+      case "$(docker info --format '{{.Architecture}}')" in
+        aarch64 | arm64) plat=linux/arm64 ;;
+        *) plat=linux/amd64 ;;
+      esac
+    fi
+    echo "== images ($plat) to $registry"
+    local pinned p file sum ref target got
+    while read -r pinned p file sum; do
+      [[ "$p" == "$plat" ]] || continue
+      ref="${pinned%%@*}"
+      target="$registry/$ref"
+      echo "$ref -> $target"
+      [[ "$dry" -eq 0 ]] || continue
+      [[ "$(sha256_of "$dir/images/$file")" == "$sum" ]] || die "$file does not match images.lock"
+      docker load -q -i "$dir/images/$file" >/dev/null
+      docker tag "$ref" "$target"
+      docker push -q "$target" >/dev/null
+      got="$(docker image inspect --format '{{index .RepoDigests 0}}' "$target" 2>/dev/null || true)"
+      if [[ "${got##*@}" != "${pinned##*@}" ]]; then
+        echo "note: $target has digest ${got##*@}, the pin is ${pinned##*@}; a FROM that pins the digest needs the new one" >&2
+      fi
+    done <"$dir/images/images.lock"
+  fi
+  echo "airgap-dev-bundle: published $dir$([[ "$dry" -eq 0 ]] || echo " (dry run, nothing uploaded)")"
+}
+
+#######################################
 # Entry point.
 # Arguments:
 #   Subcommand and its arguments
@@ -579,7 +691,8 @@ main() {
       [[ $# -eq 1 ]] || die "verify needs the bundle directory"
       verify "$1"
       ;;
-    *) die "usage: $0 inventory | check | build REF [options] | verify DIR" ;;
+    publish) publish "$@" ;;
+    *) die "usage: $0 inventory | check | build REF [options] | verify DIR | publish DIR [options]" ;;
   esac
 }
 

@@ -1018,6 +1018,27 @@ a network. A network-less machine is the real test, and a bundle built from a re
 needs a goal that is not in the script's list fails there, not at build time; the CI check
 (`tools/airgap-dev-bundle.sh check`) exists to catch that in the pull request.
 
+### 7.4 Publish to Artifactory (or Nexus, or the GitLab registries)
+
+If the air gap has a repository manager, upload once and let developers and CI use it instead
+of local copies. The script PUTs every file of `maven-repo/` into a Maven repository and
+pushes the images of one platform to a registry path:
+
+```bash
+export PUBLISH_USER=svc-kafkafim PUBLISH_PASSWORD=...   # a token works as the password
+docker login artifactory.example
+"$BUNDLE/airgap-dev-bundle.sh" publish "$BUNDLE" --platform linux/amd64 \
+  --maven-url https://artifactory.example/artifactory/kafkafim-maven \
+  --registry artifactory.example/kafkafim-docker/kafkafim
+```
+
+`--dry-run` lists what would happen. The images land as `<registry>/<original name:tag>`, for
+example `.../kafkafim/docker.elastic.co/elasticsearch/elasticsearch:9.5.6`. The script checks
+`SHA256SUMS` first, and warns when a pushed image has a different digest than the pin: the
+Dockerfile's `FROM eclipse-temurin:27-jre@sha256:...` then needs the registry prefix and the
+new digest. Point developers at the Maven repository with a `settings.xml` mirror (no `-o`).
+Create the repositories first: a local Maven repository and a local Docker repository.
+
 ## Known gaps
 
 Current behaviour that this runbook works around; each is a follow-up, not a feature:
